@@ -1,0 +1,41 @@
+@'
+  # Python
+  __pycache__/
+  *.py[cod]
+  *.egg-info/
+  .venv/
+  venv/
+  env/
+  .pytest_cache/
+  .mypy_cache/
+  .ruff_cache/
+
+  # Jupyter
+  .ipynb_checkpoints/
+
+  # Data & models (too big for git)
+  data/raw/*
+  data/processed/*
+  !data/raw/.gitkeep
+  !data/processed/.gitkeep
+  models/*
+  !models/.gitkeep
+  results/*
+  !results/.gitkeep
+
+  # Secrets & env
+  .env
+  .env.*
+  *.key
+
+  # OS / IDE
+  .DS_Store
+  Thumbs.db
+  .vscode/
+  .idea/
+
+  # Logs
+  *.log
+  wandb/
+  mlruns/
+  '@
