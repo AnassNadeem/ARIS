@@ -22,28 +22,28 @@ A daily journal of what got built, what broke, and what I learned. One bullet pe
 
 ### Week 0 — loadout
 
-- **2026-04-29 (Wed):**
-- **2026-04-30 (Thu):**
-- **2026-05-01 (Fri):**
-- **2026-05-02 (Sat):**
-- **2026-05-03 (Sun, prep day):**
+- **2026-04-29 (Wed):** Locked the plan. Read `ARIS-FINAL-PLAN.md` end-to-end, confirmed CS+AI direction (no more revisiting), reframed target role to "Software Engineer — Vehicle Performance / Strategy Tools." Drafted GitHub profile rewrite (NeuroSim out, ARIS framing in) — staged, not yet pushed. Reserved Rajamani *Vehicle Dynamics and Control* via Brunel library (Wk5 read).
+- **2026-04-30 (Thu):** Python 3.11.9 installed via `uv 0.11.11` (kept system Python 3.14.4 untouched as fallback). NVIDIA Studio driver + CUDA 12.x toolkit verified — `nvidia-smi` shows RTX 5070 (8GB), `nvcc --version` confirms toolkit. Git for Windows + GitHub CLI authed.
+- **2026-05-01 (Fri):** Docker Desktop installed, `docker run hello-world` clean. VS Code + Python/Pylance/Ruff/Jupyter/Docker/GitLens extensions installed. Free-tier accounts created or verified: GitHub, Streamlit Community Cloud (GitHub login), Neon.tech (Postgres connection string saved to password manager), Hugging Face.
+- **2026-05-02 (Sat):** Ollama installed, `llama3.1:8b-instruct-q5_K_M` pulled (~5.5 GB). Local inference smoke test: *"Explain F1 tire degradation in one sentence"* — answered coherently in ~6s on RTX 5070, VRAM headroom confirmed. Decision logged: Llama 3.1 8B local is the default LLM throughout the build; Claude API stays out of budget until Phase 7 demo polish.
+- **2026-05-03 (Sun, prep day):** Repo skeleton committed (`src/aris/`, `scripts/`, `notebooks/`, `tests/`, `data/`, `models/`, `results/`, `configs/`, `learning/`). Planning docs landed in `docs/planning/`. `BUILD-LOG.md` and `ARIS-EXECUTION-PLAN.md` templates dropped at repo root. Day 1 (May 4) schedule set; Rajamani not yet collected from library (queue).
 
 **Weekly retro (Wk 0):**
-- Shipped:
-- Slipped:
-- Changes for Wk 1:
+- Shipped: full toolchain (Python 3.11.9, uv, Docker, NVIDIA stack, Ollama + Llama 3.1 8B, VS Code, Git, gh), all free-tier accounts, repo skeleton with planning docs.
+- Slipped: GitHub profile rewrite staged but not pushed (deferred to Day 1). FastF1 cache pre-warm (per execution plan §E) not run — pushed to Wk 1.
+- Changes for Wk 1: hit the ground running on Day 1 — first commit, send Brunel WhatsApp, push profile rewrite, install FastF1 + start cache pre-warm.
 
 ---
 
 ## Phase 1 — Python foundations + first FastF1 plot (Weeks 1–2, May 4 – May 17)
 
-### Week 1 (May 4 – May 10) — Day 1 ignition
+### Week 1 (May 4 – May 10) — Day 1 ignition (delayed start, recovered Fri)
 
-- **2026-05-04 (Mon, Day 1):**
-- **2026-05-05 (Tue):**
-- **2026-05-06 (Wed):**
-- **2026-05-07 (Thu):**
-- **2026-05-08 (Fri):**
+- **2026-05-04 (Mon, Day 1):** *missed.* Real-life slippage. No commits, no WhatsApp sent, no Day 1 ignition. Logging honestly per the no-backfill rule.
+- **2026-05-05 (Tue):** *missed.*
+- **2026-05-06 (Wed):** *missed.*
+- **2026-05-07 (Thu):** *missed.* Four-day cold start now baked in; Fri/Sat/Sun reframed as a 3-day catchup sprint to land on Wk 2 cadence.
+- **2026-05-08 (Fri):** Catchup ignition. Verified `uv 0.11.11` + Python 3.11.9 toolchain; created `.python-version` pinning the repo to 3.11.9 so anyone (or future-me) cloning gets the right interpreter. Confirmed `.venv` already targets 3.11.9. Wrote `scripts/prewarm_cache.py` — idempotent FastF1 pre-warm over 8 sessions (2024 Bahrain/Saudi/Australia/Japan/Miami + 2023 Bahrain/Belgium/Abu Dhabi), with per-session try/except, timing, and progress logging. Started the pre-warm — Japan 2024 hung on a stalled HTTP request (Ctrl+C wouldn't fire because the block was inside a C extension); killed the terminal, rerun, cached races skipped in <1s each as designed. Drafted `docs/planning/TO-DO.md` (the 5-notebook cap for Phases 0–2, hygiene rules, mid-plan check) and `docs/learning/SKILLS-MASTERY.md` (13-part self-test rubric: Python OOP through F1 strategy through MATLAB/Simulink) — the standard is "rebuild ARIS on a blank machine with no AI."
 - **2026-05-09 (Sat):**
 - **2026-05-10 (Sun):** *off*
 
