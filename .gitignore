@@ -44,6 +44,9 @@ Thumbs.db
 # Claude Code local state (personal, not portable)
 .claude/
 
+# Internal planning + learning docs (kept local, pushed selectively later)
+docs/
+
 # Logs
 *.log
 wandb/
