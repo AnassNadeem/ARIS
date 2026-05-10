@@ -60,15 +60,15 @@ and LLMs* — and that's what gets it through interview scrutiny.
 **Core:**
 Python 3.11 · NumPy · pandas · scikit-learn · XGBoost · FastF1
 
-**Data + dashboard (Phase 1):**
+**Data + dashboard (Phase 2):**
 Postgres 16 · SQLAlchemy 2.0 · Streamlit · Docker
 
 **Inference + narration (Phase 6):**
 Ollama · Llama 3.1 8B (q5_K_M, local on RTX 5070)
 
-**Validation (parallel):**
+**Validation (parallel, Phase 5–6):**
 MATLAB / Simulink port of the bicycle module — separate repo
-[`aris-matlab-validation`](#) (Phase 4.7, link when published)
+[`aris-matlab-validation`](#) (link when published)
 
 ---
 
@@ -76,14 +76,13 @@ MATLAB / Simulink port of the bicycle module — separate repo
 
 | Phase | Weeks | Output | Tag |
 |---|---|---|---|
-| 0 | 1–2 | First FastF1 plot, repo skeleton | `v0.1-foundation` |
-| 1 | 3–4 | Postgres ingest + Streamlit dashboard, deployed | `v0.2-pipeline` |
-| 2 | 5–7 | Lap-time predictor (physics + residual ML), MAE < 1.0 s on held-out | `v0.3-predictor` |
-| 3 | 8–9 | Counterfactual simulator, "lift 30 m T7 → +0.18 s" demo | `v0.4-counterfactual` |
-| 4 | 10–11 | Always-on loop + recommendation feed | `v0.5-always-on` |
-| 4.5 | 12 | Monte Carlo strategy slim layer | folded into v0.5 |
-| 4.7 | 11–12 evenings | MATLAB / Simulink validation repo | (separate repo) |
-| 6 | 12–13 | LLM narration | `v0.6-narrated` |
+| 0 | 0 | Loadout — Python, Docker, Ollama, NVIDIA + CUDA, repo skeleton | (prep, untagged) |
+| 1 | 1–2 | Python foundations + first FastF1 plot | `v0.1-foundation` |
+| 2 | 3–4 | Postgres ingest + Streamlit dashboard, deployed | `v0.2-pipeline` |
+| 3 | 5–7 | Lap-time predictor (physics + residual ML), MAE < 1.0 s on held-out | `v0.3-predictor` |
+| 4 | 8–9 | Counterfactual simulator, "lift 30 m T7 → +0.18 s" demo | `v0.4-counterfactual` |
+| 5 | 10–11 | Always-on loop + recommendation feed, Monte Carlo slim layer, MATLAB port begins | `v0.5-always-on` |
+| 6 | 12–13 | LLM narration + MATLAB validation finish | `v0.6-narrated` |
 | 7 | 14–15 | Eval harness, conformal calibration, 90-second demo video, strategy backtest report | `v1.0-shipped` |
 | 8 | 16–17 | Placement-applications-ready CV + cover letters | `v1.0-placement-ready` |
 
@@ -106,7 +105,7 @@ ARIS/
 
 ---
 
-## Getting started (Phase 0)
+## Getting started (Phase 1)
 
 Clone, set up the pinned Python interpreter, install FastF1, pre-warm
 the race cache.
