@@ -2,7 +2,7 @@
 
 A daily journal of what got built, what broke, and what I learned. One bullet per day, Mon–Sat. Sundays off (non-negotiable).
 
-**Companion docs:** [`ARIS-FINAL-PLAN.md`](./ARIS-FINAL-PLAN.md) · [`ARIS-EXECUTION-PLAN.md`](./ARIS-EXECUTION-PLAN.md) · [`ARIS-PHASES-WEEKLY-PLAN.md`](./ARIS-PHASES-WEEKLY-PLAN.md)
+**Companion docs:** `[ARIS-FINAL-PLAN.md](./ARIS-FINAL-PLAN.md)` · `[ARIS-EXECUTION-PLAN.md](./ARIS-EXECUTION-PLAN.md)` · `[ARIS-PHASES-WEEKLY-PLAN.md](./ARIS-PHASES-WEEKLY-PLAN.md)`
 
 **Started:** 2026-05-04 · **Ship target:** 2026-08-31 · **Cadence:** 6 hrs/day × 6 days/week
 
@@ -29,6 +29,7 @@ A daily journal of what got built, what broke, and what I learned. One bullet pe
 - **2026-05-03 (Sun, prep day):** Repo skeleton committed (`src/aris/`, `scripts/`, `notebooks/`, `tests/`, `data/`, `models/`, `results/`, `configs/`, `learning/`). Planning docs landed in `docs/planning/`. `BUILD-LOG.md` and `ARIS-EXECUTION-PLAN.md` templates dropped at repo root. Day 1 (May 4) schedule set; Rajamani not yet collected from library (queue).
 
 **Weekly retro (Wk 0):**
+
 - Shipped: full toolchain (Python 3.11.9, uv, Docker, NVIDIA stack, Ollama + Llama 3.1 8B, VS Code, Git, gh), all free-tier accounts, repo skeleton with planning docs.
 - Slipped: GitHub profile rewrite staged but not pushed (deferred to Day 1). FastF1 cache pre-warm (per execution plan §E) not run — pushed to Wk 1.
 - Changes for Wk 1: hit the ground running on Day 1 — first commit, send Brunel WhatsApp, push profile rewrite, install FastF1 + start cache pre-warm.
@@ -44,13 +45,14 @@ A daily journal of what got built, what broke, and what I learned. One bullet pe
 - **2026-05-06 (Wed):** *missed.*
 - **2026-05-07 (Thu):** *missed.* Four-day cold start now baked in; Fri/Sat/Sun reframed as a 3-day catchup sprint to land on Wk 2 cadence.
 - **2026-05-08 (Fri):** Catchup ignition. Verified `uv 0.11.11` + Python 3.11.9 toolchain; created `.python-version` pinning the repo to 3.11.9 so anyone (or future-me) cloning gets the right interpreter. Confirmed `.venv` already targets 3.11.9. Wrote `scripts/prewarm_cache.py` — idempotent FastF1 pre-warm over 8 sessions (2024 Bahrain/Saudi/Australia/Japan/Miami + 2023 Bahrain/Belgium/Abu Dhabi), with per-session try/except, timing, and progress logging. Started the pre-warm — Japan 2024 hung on a stalled HTTP request (Ctrl+C wouldn't fire because the block was inside a C extension); killed the terminal, rerun, cached races skipped in <1s each as designed. Drafted `docs/planning/TO-DO.md` (the 5-notebook cap for Phases 0–2, hygiene rules, mid-plan check) and `docs/learning/SKILLS-MASTERY.md` (13-part self-test rubric: Python OOP through F1 strategy through MATLAB/Simulink) — the standard is "rebuild ARIS on a blank machine with no AI."
-- **2026-05-09 (Sat):**
-- **2026-05-10 (Sun):** *off*
+- **2026-05-09 (Sat):** Catchup sprint Day 2. FastF1 prewarm completed cleanly on retry — Japan 2024 succeeded second attempt; cached races skipped <1s as designed. Discovered `.gitignore` was syntactically broken (wrapped in a PowerShell here-string with leading whitespace on every rule, so no patterns were matching) — rewrote it from scratch, added `fastf1_cache/` and `.claude/` ignores. Wrote and pushed `README.md` with the locked one-line pitch, six-layer L0–L6 architecture, status table, "what ARIS is NOT" section, and a roadmap mapping each phase to a release tag — recruiter-readable at the repo root. Over-pushed `docs/planning/` and `docs/learning/` initially (NeuroSim docs, deep-research AI feedback, internal trackers all went public for ~30 minutes); corrected by untracking `docs/` wholesale and adding it to `.gitignore` — local files preserved, public repo cleaned. Drafted `notebooks/00-numpy-basics.ipynb` covering arrays, slicing-as-view, boolean indexing, broadcasting, vectorised math, axis-aware aggregations, seeded random, and a closed-form OLS via `np.linalg.solve`. Filled out the project skeleton: `src/aris/{physics,models,eval}/__init__.py` subpackages, `configs/.gitkeep`, and a `pyproject.toml` stub (hatchling build, ruff/mypy/pytest config, optional dev extras). Six commits pushed to `origin/main` across the day.
+- **2026-05-10 (Sun):** *off* (catchup-sprint overflow only — committed Saturday's deliverables that weren't fully landed Saturday night).
 
 **Weekly retro (Wk 1):**
-- Shipped:
-- Slipped:
-- Changes for Wk 2:
+
+- Shipped: `.python-version` pinning Python 3.11.9; idempotent FastF1 prewarm script with 8 cached race sessions; functional `.gitignore`; public-facing `README.md` with pitch + architecture + roadmap; project skeleton (`src/aris/{physics,models,eval}/`, `pyproject.toml`, configs); NumPy-fluency notebook committed; BUILD-LOG backfilled honestly; locally-archived planning + skills-mastery docs (gitignored).
+- Slipped: WhatsApp to Brunel Racing **still not sent** (was Day 1 task). Pandas refresh and FastF1 first-pull notebook (originally Sat/Sun work) pushed to Wk 2 Mon/Tue. Lost ~1 hr to the docs/ over-push reversal.
+- Changes for Wk 2: send WhatsApp Mon morning before any code. Pandas tutorial + `01-fastf1-first-pull.ipynb` Mon–Tue. Then Wk 2 original plan (stint-analysis notebook, README screenshot) Wed–Sat. Sunday properly off.
 
 ### Week 2 (May 11 – May 17) — pandas + first FastF1 plot
 
@@ -65,6 +67,7 @@ A daily journal of what got built, what broke, and what I learned. One bullet pe
 **Weekly retro (Wk 2):**
 
 **Phase 1 retrospective:**
+
 - Tag shipped:
 - MAE / metric snapshot:
 - What I'd change:
@@ -98,6 +101,7 @@ A daily journal of what got built, what broke, and what I learned. One bullet pe
 **Weekly retro (Wk 4):**
 
 **Phase 2 retrospective:**
+
 - Tag shipped: `v0.2-pipeline`
 - Live URL:
 - LinkedIn post #2 link:
@@ -144,6 +148,7 @@ A daily journal of what got built, what broke, and what I learned. One bullet pe
 **Weekly retro (Wk 7):**
 
 **Phase 3 retrospective:**
+
 - Tag shipped: `v0.3-predictor`
 - MAE on held-out (5 races): floor < 1.0 s / target < 0.7 s / stretch < 0.5 s →
 - Conformal 90% empirical coverage:
@@ -180,6 +185,7 @@ A daily journal of what got built, what broke, and what I learned. One bullet pe
 **Weekly retro (Wk 9):**
 
 **Phase 4 retrospective:**
+
 - Tag shipped: `v0.4-counterfactual`
 - Demo screenshot ("lift 30 m T7 → +0.18 s"):
 - LinkedIn post #4 link:
@@ -213,6 +219,7 @@ A daily journal of what got built, what broke, and what I learned. One bullet pe
 **Weekly retro (Wk 11):**
 
 **Phase 5 retrospective:**
+
 - Tag shipped: `v0.5-always-on`
 - Loop cadence achieved: 5 s / 15 s fallback?
 - Event-driven recompute latency:
@@ -247,6 +254,7 @@ A daily journal of what got built, what broke, and what I learned. One bullet pe
 **Weekly retro (Wk 13):**
 
 **Phase 6 retrospective:**
+
 - Tag shipped: `v0.6-narrated`
 - `aris-matlab-validation` repo link:
 - LinkedIn post #6 link:
@@ -280,6 +288,7 @@ A daily journal of what got built, what broke, and what I learned. One bullet pe
 **Weekly retro (Wk 15):**
 
 **Phase 7 retrospective:**
+
 - Tag shipped: `v1.0-shipped`
 - Demo video (YouTube unlisted):
 - HF Space link:
@@ -317,6 +326,7 @@ A daily journal of what got built, what broke, and what I learned. One bullet pe
 **Weekly retro (Wk 17):**
 
 **Phase 8 retrospective:**
+
 - Tag shipped: `v1.0-placement-ready`
 - CV final link:
 - Cover-letter templates count:
@@ -353,3 +363,4 @@ Monthly entries only. New artefact = new entry. No filler.
 - **Single worst technical decision:**
 - **What I'd build differently if I started Day 1 again:**
 - **The 30-second pitch I now lead with:**
+
