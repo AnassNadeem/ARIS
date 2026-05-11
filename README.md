@@ -5,6 +5,10 @@ predicts what's about to happen, and proposes the next decision with a
 quantified lap-time delta and a calibrated confidence interval — built
 on real F1 telemetry, validated end-to-end on held-out races.**
 
+![Verstappen fastest race lap — Bahrain 2024 (speed vs distance)](assets/screenshots/bahrain-2024-ver-fastest-lap.png)
+
+*Phase 1 first pull — Max Verstappen's fastest race lap at Bahrain 2024 (lap 39, 1:32.608, soft tyre), speed vs distance over the 5.41 km lap, generated from FastF1 telemetry in [`notebooks/01-fastf1-first-pull.ipynb`](./notebooks/01-fastf1-first-pull.ipynb).*
+
 ---
 
 ## Status
