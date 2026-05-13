@@ -24,6 +24,8 @@ models/*
 !models/.gitkeep
 results/*
 !results/.gitkeep
+!results/wk2-baseline-mae.csv
+!results/wk2-window-sweep.csv
 
 # Parquet & pickles outside the data dir
 *.parquet
