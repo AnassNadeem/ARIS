@@ -8,7 +8,12 @@ license = { text = "MIT" }
 authors = [{ name = "Anass Nadeem" }]
 keywords = ["formula-1", "race-strategy", "machine-learning", "fastf1"]
 
-dependencies = []
+dependencies = [
+    "numpy",
+    "pandas",
+    "matplotlib",
+    "fastf1",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -16,6 +21,8 @@ dev = [
     "ruff>=0.5",
     "mypy>=1.10",
     "ipykernel>=6.29",
+    "jupyterlab",
+    "nbconvert",
 ]
 
 [build-system]
