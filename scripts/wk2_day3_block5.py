@@ -1,7 +1,7 @@
 """Wk2 Day 3 Block 5 dry-run: sweep window in [1,2,3,5,7], pick the elbow."""
 
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import fastf1
 import matplotlib.pyplot as plt
@@ -64,7 +64,7 @@ rows = []
 for w in WINDOWS:
     yt_all = []
     yp_all = []
-    for rid, clean in race_frames:
+    for _rid, clean in race_frames:
         preds = moving_average_baseline(clean, window=w).reindex(clean.index)
         mask = preds.notna()
         yt_all.append(clean.loc[mask, "LapTimeS"].to_numpy())
@@ -86,7 +86,8 @@ print(f"wrote {out_csv}")
 
 fig, ax = plt.subplots(figsize=(7, 4))
 ax.plot(sweep["window"], sweep["mae_s"], marker="o", color="#e10600", linewidth=2)
-ax.scatter([best["window"]], [best["mae_s"]], color="#333", zorder=5, s=80, label=f"best (w={int(best['window'])})")
+best_label = f"best (w={int(best['window'])})"
+ax.scatter([best["window"]], [best["mae_s"]], color="#333", zorder=5, s=80, label=best_label)
 ax.set_xlabel("rolling window (laps)")
 ax.set_ylabel("MAE (s)")
 ax.set_title("Moving-average baseline — window sweep across 8 cached races")

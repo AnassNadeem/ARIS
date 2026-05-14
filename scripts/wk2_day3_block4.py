@@ -1,7 +1,7 @@
 """Wk2 Day 3 Block 4 dry-run: multi-race MA(3) baseline across the 8 cached races."""
 
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import fastf1
 import numpy as np
