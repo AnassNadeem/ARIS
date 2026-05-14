@@ -1,5 +1,7 @@
 # ARIS
 
+[![ci](https://github.com/AnassNadeem/ARIS/actions/workflows/ci.yml/badge.svg)](https://github.com/AnassNadeem/ARIS/actions/workflows/ci.yml)
+
 **An always-on race-strategy software system that watches a live race,
 predicts what's about to happen, and proposes the next decision with a
 quantified lap-time delta and a calibrated confidence interval — built
