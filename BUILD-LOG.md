@@ -66,11 +66,37 @@ A daily journal of what got built, what broke, and what I learned. One bullet pe
 
 **Weekly retro (Wk 2):**
 
+- **Shipped:**
+  - Pandas fluency on real F1 data — `03-pandas-deep-dive.ipynb` Q1/Q2/Q3 + merge drills (`672ebab`); kaggle-pandas speedrun scaffolded (`069aa61`); James Powell ≈75 min covered Day 1.
+  - Stint detection + degradation pipeline — `04-stint-analysis.ipynb` matched FastF1's native `Stint` column on Bahrain 2024 VER (SOFT 1–17 / HARD 18–37 / SOFT 38–57), DegSlope box-plot for Saudi validation (`0e24344`).
+  - Statistical baseline locked in code, not vibes — `moving_average_baseline(window)` in `src/aris/eval/baseline.py`; scoring primitives in `src/aris/eval/scoring.py` (`18d1abe`, `952bc6e`). Per-race CSV in `results/wk2-baseline-mae.csv`, window-sweep CSV in `results/wk2-window-sweep.csv`.
+  - Repo crossed from notebook-dump to **package** — `pip install -e .` works, `from aris.physics.stint import detect_stints` resolves; `Stint` dataclass with `(driver, stint_id, compound, start_lap, end_lap, num_laps, median_pace_s, deg_slope_s_per_lap | None)` (`7755730`, `1c31708`).
+  - CI gate live — `.github/workflows/ci.yml` runs ruff + pytest on push/PR to main; green badge in README (`7644cfc`, `6bee716`); 30/30 tests pass cold-clone on Mon Day 6 Block 1.
+  - Root-caused the `requests 2.34.2` × `requests-cache`/`cattrs` forward-ref bug — `src/aris/_compat.py` monkey-patches `RequestsCookieJar` + `HTTPAdapter` into `requests.models` before `typing.get_type_hints` is called, fixing the misleading "Failed to load any schedule data" surface error (`5361b53`).
+  - `v0.1-foundation` tag pushed (`5bb8a03`/Block 2 above), Phase 1 closed.
+- **Slipped:**
+  - **Sat May 16 missed entirely** — Day 6 backlog moved to Mon May 18 (this row + the Mon row in Wk 3 below).
+  - GitHub Release page (UI form on github.com/AnassNadeem/ARIS/releases/new) — flagged to user.
+  - `docs/planning/ARIS-Tracker.xlsx` Wk 2 row not updated — binary file, manual edit.
+  - LinkedIn post #1 — deferred (see Block 6 below; criterion-4 failed: posting on a backlog day is not "in flow").
+  - Plan called `scripts/run_baseline_all_races.py`; actual file is `scripts/wk2_day3_block4.py` — flagged for rename in Wk 3.
+- **Numbers on the board:**
+  - **Baseline MAE = 1.088 s** at `window=2`, 6734 laps across 8 races (`window=2` is the floor Phase 3 must beat; `window=3` was within 0.002 s at 6391 laps and `window=1` was 1.129 s).
+  - Per-race spread: best 0.367 s (Abu Dhabi '23), worst 2.511 s (Miami '24 — red-flag/SC laps not yet `TrackStatus`-filtered).
+  - **Tests: 30/30 green** in 21.71 s cold-clone, 0.85 s warm (test_baseline 5, test_scoring 15, test_stint 10).
+  - **CI:** first push green in 13 s, no iteration; runs on `ubuntu-latest` / py3.11 / `uv sync --extra dev → ruff → pytest`.
+  - **35 commits this week** (Wk 1 carried 4-day cold start; Wk 2 is the cadence the rest of the project needs).
+- **Changes for Wk 3:**
+  - Calendar-day discipline — Sat slipping is allowed; Sat being completely silent is not. If a day looks dead by 18:00, the BUILD-LOG entry that day says "didn't ship" with one sentence on why, not nothing.
+  - Promote `wk2_day3_block4.py` into the package as `aris.eval.run_baseline_all_races` (or similar) and add a `python -m aris.eval.baseline_all` entry point — the plan named a script that doesn't exist by that name, that's a real fingerprint of "exploratory script never got promoted."
+  - Add `TrackStatus` filtering in Wk 3 ingest before the baseline gets recomputed against the Postgres-backed corpus — Miami and Australia together cost ~0.4 s of overall MAE.
+  - Cloud deploy (Streamlit Community Cloud) is hard-blocked for Wk 3 Day 5 (Fri May 22). Do not let it slide into Sat.
+
 **Phase 1 retrospective:**
 
-- Tag shipped:
-- MAE / metric snapshot:
-- What I'd change:
+- Tag shipped: **`v0.1-foundation`** on commit `99833f5` (Mon 2026-05-18, Sat May 16 backlog).
+- MAE / metric snapshot: **baseline MAE = 1.088 s** at `window=2` across 8 races / 6734 laps; **scoring functions live in `src/aris/eval/scoring.py`** so Phase 3 residual models are scored on the identical `mae(y_true, y_pred)` call — no moved goalpost.
+- What I'd change: stop letting the BUILD-LOG carry a one-week lag in honest "didn't do it" entries — the Sat blank cell only got marked "missed" two days late, on Mon.
 
 ---
 
