@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from aris.eval.scoring import mae, per_race_mae  # noqa: E402
 
 CACHE = ROOT / "fastf1_cache"
+CACHE.mkdir(parents=True, exist_ok=True)
 fastf1.Cache.enable_cache(str(CACHE))
 
 RACES = [
