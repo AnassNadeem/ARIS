@@ -20,8 +20,9 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
+import pandas as pd
 from dotenv import load_dotenv
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 # db.py is src/aris/io/db.py -> parents[3] is the repo root that holds .env.
@@ -43,3 +44,29 @@ def engine() -> Engine:
 def get_session() -> Session:
     """A new SQLAlchemy Session bound to the shared engine (write path only)."""
     return sessionmaker(bind=engine(), future=True)()
+
+
+# Columns the baseline + Streamlit dashboard read; kept in sync with db/schema.sql.
+_LAPS_QUERY = text(
+    """
+    SELECT lap_number, lap_time_s, compound, tyre_life, stint,
+           sector_1_s, sector_2_s, sector_3_s, track_status, pit_in, pit_out
+    FROM laps
+    WHERE session_id = :session_id AND driver_id = :driver_id
+    ORDER BY lap_number
+    """
+)
+
+
+def fetch_laps(session_id: int, driver_id: int) -> pd.DataFrame:
+    """Every lap for one driver in one session, ordered by lap number.
+
+    Returns an empty DataFrame (correct columns, zero rows) when the pair has no
+    laps — callers never have to guard against a None.
+    """
+    with engine().connect() as conn:
+        return pd.read_sql(
+            _LAPS_QUERY,
+            conn,
+            params={"session_id": session_id, "driver_id": driver_id},
+        )
