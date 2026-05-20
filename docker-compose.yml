@@ -1,0 +1,33 @@
+# ARIS — local Postgres for Phase 2 (Week 3).
+#
+# One service: Postgres 16, reachable only from this machine. Credentials are
+# read from .env (gitignored) — copy .env.example to .env before first run.
+#
+#   docker compose up -d     # start
+#   docker compose ps        # should report (healthy) once pg_isready passes
+#   docker compose down      # stop (named volume aris_pg_data is kept)
+#
+# Schema and ingest are NOT here yet — Day 1 only proves the container starts.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: aris-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      # Bound to 127.0.0.1 so the DB is never exposed on the LAN.
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - aris_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  aris_pg_data:

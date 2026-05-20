@@ -35,6 +35,7 @@ results/*
 # Secrets & env
 .env
 .env.*
+!.env.example
 *.key
 
 # OS / IDE
