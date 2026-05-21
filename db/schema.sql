@@ -1,12 +1,13 @@
--- ARIS — Postgres schema (Phase 2, Week 3 Day 2).
+-- ARIS — Postgres schema (Phase 2, Week 3; Day 2 tables + Day 3 natural keys).
 --
 -- Apply against the local docker container:
 --   docker compose exec -T postgres psql -U aris -d aris -v ON_ERROR_STOP=1 < db/schema.sql
 --
 -- Design rationale: db/SCHEMA-NOTES.md.
--- Natural-key UNIQUE constraints (for idempotent upsert) are added Day 3.
+-- Day 3 adds the natural-key UNIQUE constraints that the idempotent ingest
+-- (src/aris/io/ingest.py) keys its INSERT ... ON CONFLICT upserts on.
 -- This script is idempotent by drop-and-recreate — safe to re-run while there
--- is no production data (there is none until Day 3's ingest).
+-- is no production data worth keeping (ingest re-populates from FastF1).
 
 DROP TABLE IF EXISTS telemetry CASCADE;
 DROP TABLE IF EXISTS laps      CASCADE;
@@ -20,7 +21,10 @@ CREATE TABLE sessions (
     country      TEXT     NOT NULL,
     session_type TEXT     NOT NULL
                  CHECK (session_type IN ('FP1', 'FP2', 'FP3', 'Q', 'SQ', 'SS', 'R', 'SR')),
-    date         TIMESTAMPTZ
+    date         TIMESTAMPTZ,
+    -- Natural key: a (year, round_no, session_type) triple is exactly one session.
+    -- Ingest upserts on this so a re-run of the same weekend is a no-op.
+    CONSTRAINT uq_sessions_natural UNIQUE (year, round_no, session_type)
 );
 
 CREATE TABLE drivers (
@@ -28,7 +32,10 @@ CREATE TABLE drivers (
     code      TEXT     NOT NULL,
     year      SMALLINT NOT NULL,
     full_name TEXT     NOT NULL,
-    team      TEXT
+    team      TEXT,
+    -- Natural key: drivers are versioned per season (see SCHEMA-NOTES.md), so a
+    -- 3-letter code reused across years stays distinct, one row per (code, year).
+    CONSTRAINT uq_drivers_natural UNIQUE (code, year)
 );
 
 CREATE TABLE laps (
@@ -45,7 +52,11 @@ CREATE TABLE laps (
     sector_3_s   NUMERIC(8, 3),
     track_status TEXT,
     pit_in       BOOLEAN NOT NULL DEFAULT FALSE,
-    pit_out      BOOLEAN NOT NULL DEFAULT FALSE
+    pit_out      BOOLEAN NOT NULL DEFAULT FALSE,
+    -- Natural key: one lap per (session, driver, lap_number). Backs the ingest
+    -- upsert; its UNIQUE index also serves the dashboard's hot query path, so
+    -- the standalone composite index from Day 2 is now redundant and dropped.
+    CONSTRAINT uq_laps_natural UNIQUE (session_id, driver_id, lap_number)
 );
 
 CREATE TABLE telemetry (
@@ -65,6 +76,9 @@ CREATE TABLE telemetry (
     PRIMARY KEY (session_id, driver_id, lap_number, sample_idx)
 );
 
-CREATE INDEX idx_laps_session            ON laps (session_id);
-CREATE INDEX idx_laps_driver             ON laps (driver_id);
-CREATE INDEX idx_laps_session_driver_lap ON laps (session_id, driver_id, lap_number);
+-- laps(session_id, driver_id, lap_number) is already indexed by the
+-- uq_laps_natural UNIQUE constraint above, which covers the dashboard's
+-- "all laps for one driver in one session, ordered by lap number" path.
+-- These two single-column indexes serve the remaining join directions.
+CREATE INDEX idx_laps_session ON laps (session_id);
+CREATE INDEX idx_laps_driver  ON laps (driver_id);

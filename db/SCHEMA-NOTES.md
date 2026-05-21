@@ -71,6 +71,20 @@ deliberate, separate Week 4 decision.
 ## Indexes
 
 The dashboard's hot query path is "all laps for driver *D* in session *S*, ordered
-by lap number." Indexes on `laps(session_id)`, `laps(driver_id)` and the composite
-`laps(session_id, driver_id, lap_number)` serve that path; the composite index
-also backs the natural-key `UNIQUE` constraint that lands Day 3.
+by lap number." The `uq_laps_natural` `UNIQUE (session_id, driver_id, lap_number)`
+constraint added Day 3 creates exactly the composite index that path needs, so the
+standalone composite index from Day 2 was dropped as redundant. Two single-column
+indexes — `laps(session_id)` and `laps(driver_id)` — remain to serve joins that
+filter on only one of the two foreign keys.
+
+## Day 3 — natural-key constraints
+
+`db/schema.sql` now declares `UNIQUE` constraints for all three natural keys:
+`uq_sessions_natural (year, round_no, session_type)`, `uq_drivers_natural
+(code, year)`, and `uq_laps_natural (session_id, driver_id, lap_number)`.
+`telemetry` needs no separate constraint — its composite PK *is* the natural key.
+These are what `src/aris/io/ingest.py` targets with `INSERT ... ON CONFLICT
+(...) DO NOTHING`, which is what makes re-running an ingest a no-op instead of a
+duplicate. `DO NOTHING` (not `DO UPDATE`) is correct here: a finished race is
+immutable — a lap time never changes once recorded — so there is nothing to
+refresh on conflict.
