@@ -1,0 +1,249 @@
+"""Idempotent FastF1 -> Postgres ingest (Phase 2, Week 3 Day 3).
+
+`ingest_session(year, event, session_type)` pulls one session from FastF1 and
+upserts it into `sessions` / `drivers` / `laps`. The whole session ingests
+inside a single transaction — if any table's insert fails, the entire session
+rolls back, so the database never holds a half-ingested race.
+
+Idempotency is by natural key. Every `INSERT` is `ON CONFLICT (<natural key>)
+DO NOTHING`, so re-running the same `(year, round_no, session_type)` adds zero
+rows. `DO NOTHING` (not `DO UPDATE`) is the right call: a finished race is
+immutable — a recorded lap time never changes — so there is nothing to refresh.
+
+The `import aris` requests/forward-ref shim from Week 2 is applied by
+`aris/__init__.py`, which Python runs before this module's body — so FastF1,
+imported lazily inside `_load_session`, always sees the patched `requests`.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pandas as pd
+from sqlalchemy import text
+from sqlalchemy.engine import Connection
+
+from aris.io.db import engine
+from aris.physics.stint import detect_stints
+
+# ingest.py is src/aris/io/ingest.py -> parents[3] is the repo root.
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_CACHE_DIR = _REPO_ROOT / "fastf1_cache"
+
+# The eight values the sessions.session_type CHECK constraint accepts.
+_VALID_SESSION_TYPES = frozenset({"FP1", "FP2", "FP3", "Q", "SQ", "SS", "R", "SR"})
+
+
+# --- NaN-safe scalar coercions (pandas NaN/NaT -> SQL NULL, numpy -> native) ---
+
+
+def _num(value: object) -> float | None:
+    """A pandas float/NaN -> a native float, or None."""
+    return None if pd.isna(value) else float(value)
+
+
+def _int(value: object) -> int | None:
+    """A pandas float/NaN -> a native int, or None."""
+    return None if pd.isna(value) else int(value)
+
+
+def _str(value: object) -> str | None:
+    """Any value/NaN -> a native str, or None."""
+    return None if pd.isna(value) else str(value)
+
+
+def _secs(td: object) -> float | None:
+    """A pandas Timedelta/NaT -> total seconds as a float, or None."""
+    return None if pd.isna(td) else float(td.total_seconds())
+
+
+# --- FastF1 load ---------------------------------------------------------------
+
+
+def _load_session(year: int, event: int | str, session_type: str):
+    """Load one FastF1 session (laps only) from the repo-local cache."""
+    import fastf1  # lazy: keeps `import aris.io.ingest` cheap; shim already applied.
+
+    _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    fastf1.Cache.enable_cache(str(_CACHE_DIR))
+    sess = fastf1.get_session(year, event, session_type)
+    sess.load(laps=True, telemetry=False, weather=False, messages=False)
+    return sess
+
+
+# --- row builders --------------------------------------------------------------
+
+
+def _driver_rows(sess, year: int) -> list[dict]:
+    """One row per driver that appears in the session's laps."""
+    lookup: dict[str, tuple[str, str | None]] = {}
+    for _, r in sess.results.iterrows():
+        lookup[str(r["Abbreviation"])] = (str(r["FullName"]), _str(r["TeamName"]))
+
+    rows: list[dict] = []
+    for code in sorted(sess.laps["Driver"].dropna().unique()):
+        full_name, team = lookup.get(code, (code, None))
+        rows.append({"code": code, "year": year, "full_name": full_name, "team": team})
+    return rows
+
+
+def _lap_rows(enriched: pd.DataFrame, session_id: int, code_to_id: dict[str, int]) -> list[dict]:
+    """Translate a `detect_stints`-enriched laps frame into `laps` table rows.
+
+    `stint` is the compound-change-cumsum `StintId` from `aris.physics.stint`,
+    not FastF1's native `Stint` column — Day 4's SQL baseline cross-check
+    partitions on it and must reproduce Week 2's pandas baseline exactly.
+    """
+    rows: list[dict] = []
+    for rec in enriched.itertuples(index=False):
+        driver_id = code_to_id.get(rec.Driver)
+        if driver_id is None or pd.isna(rec.LapNumber):
+            continue  # a lap with no resolvable driver or no lap number is unusable
+        rows.append(
+            {
+                "session_id": session_id,
+                "driver_id": driver_id,
+                "lap_number": int(rec.LapNumber),
+                "lap_time_s": _num(rec.LapTimeS),
+                "compound": _str(rec.Compound),
+                "tyre_life": _int(rec.TyreLife),
+                "stint": int(rec.StintId),
+                "sector_1_s": _secs(rec.Sector1Time),
+                "sector_2_s": _secs(rec.Sector2Time),
+                "sector_3_s": _secs(rec.Sector3Time),
+                "track_status": _str(rec.TrackStatus),
+                "pit_in": bool(pd.notna(rec.PitInTime)),
+                "pit_out": bool(pd.notna(rec.PitOutTime)),
+            }
+        )
+    return rows
+
+
+# --- upserts -------------------------------------------------------------------
+
+_INSERT_SESSION = text(
+    """
+    INSERT INTO sessions (year, round_no, country, session_type, date)
+    VALUES (:year, :round_no, :country, :session_type, :date)
+    ON CONFLICT (year, round_no, session_type) DO NOTHING
+    RETURNING session_id
+    """
+)
+
+_INSERT_DRIVER = text(
+    """
+    INSERT INTO drivers (code, year, full_name, team)
+    VALUES (:code, :year, :full_name, :team)
+    ON CONFLICT (code, year) DO NOTHING
+    """
+)
+
+_INSERT_LAP = text(
+    """
+    INSERT INTO laps (
+        session_id, driver_id, lap_number, lap_time_s, compound, tyre_life,
+        stint, sector_1_s, sector_2_s, sector_3_s, track_status, pit_in, pit_out
+    )
+    VALUES (
+        :session_id, :driver_id, :lap_number, :lap_time_s, :compound, :tyre_life,
+        :stint, :sector_1_s, :sector_2_s, :sector_3_s, :track_status, :pit_in, :pit_out
+    )
+    ON CONFLICT (session_id, driver_id, lap_number) DO NOTHING
+    """
+)
+
+
+def _upsert_session(
+    conn: Connection, year: int, round_no: int, country: str, session_type: str, date
+) -> tuple[int, int]:
+    """Upsert the session row; return (session_id, rows_inserted)."""
+    params = {
+        "year": year,
+        "round_no": round_no,
+        "country": country,
+        "session_type": session_type,
+        "date": date,
+    }
+    inserted = conn.execute(_INSERT_SESSION, params).fetchone()
+    if inserted is not None:
+        return int(inserted[0]), 1
+    # Already present (conflict) — RETURNING gave nothing, so look the id up.
+    sid = conn.execute(
+        text(
+            "SELECT session_id FROM sessions "
+            "WHERE year = :year AND round_no = :round_no AND session_type = :session_type"
+        ),
+        params,
+    ).scalar_one()
+    return int(sid), 0
+
+
+def _upsert_drivers(conn: Connection, year: int, rows: list[dict]) -> tuple[dict[str, int], int]:
+    """Upsert driver rows; return (code -> driver_id map, rows_inserted)."""
+    before = conn.execute(
+        text("SELECT count(*) FROM drivers WHERE year = :year"), {"year": year}
+    ).scalar_one()
+    if rows:
+        conn.execute(_INSERT_DRIVER, rows)
+    after = conn.execute(
+        text("SELECT count(*) FROM drivers WHERE year = :year"), {"year": year}
+    ).scalar_one()
+    code_to_id = {
+        code: int(did)
+        for code, did in conn.execute(
+            text("SELECT code, driver_id FROM drivers WHERE year = :year"), {"year": year}
+        ).all()
+    }
+    return code_to_id, after - before
+
+
+def _upsert_laps(conn: Connection, session_id: int, rows: list[dict]) -> int:
+    """Upsert lap rows; return rows_inserted (after - before, conflict-skip aware)."""
+    before = conn.execute(
+        text("SELECT count(*) FROM laps WHERE session_id = :sid"), {"sid": session_id}
+    ).scalar_one()
+    if rows:
+        conn.execute(_INSERT_LAP, rows)
+    after = conn.execute(
+        text("SELECT count(*) FROM laps WHERE session_id = :sid"), {"sid": session_id}
+    ).scalar_one()
+    return after - before
+
+
+# --- public API ----------------------------------------------------------------
+
+
+def ingest_session(year: int, event: int | str, session_type: str) -> dict[str, int]:
+    """Ingest one FastF1 session into Postgres; return per-table rows inserted.
+
+    `event` is a round number (``1``) or an event name (``"Bahrain"``) — both
+    are accepted by FastF1; the real round number is read back from the loaded
+    event and stored. Re-running with the same arguments inserts nothing and
+    returns all-zero counts.
+    """
+    session_type = session_type.upper()
+    if session_type not in _VALID_SESSION_TYPES:
+        raise ValueError(
+            f"session_type {session_type!r} not one of {sorted(_VALID_SESSION_TYPES)}"
+        )
+
+    sess = _load_session(year, event, session_type)
+    round_no = int(sess.event["RoundNumber"])
+    country = str(sess.event["Country"])
+    raw_date = sess.date
+    date = None if raw_date is None or pd.isna(raw_date) else pd.Timestamp(raw_date).to_pydatetime()
+
+    enriched = detect_stints(sess.laps)
+    driver_rows = _driver_rows(sess, year)
+
+    # One transaction for the whole session: engine().begin() commits on a
+    # clean exit and rolls back on any exception — never a half-ingested race.
+    with engine().begin() as conn:
+        session_id, n_sessions = _upsert_session(
+            conn, year, round_no, country, session_type, date
+        )
+        code_to_id, n_drivers = _upsert_drivers(conn, year, driver_rows)
+        lap_rows = _lap_rows(enriched, session_id, code_to_id)
+        n_laps = _upsert_laps(conn, session_id, lap_rows)
+
+    return {"sessions": n_sessions, "drivers": n_drivers, "laps": n_laps}
