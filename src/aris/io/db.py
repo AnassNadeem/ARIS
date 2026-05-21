@@ -117,3 +117,43 @@ def fetch_drivers(session_id: int) -> pd.DataFrame:
     """Drivers who have at least one lap in the given session, ordered by code."""
     with engine().connect() as conn:
         return pd.read_sql(_DRIVERS_QUERY, conn, params={"session_id": session_id})
+
+
+_DRIVER_MA2_QUERY = text(
+    """
+    WITH clean AS (
+        SELECT stint, lap_number, lap_time_s::float8 AS lap_time_s
+        FROM laps
+        WHERE session_id = :session_id AND driver_id = :driver_id
+          AND lap_time_s IS NOT NULL AND NOT pit_in AND NOT pit_out
+    ),
+    predicted AS (
+        SELECT lap_time_s,
+               avg(lap_time_s) OVER ma2 AS ma2_pred,
+               count(*)        OVER ma2 AS ma2_n
+        FROM clean
+        WINDOW ma2 AS (
+            PARTITION BY stint ORDER BY lap_number
+            ROWS BETWEEN 2 PRECEDING AND 1 PRECEDING
+        )
+    )
+    SELECT count(*) AS n_laps, avg(abs(lap_time_s - ma2_pred)) AS mae_s
+    FROM predicted
+    WHERE ma2_n = 2
+    """
+)
+
+
+def fetch_driver_ma2_mae(session_id: int, driver_id: int) -> tuple[float | None, int]:
+    """MA(2) baseline MAE for one driver in one session.
+
+    The same window-2 moving-average computation as db/queries/baseline_ma2.sql,
+    scoped to a single driver. Returns `(mae_s, n_scored_laps)`; `mae_s` is None
+    when the driver has too few clean laps to score — every stint needs three or
+    more clean laps before MA(2) yields its first prediction.
+    """
+    with engine().connect() as conn:
+        row = conn.execute(
+            _DRIVER_MA2_QUERY, {"session_id": session_id, "driver_id": driver_id}
+        ).one()
+    return (None if row.mae_s is None else float(row.mae_s)), int(row.n_laps)

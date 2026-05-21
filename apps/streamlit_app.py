@@ -23,6 +23,20 @@ from aris.io import db  # noqa: E402
 
 st.set_page_config(page_title="ARIS — lap times", page_icon="🏁", layout="wide")
 st.title("🏁 ARIS — F1 lap-time explorer")
+st.caption(
+    "Phase 2 dashboard — lap-time traces served from a Postgres-backed FastF1 "
+    "ingest. Pick a season, race, and driver below."
+)
+
+with st.sidebar:
+    st.header("About ARIS")
+    st.markdown(
+        "**ARIS** is an always-on race-strategy AI for Formula 1 — a hybrid "
+        "physics + residual-ML + LLM-narration model.\n\n"
+        "This dashboard reads the `sessions` / `drivers` / `laps` tables "
+        "populated by the idempotent FastF1 → Postgres ingest.\n\n"
+        "[Project README](https://github.com/AnassNadeem/ARIS#readme)"
+    )
 
 seasons = db.fetch_seasons()
 if not seasons:
@@ -69,3 +83,14 @@ if timed.empty:
     st.stop()
 
 st.line_chart(timed, x="lap_number", y="lap_time_s")
+
+# MA(2) baseline MAE for this driver/race — same window-2 computation as
+# db/queries/baseline_ma2.sql, the floor a strategy model has to beat.
+mae_s, n_scored = db.fetch_driver_ma2_mae(session_id, driver_id)
+if mae_s is not None:
+    st.caption(
+        f"**MA(2) baseline MAE for this driver/race: {mae_s:.3f} s** — "
+        f"across {n_scored} scored laps, the moving-average floor a model must beat."
+    )
+else:
+    st.caption("Not enough clean laps to compute an MA(2) baseline for this driver.")
