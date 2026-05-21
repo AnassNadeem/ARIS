@@ -1,7 +1,9 @@
-"""Idempotent FastF1 -> Postgres ingest (Phase 2, Week 3 Day 3).
+"""Idempotent FastF1 -> Postgres ingest (Phase 2, Week 3 Days 3-4).
 
 `ingest_session(year, event, session_type)` pulls one session from FastF1 and
-upserts it into `sessions` / `drivers` / `laps`. The whole session ingests
+upserts it into `sessions` / `drivers` / `laps`; passing `include_telemetry=True`
+also populates the per-sample `telemetry` table (Day 4 — used to validate the
+schema on one race, not for bulk season population). The whole session ingests
 inside a single transaction — if any table's insert fails, the entire session
 rolls back, so the database never holds a half-ingested race.
 
@@ -60,14 +62,16 @@ def _secs(td: object) -> float | None:
 # --- FastF1 load ---------------------------------------------------------------
 
 
-def _load_session(year: int, event: int | str, session_type: str):
-    """Load one FastF1 session (laps only) from the repo-local cache."""
+def _load_session(
+    year: int, event: int | str, session_type: str, *, with_telemetry: bool = False
+):
+    """Load one FastF1 session from the repo-local cache (telemetry optional)."""
     import fastf1  # lazy: keeps `import aris.io.ingest` cheap; shim already applied.
 
     _CACHE_DIR.mkdir(parents=True, exist_ok=True)
     fastf1.Cache.enable_cache(str(_CACHE_DIR))
     sess = fastf1.get_session(year, event, session_type)
-    sess.load(laps=True, telemetry=False, weather=False, messages=False)
+    sess.load(laps=True, telemetry=with_telemetry, weather=False, messages=False)
     return sess
 
 
@@ -152,6 +156,24 @@ _INSERT_LAP = text(
     """
 )
 
+_INSERT_TELEMETRY = text(
+    """
+    INSERT INTO telemetry (
+        session_id, driver_id, lap_number, sample_idx,
+        speed, throttle, brake, gear, drs, rpm, x, y, z
+    )
+    VALUES (
+        :session_id, :driver_id, :lap_number, :sample_idx,
+        :speed, :throttle, :brake, :gear, :drs, :rpm, :x, :y, :z
+    )
+    ON CONFLICT (session_id, driver_id, lap_number, sample_idx) DO NOTHING
+    """
+)
+
+# Telemetry is ~500k rows per race — flush in chunks so a single executemany
+# never has to hold the whole race's samples in one bind list.
+_TELEMETRY_BATCH = 20_000
+
 
 def _upsert_session(
     conn: Connection, year: int, round_no: int, country: str, session_type: str, date
@@ -210,16 +232,84 @@ def _upsert_laps(conn: Connection, session_id: int, rows: list[dict]) -> int:
     return after - before
 
 
+def _telemetry_rows_for_lap(lap, session_id: int, driver_id: int) -> list[dict]:
+    """Per-sample telemetry rows for one lap; [] when the lap has no telemetry."""
+    if pd.isna(lap["LapNumber"]):
+        return []
+    try:
+        tel = lap.get_telemetry()
+    except Exception:  # a single lap with missing telemetry must not abort the race
+        return []
+    if tel is None or tel.empty:
+        return []
+
+    lap_number = int(lap["LapNumber"])
+    rows: list[dict] = []
+    for sample_idx, t in enumerate(tel.itertuples(index=False)):
+        rows.append(
+            {
+                "session_id": session_id,
+                "driver_id": driver_id,
+                "lap_number": lap_number,
+                "sample_idx": sample_idx,
+                "speed": _num(t.Speed),
+                "throttle": _num(t.Throttle),
+                "brake": None if pd.isna(t.Brake) else bool(t.Brake),
+                "gear": _int(t.nGear),
+                "drs": _int(t.DRS),
+                "rpm": _num(t.RPM),
+                "x": _num(t.X),
+                "y": _num(t.Y),
+                "z": _num(t.Z),
+            }
+        )
+    return rows
+
+
+def _upsert_telemetry(conn: Connection, session_id: int, code_to_id: dict[str, int], sess) -> int:
+    """Upsert every lap's telemetry samples; return rows_inserted.
+
+    Idempotent on the `telemetry` composite PK `(session_id, driver_id,
+    lap_number, sample_idx)` — re-running inserts nothing.
+    """
+    before = conn.execute(
+        text("SELECT count(*) FROM telemetry WHERE session_id = :sid"), {"sid": session_id}
+    ).scalar_one()
+
+    batch: list[dict] = []
+    for _, lap in sess.laps.iterlaps():
+        driver_id = code_to_id.get(lap["Driver"])
+        if driver_id is None:
+            continue
+        batch.extend(_telemetry_rows_for_lap(lap, session_id, driver_id))
+        if len(batch) >= _TELEMETRY_BATCH:
+            conn.execute(_INSERT_TELEMETRY, batch)
+            batch.clear()
+    if batch:
+        conn.execute(_INSERT_TELEMETRY, batch)
+
+    after = conn.execute(
+        text("SELECT count(*) FROM telemetry WHERE session_id = :sid"), {"sid": session_id}
+    ).scalar_one()
+    return after - before
+
+
 # --- public API ----------------------------------------------------------------
 
 
-def ingest_session(year: int, event: int | str, session_type: str) -> dict[str, int]:
+def ingest_session(
+    year: int, event: int | str, session_type: str, *, include_telemetry: bool = False
+) -> dict[str, int]:
     """Ingest one FastF1 session into Postgres; return per-table rows inserted.
 
     `event` is a round number (``1``) or an event name (``"Bahrain"``) — both
     are accepted by FastF1; the real round number is read back from the loaded
     event and stored. Re-running with the same arguments inserts nothing and
     returns all-zero counts.
+
+    With `include_telemetry=True` the per-sample `telemetry` table is populated
+    too and the returned dict carries a fourth `"telemetry"` key; the default
+    (laps-only) ingest returns just `sessions` / `drivers` / `laps`.
     """
     session_type = session_type.upper()
     if session_type not in _VALID_SESSION_TYPES:
@@ -227,7 +317,7 @@ def ingest_session(year: int, event: int | str, session_type: str) -> dict[str, 
             f"session_type {session_type!r} not one of {sorted(_VALID_SESSION_TYPES)}"
         )
 
-    sess = _load_session(year, event, session_type)
+    sess = _load_session(year, event, session_type, with_telemetry=include_telemetry)
     round_no = int(sess.event["RoundNumber"])
     country = str(sess.event["Country"])
     raw_date = sess.date
@@ -245,5 +335,8 @@ def ingest_session(year: int, event: int | str, session_type: str) -> dict[str, 
         code_to_id, n_drivers = _upsert_drivers(conn, year, driver_rows)
         lap_rows = _lap_rows(enriched, session_id, code_to_id)
         n_laps = _upsert_laps(conn, session_id, lap_rows)
+        counts = {"sessions": n_sessions, "drivers": n_drivers, "laps": n_laps}
+        if include_telemetry:
+            counts["telemetry"] = _upsert_telemetry(conn, session_id, code_to_id, sess)
 
-    return {"sessions": n_sessions, "drivers": n_drivers, "laps": n_laps}
+    return counts
