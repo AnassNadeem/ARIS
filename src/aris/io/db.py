@@ -70,3 +70,50 @@ def fetch_laps(session_id: int, driver_id: int) -> pd.DataFrame:
             conn,
             params={"session_id": session_id, "driver_id": driver_id},
         )
+
+
+# --- dashboard dropdown queries ------------------------------------------------
+# Three small reads that populate the Streamlit app's season -> race -> driver
+# selectboxes. Kept here, not in the app, so every query the app runs is raw
+# parameterized SQL living next to fetch_laps.
+
+
+def fetch_seasons() -> list[int]:
+    """Distinct seasons present in `sessions`, newest first."""
+    with engine().connect() as conn:
+        rows = conn.execute(
+            text("SELECT DISTINCT year FROM sessions ORDER BY year DESC")
+        ).all()
+    return [int(r[0]) for r in rows]
+
+
+_RACES_QUERY = text(
+    """
+    SELECT session_id, round_no, country
+    FROM sessions
+    WHERE year = :year AND session_type = 'R'
+    ORDER BY round_no
+    """
+)
+
+
+def fetch_races(year: int) -> pd.DataFrame:
+    """Every race (session_type 'R') of one season, ordered by round number."""
+    with engine().connect() as conn:
+        return pd.read_sql(_RACES_QUERY, conn, params={"year": year})
+
+
+_DRIVERS_QUERY = text(
+    """
+    SELECT driver_id, code, full_name
+    FROM drivers
+    WHERE driver_id IN (SELECT DISTINCT driver_id FROM laps WHERE session_id = :session_id)
+    ORDER BY code
+    """
+)
+
+
+def fetch_drivers(session_id: int) -> pd.DataFrame:
+    """Drivers who have at least one lap in the given session, ordered by code."""
+    with engine().connect() as conn:
+        return pd.read_sql(_DRIVERS_QUERY, conn, params={"session_id": session_id})
