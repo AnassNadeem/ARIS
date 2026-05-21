@@ -27,7 +27,8 @@ MOJIBAKE_MAP = {
 
 NB03_CELL22_SOURCE = (
     "# `laps` already carries its own running-position `Position` column. Rename results' "
-    "finishing-position column before merging so we don't end up with `Position_x` / `Position_y`.\n"
+    "finishing-position column before merging so we don't end up "
+    "with `Position_x` / `Position_y`.\n"
     "laps_full = laps_wx.merge(\n"
     "    results[[\"Abbreviation\", \"TeamName\", \"Position\"]].rename(\n"
     "        columns={\"Position\": \"FinishPosition\"}\n"
@@ -38,7 +39,8 @@ NB03_CELL22_SOURCE = (
     ")\n"
     "\n"
     "print(\"shape after results join:\", laps_full.shape)\n"
-    "laps_full[[\"Driver\", \"TeamName\", \"FinishPosition\", \"LapNumber\", \"LapTimeS\", \"TrackTemp\"]].head()\n"
+    "laps_full[[\"Driver\", \"TeamName\", \"FinishPosition\", "
+    "\"LapNumber\", \"LapTimeS\", \"TrackTemp\"]].head()\n"
 )
 
 

@@ -1,4 +1,5 @@
 import sqlite3
+
 con = sqlite3.connect(r"C:\Users\anass\OneDrive\Desktop\ARIS\fastf1_cache\fastf1_http_cache.sqlite")
 cur = con.cursor()
 for r in cur.execute("SELECT name FROM sqlite_master WHERE type='table'"):
