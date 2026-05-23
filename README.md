@@ -19,7 +19,8 @@ on real F1 telemetry, validated end-to-end on held-out races.**
 |---|---|
 | **Started** | 2026-05-04 |
 | **Ship target** | 2026-08-31 (`v1.0-shipped`) |
-| **Current phase** | Phase 1 — Python foundations + first FastF1 plot  |
+| **Current phase** | Phase 2 — Postgres ingest + Streamlit dashboard |
+| **Last tag** | [`v0.1-foundation`](https://github.com/AnassNadeem/ARIS/releases/tag/v0.1-foundation) — baseline MAE 1.088 s across 8 races / 6734 laps |
 | **Cadence** | 6 hrs/day × 6 days/week (Sundays off) |
 
 This repo is **under active construction**. Phases ship sequentially as
