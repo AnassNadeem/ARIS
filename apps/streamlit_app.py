@@ -10,6 +10,7 @@ Run locally:
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -18,6 +19,15 @@ _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT / "src"))
 
 import streamlit as st  # noqa: E402
+
+# Streamlit Cloud injects the DB URL via `st.secrets` (set in Settings → Secrets).
+# Promote it into the process env BEFORE importing aris.io.db so engine() picks
+# it up. Local dev keeps using the gitignored .env at the repo root.
+try:
+    if "ARIS_DB_URL" in st.secrets:
+        os.environ.setdefault("ARIS_DB_URL", st.secrets["ARIS_DB_URL"])
+except (FileNotFoundError, KeyError):
+    pass
 
 from aris.io import db  # noqa: E402
 

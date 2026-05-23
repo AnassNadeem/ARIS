@@ -1,0 +1,11 @@
+# Streamlit Community Cloud reads this file, not pyproject.toml.
+# Mirrors the runtime subset of [project].dependencies that the deployed app
+# actually imports. FastF1 stays in — fetch_seasons/fetch_races never touch it
+# at request time, but keeping the same import surface as local rules out a
+# whole class of "works on my laptop" surprises.
+streamlit>=1.40
+pandas>=2.0
+numpy>=1.26
+sqlalchemy>=2.0
+psycopg[binary]>=3.1
+python-dotenv>=1.0
