@@ -7,6 +7,8 @@ predicts what's about to happen, and proposes the next decision with a
 quantified lap-time delta and a calibrated confidence interval — built
 on real F1 telemetry, validated end-to-end on held-out races.**
 
+**Live demo:** https://aris-f1.streamlit.app — pick a season, race, driver; see the lap-time trace and the MA(2) baseline floor a model must beat. Sourced from an idempotent FastF1 → Postgres ingest of the 2024 season.
+
 ![Verstappen fastest race lap — Bahrain 2024 (speed vs distance)](assets/screenshots/bahrain-2024-ver-fastest-lap.png)
 
 *Phase 1 first pull — Max Verstappen's fastest race lap at Bahrain 2024 (lap 39, 1:32.608, soft tyre), speed vs distance over the 5.41 km lap, generated from FastF1 telemetry in [`notebooks/01-fastf1-first-pull.ipynb`](./notebooks/01-fastf1-first-pull.ipynb).*
@@ -20,6 +22,7 @@ on real F1 telemetry, validated end-to-end on held-out races.**
 | **Started** | 2026-05-04 |
 | **Ship target** | 2026-08-31 (`v1.0-shipped`) |
 | **Current phase** | Phase 2 — Postgres ingest + Streamlit dashboard |
+| **Live demo** | https://aris-f1.streamlit.app |
 | **Last tag** | [`v0.1-foundation`](https://github.com/AnassNadeem/ARIS/releases/tag/v0.1-foundation) — baseline MAE 1.088 s across 8 races / 6734 laps |
 | **Cadence** | 6 hrs/day × 6 days/week (Sundays off) |
 
