@@ -113,3 +113,25 @@ class TestFilterCleanLaps:
         enriched = detect_stints(laps)
         clean = filter_clean_laps(enriched)
         assert len(clean) == len(enriched) - 2
+
+    def test_drops_non_green_track_status(self):
+        laps = _make_synthetic_laps(drivers=("VER",), laps_per_stint=10)
+        laps["TrackStatus"] = "1"
+        sc_idx = 5  # a safety-car lap mid-stint
+        laps.loc[sc_idx, "TrackStatus"] = "4"
+        sc_lap_number = laps.loc[sc_idx, "LapNumber"]
+
+        enriched = detect_stints(laps)
+        clean = filter_clean_laps(enriched)
+
+        # the SC lap is gone from the clean set entirely — so it can neither feed
+        # the rolling average nor be scored as a prediction target.
+        assert sc_lap_number not in set(clean["LapNumber"])
+        assert (clean["TrackStatus"] == "1").all()
+        assert len(clean) == len(enriched) - 1
+
+    def test_track_status_filter_skipped_when_column_absent(self):
+        # No TrackStatus column -> only the pit/NaN filters apply (back-compat).
+        enriched = detect_stints(_make_synthetic_laps(drivers=("VER",), laps_per_stint=6))
+        clean = filter_clean_laps(enriched)
+        assert len(clean) == len(enriched)

@@ -36,10 +36,22 @@ def detect_stints(laps_df: pd.DataFrame) -> pd.DataFrame:
 
 
 def filter_clean_laps(enriched: pd.DataFrame) -> pd.DataFrame:
-    """Drop laps that don't represent steady-state pace: out-laps, in-laps, NaN times."""
+    """Drop laps that don't represent steady-state green-flag pace.
+
+    Removes NaN-time laps, out-laps and in-laps, and any lap run under a
+    non-green track status. The status filter keys on FastF1's `TrackStatus`
+    string and keeps only `'1'` (all-clear); a lap whose status is a multi-code
+    string like `'24'` (yellow + safety car during the lap) is dropped, since
+    SC / VSC / yellow / red-flag laps inflate the baseline MAE (Week 2 flagged
+    Miami and Australia for exactly this). When the frame carries no
+    `TrackStatus` column the status filter is skipped, so synthetic frames and
+    older callers are unaffected.
+    """
     e = enriched.copy()
     e = e[e["LapTimeS"].notna()]
     e = e[e["PitOutTime"].isna() & e["PitInTime"].isna()]
+    if "TrackStatus" in e.columns:
+        e = e[e["TrackStatus"].astype("string").fillna("") == "1"]
     return e
 
 
