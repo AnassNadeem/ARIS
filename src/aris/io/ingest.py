@@ -59,6 +59,17 @@ def _secs(td: object) -> float | None:
     return None if pd.isna(td) else float(td.total_seconds())
 
 
+def _clean_gear(value: object) -> int | None:
+    """Gear as 1..8, else None — the telemetry-cleaning rule at the ingest boundary.
+
+    FastF1 emits occasional glitched gear values (47, 17, 75 were seen in the
+    Bahrain 2024 R import — an F1 car has eight forward gears), so anything
+    outside 1..8 is nulled here rather than stored as impossible data.
+    """
+    g = _int(value)
+    return g if g is not None and 1 <= g <= 8 else None
+
+
 # --- FastF1 load ---------------------------------------------------------------
 
 
@@ -166,9 +177,15 @@ _INSERT_TELEMETRY = text(
         :session_id, :driver_id, :lap_number, :sample_idx,
         :speed, :throttle, :brake, :gear, :drs, :rpm, :x, :y, :z
     )
-    ON CONFLICT (session_id, driver_id, lap_number, sample_idx) DO NOTHING
+    ON CONFLICT (session_id, driver_id, lap_number, sample_idx)
+    DO UPDATE SET gear = EXCLUDED.gear
     """
 )
+# `gear` is the one column that does DO UPDATE rather than DO NOTHING: a finished
+# race is immutable, but the Week 4 gear-cleaning rule is a data-quality fix that
+# must be able to overwrite gears stored before the rule existed. Re-running the
+# telemetry ingest therefore nulls the ~20 glitched-gear rows in place; every
+# other channel is left exactly as first captured.
 
 # Telemetry is ~500k rows per race — flush in chunks so a single executemany
 # never has to hold the whole race's samples in one bind list.
@@ -255,7 +272,7 @@ def _telemetry_rows_for_lap(lap, session_id: int, driver_id: int) -> list[dict]:
                 "speed": _num(t.Speed),
                 "throttle": _num(t.Throttle),
                 "brake": None if pd.isna(t.Brake) else bool(t.Brake),
-                "gear": _int(t.nGear),
+                "gear": _clean_gear(t.nGear),
                 "drs": _int(t.DRS),
                 "rpm": _num(t.RPM),
                 "x": _num(t.X),

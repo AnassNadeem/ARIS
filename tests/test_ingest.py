@@ -75,3 +75,12 @@ def test_no_orphan_laps(bahrain_session_id):
             )
         ).scalar_one()
     assert orphans == 0
+
+
+def test_no_out_of_range_gears_in_telemetry():
+    """The Week 4 gear-cleaning invariant: no stored gear is outside 1..8."""
+    with db.engine().connect() as conn:
+        bad = conn.execute(
+            text("SELECT count(*) FROM telemetry WHERE gear < 1 OR gear > 8")
+        ).scalar_one()
+    assert bad == 0

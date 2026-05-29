@@ -68,6 +68,16 @@ as on/off, not a percentage); `gear` and `drs` are `SMALLINT` discrete codes.
 Schema only this week — at roughly 500k rows per race, full-season population is a
 deliberate, separate Week 4 decision.
 
+**Week 4 — gear cleaning.** FastF1 emitted a handful of impossible `gear` values
+on the Bahrain 2024 R import (47, 17, 75 across ~20 of 840 934 samples; an F1 car
+has eight forward gears). `aris.io.ingest._clean_gear` now nulls any gear outside
+`1..8` at the ingest boundary, so the bad values never reach the table. To let a
+re-ingest clean rows stored *before* the rule existed, the `telemetry` upsert is
+`ON CONFLICT … DO UPDATE SET gear = EXCLUDED.gear` — `gear` is the only column
+that updates on conflict; every other channel stays `DO NOTHING` (a finished race
+is immutable). Invariant after ingest: `SELECT count(*) FROM telemetry WHERE gear
+< 1 OR gear > 8` is `0`.
+
 ## Indexes
 
 The dashboard's hot query path is "all laps for driver *D* in session *S*, ordered
