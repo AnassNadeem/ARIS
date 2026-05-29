@@ -18,6 +18,8 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT / "src"))
 
+import altair as alt  # noqa: E402
+import pandas as pd  # noqa: E402
 import streamlit as st  # noqa: E402
 
 # Streamlit Cloud injects the DB URL via `st.secrets` (set in Settings → Secrets).
@@ -60,7 +62,7 @@ with col_season:
 
 races = db.fetch_races(season).set_index("session_id")
 if races.empty:
-    st.warning(f"No races ingested for {season}.")
+    st.warning(f"No races ingested for {season} — run `python scripts/ingest_season.py {season}`.")
     st.stop()
 
 with col_race:
@@ -72,15 +74,21 @@ with col_race:
 
 drivers = db.fetch_drivers(session_id).set_index("driver_id")
 if drivers.empty:
-    st.warning("No laps ingested for this race.")
+    st.warning("No laps ingested for this race — try another round, or re-run the ingest.")
     st.stop()
 
+
+def _driver_label(did: int) -> str:
+    """`VER — Max Verstappen (Red Bull)`, dropping the team when it's absent."""
+    code = drivers.at[did, "code"]
+    full_name = drivers.at[did, "full_name"]
+    team = drivers.at[did, "team"]
+    base = f"{code} — {full_name}"
+    return f"{base} ({team})" if pd.notna(team) and team else base
+
+
 with col_driver:
-    driver_id = st.selectbox(
-        "Driver",
-        drivers.index.tolist(),
-        format_func=lambda did: f"{drivers.at[did, 'code']} — {drivers.at[did, 'full_name']}",
-    )
+    driver_id = st.selectbox("Driver", drivers.index.tolist(), format_func=_driver_label)
 
 # lap_time_s is NUMERIC in Postgres and comes back as Decimal — cast to float
 # so the chart (and any later arithmetic) gets a plain numeric column.
@@ -93,6 +101,49 @@ if timed.empty:
     st.stop()
 
 st.line_chart(timed, x="lap_number", y="lap_time_s")
+
+# --- sector breakdown -------------------------------------------------------
+# Stacked area of S1 + S2 + S3 per lap, with a dashed median-lap-time rule.
+# The data is already in `laps`; this is purely a second visible surface.
+st.subheader("Sector breakdown")
+sectors = db.fetch_lap_sectors(session_id, driver_id)
+sectors_long = sectors.melt(
+    id_vars="lap_number",
+    value_vars=["sector_1_s", "sector_2_s", "sector_3_s"],
+    var_name="sector",
+    value_name="seconds",
+).dropna(subset=["seconds"])
+
+if sectors_long.empty:
+    st.info("No sector times recorded for this driver in this race.")
+else:
+    area = (
+        alt.Chart(sectors_long)
+        .mark_area()
+        .encode(
+            x=alt.X("lap_number:Q", title="lap"),
+            y=alt.Y("seconds:Q", stack="zero", title="sector time (s)"),
+            color=alt.Color(
+                "sector:N",
+                title="sector",
+                scale=alt.Scale(
+                    domain=["sector_1_s", "sector_2_s", "sector_3_s"],
+                    range=["#4C78A8", "#F58518", "#54A24B"],
+                ),
+                legend=alt.Legend(labelExpr="'S' + replace(datum.label, /sector_(\\d)_s/, '$1')"),
+            ),
+            tooltip=["lap_number", "sector", alt.Tooltip("seconds:Q", format=".3f")],
+        )
+    )
+    median_total = alt.Chart(pd.DataFrame({"y": [timed["lap_time_s"].median()]})).mark_rule(
+        strokeDash=[4, 4], color="gray"
+    ).encode(y="y:Q")
+    st.altair_chart(area + median_total, use_container_width=True)
+    st.caption(
+        "S1 + S2 + S3 = lap time (sanity check). The dashed line is this driver's "
+        "median lap time; the gap between it and the stacked total is rounding plus "
+        "the in/out-lap delta."
+    )
 
 # MA(2) baseline MAE for this driver/race — same window-2 computation as
 # db/queries/baseline_ma2.sql, the floor a strategy model has to beat.
