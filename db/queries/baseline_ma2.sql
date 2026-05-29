@@ -27,7 +27,10 @@
 -- results/wk2-baseline-mae.csv.
 
 WITH clean AS (
-    -- Week 2's filter_clean_laps: timed, steady-state race laps only.
+    -- filter_clean_laps: timed, steady-state, green-flag race laps only.
+    -- track_status = '1' drops SC / VSC / yellow / red-flag laps (a multi-code
+    -- status like '24' is not '1', so it is excluded) — mirrors the Week 4
+    -- TrackStatus green-only filter added to aris.physics.stint.filter_clean_laps.
     SELECT
         s.year,
         s.round_no,
@@ -43,6 +46,7 @@ WITH clean AS (
       AND l.lap_time_s IS NOT NULL
       AND NOT l.pit_in
       AND NOT l.pit_out
+      AND l.track_status = '1'
 ),
 predicted AS (
     -- MA(2): mean of the two preceding laps in the same (driver, stint).

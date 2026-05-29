@@ -158,6 +158,7 @@ _DRIVER_MA2_QUERY = text(
         FROM laps
         WHERE session_id = :session_id AND driver_id = :driver_id
           AND lap_time_s IS NOT NULL AND NOT pit_in AND NOT pit_out
+          AND track_status = '1'
     ),
     predicted AS (
         SELECT lap_time_s,
