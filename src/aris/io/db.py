@@ -72,6 +72,34 @@ def fetch_laps(session_id: int, driver_id: int) -> pd.DataFrame:
         )
 
 
+_LAP_SECTORS_QUERY = text(
+    """
+    SELECT lap_number,
+           sector_1_s::float8 AS sector_1_s,
+           sector_2_s::float8 AS sector_2_s,
+           sector_3_s::float8 AS sector_3_s
+    FROM laps
+    WHERE session_id = :session_id AND driver_id = :driver_id
+    ORDER BY lap_number
+    """
+)
+
+
+def fetch_lap_sectors(session_id: int, driver_id: int) -> pd.DataFrame:
+    """Per-lap sector times (s1 / s2 / s3, seconds) for one driver in one session.
+
+    A column projection of the same `laps` rows `fetch_laps` reads; `NUMERIC` is
+    cast to `float8` at the SQL boundary so the chart gets plain floats, not
+    Decimals. Returns the right columns with zero rows when the pair has no laps.
+    """
+    with engine().connect() as conn:
+        return pd.read_sql(
+            _LAP_SECTORS_QUERY,
+            conn,
+            params={"session_id": session_id, "driver_id": driver_id},
+        )
+
+
 # --- dashboard dropdown queries ------------------------------------------------
 # Three small reads that populate the Streamlit app's season -> race -> driver
 # selectboxes. Kept here, not in the app, so every query the app runs is raw
@@ -105,7 +133,7 @@ def fetch_races(year: int) -> pd.DataFrame:
 
 _DRIVERS_QUERY = text(
     """
-    SELECT driver_id, code, full_name
+    SELECT driver_id, code, full_name, team
     FROM drivers
     WHERE driver_id IN (SELECT DISTINCT driver_id FROM laps WHERE session_id = :session_id)
     ORDER BY code
@@ -114,7 +142,11 @@ _DRIVERS_QUERY = text(
 
 
 def fetch_drivers(session_id: int) -> pd.DataFrame:
-    """Drivers who have at least one lap in the given session, ordered by code."""
+    """Drivers who have at least one lap in the given session, ordered by code.
+
+    Includes `team` (nullable) so the dashboard can label a driver with their
+    constructor where the ingest captured it.
+    """
     with engine().connect() as conn:
         return pd.read_sql(_DRIVERS_QUERY, conn, params={"session_id": session_id})
 

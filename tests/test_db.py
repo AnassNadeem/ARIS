@@ -21,3 +21,10 @@ def test_select_one_round_trips():
     """The simplest possible proof the connection works end-to-end."""
     with db.engine().connect() as conn:
         assert conn.execute(text("SELECT 1")).scalar() == 1
+
+
+def test_fetch_lap_sectors_empty_has_right_columns():
+    """A pair with no laps returns the sector columns and zero rows, not an error."""
+    df = db.fetch_lap_sectors(session_id=-1, driver_id=-1)
+    assert list(df.columns) == ["lap_number", "sector_1_s", "sector_2_s", "sector_3_s"]
+    assert len(df) == 0
