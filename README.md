@@ -122,7 +122,7 @@ ARIS/
 ├── src/aris/           # production logic (physics, models, eval, simulate)
 ├── scripts/            # one-off CLIs (ingest, prewarm, eval)
 ├── notebooks/          # exploration only; ≤5 across Phases 0–2
-├── tests/              # pytest, including the leakage tripwire
+├── tests/              # pytest — ingest idempotency, scoring, stint detection
 ├── data/               # gitignored (raw + processed parquet)
 ├── models/             # gitignored (trained artefacts)
 ├── results/            # gitignored (eval outputs)
@@ -132,28 +132,46 @@ ARIS/
 
 ---
 
-## Getting started (Phase 1)
+## Getting started
 
-Clone, set up the pinned Python interpreter, install FastF1, pre-warm
-the race cache.
+The fastest way to see ARIS is the [live dashboard](https://aris-f1.streamlit.app) —
+nothing to install. To run it yourself, clone and set up the environment (uv is the
+recommended path; a plain-pip fallback is in `requirements.txt`):
 
 ```powershell
 git clone https://github.com/AnassNadeem/ARIS.git
 cd ARIS
 
-# Pin Python 3.11.9 via uv (https://docs.astral.sh/uv/)
-uv venv --python 3.11.9
-.\.venv\Scripts\Activate.ps1
+# uv (recommended — mirrors CI exactly)
+uv sync --extra dev
 
-# Install FastF1
-uv pip install fastf1
+# ...or plain pip
+python -m venv .venv; .\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
 
-# Pre-warm the FastF1 cache (8 race sessions, runs once)
-python scripts\prewarm_cache.py
+# Run the test suite (DB integration tests skip without ARIS_DB_URL)
+uv run pytest
 ```
 
-The cache will land in `fastf1_cache/` (gitignored — regenerable).
-Subsequent `session.load()` calls in notebooks return in ~1 second.
+**Run the dashboard locally (Phase 2).** Bring up Postgres, ingest a season, then
+launch Streamlit. The app reads `ARIS_DB_URL` from a repo-root `.env` (see
+[`.env.example`](./.env.example)); the full cloud runbook is in [`DEPLOY.md`](./DEPLOY.md).
+
+```powershell
+docker compose up -d                       # local Postgres on :5432
+python scripts\ingest_season.py 2024       # idempotent — re-running never duplicates
+streamlit run apps\streamlit_app.py        # → http://localhost:8501
+```
+
+**Replay the baseline cross-check** — the canary that proves the ingest is lossless:
+
+```powershell
+python scripts\baseline_crosscheck.py      # SQL vs pandas MA(2), must match to ~1e-15 s
+python -m aris.eval.run_baseline_all_races # regenerate the 0.460 s green-flag floor
+```
+
+The FastF1 cache lands in `fastf1_cache/` (gitignored — regenerable); subsequent
+`session.load()` calls return in ~1 second.
 
 ---
 
