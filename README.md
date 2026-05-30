@@ -38,9 +38,9 @@ than signal.
 |---|---|
 | **Started** | 2026-05-04 |
 | **Ship target** | 2026-08-31 (`v1.0-shipped`) |
-| **Current phase** | Phase 2 — Postgres ingest + Streamlit dashboard |
-| **Live demo** | https://aris-f1.streamlit.app |
-| **Last tag** | [`v0.1-foundation`](https://github.com/AnassNadeem/ARIS/releases/tag/v0.1-foundation) — baseline MAE 1.088 s across 8 races / 6734 laps |
+| **Current phase** | Phase 2 complete — Phase 3 (lap-time predictor) opens Jun 1 |
+| **Live demo** | [aris-f1.streamlit.app](https://aris-f1.streamlit.app) |
+| **Last tag** | [`v0.2-pipeline`](https://github.com/AnassNadeem/ARIS/releases/tag/v0.2-pipeline) — Postgres ingest + live dashboard; baseline floor **0.460 s MAE** on green-flag laps across 8 races / 6383 laps |
 | **Cadence** | 6 hrs/day × 6 days/week (Sundays off) |
 
 This repo is **under active construction**. Phases ship sequentially as
@@ -104,9 +104,9 @@ MATLAB / Simulink port of the bicycle module — separate repo
 | Phase | Weeks | Output | Tag |
 |---|---|---|---|
 | 0 | 0 | Loadout — Python, Docker, Ollama, NVIDIA + CUDA, repo skeleton | (prep, untagged) |
-| 1 | 1–2 | Python foundations + first FastF1 plot | `v0.1-foundation` |
-| 2 | 3–4 | Postgres ingest + Streamlit dashboard, deployed | `v0.2-pipeline` |
-| 3 | 5–7 | Lap-time predictor (physics + residual ML), MAE < 1.0 s on held-out | `v0.3-predictor` |
+| 1 | 1–2 | Python foundations + first FastF1 plot | `v0.1-foundation` ✅ |
+| 2 | 3–4 | Postgres ingest + Streamlit dashboard, deployed | `v0.2-pipeline` ✅ |
+| 3 | 5–7 | Lap-time predictor (physics + residual ML), MAE < 1.0 s on held-out | `v0.3-predictor` ◀ next |
 | 4 | 8–9 | Counterfactual simulator, "lift 30 m T7 → +0.18 s" demo | `v0.4-counterfactual` |
 | 5 | 10–11 | Always-on loop + recommendation feed, Monte Carlo slim layer, MATLAB port begins | `v0.5-always-on` |
 | 6 | 12–13 | LLM narration + MATLAB validation finish | `v0.6-narrated` |
