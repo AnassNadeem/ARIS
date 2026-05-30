@@ -1,0 +1,21 @@
+# Pip fallback for the local app + test environment.
+#
+# The canonical dependency source is pyproject.toml; `uv sync --extra dev` (what
+# CI runs) is the recommended path. This file mirrors the runtime + dev subset so
+# a plain `python -m venv .venv && pip install -r requirements.txt` also gets you
+# a working local dashboard + test run, no uv required. Streamlit Cloud reads its
+# own pinned subset from apps/requirements.txt, not this file.
+
+# runtime
+numpy
+pandas
+matplotlib
+fastf1
+sqlalchemy>=2.0
+psycopg[binary]>=3.1
+python-dotenv>=1.0
+streamlit>=1.40
+
+# dev / test
+pytest>=8.0
+ruff>=0.5
