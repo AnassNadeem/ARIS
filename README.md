@@ -7,11 +7,17 @@ predicts what's about to happen, and proposes the next decision with a
 quantified lap-time delta and a calibrated confidence interval — built
 on real F1 telemetry, validated end-to-end on held-out races.**
 
-**Live demo:** https://aris-f1.streamlit.app — pick a season, race, driver; see the lap-time trace and the MA(2) baseline floor a model must beat. Sourced from an idempotent FastF1 → Postgres ingest of the 2024 season.
+### ▶ Live demo — [**aris-f1.streamlit.app**](https://aris-f1.streamlit.app)
 
-![Verstappen fastest race lap — Bahrain 2024 (speed vs distance)](assets/screenshots/bahrain-2024-ver-fastest-lap.png)
+Pick a season, race, and driver and you get that driver's lap-time trace, a
+per-sector breakdown, and the **MA(2) baseline floor a model has to beat** —
+served live from an idempotent FastF1 → Postgres ingest of the 2024 season,
+cross-checked against the pandas baseline at machine epsilon. No build to run,
+no notebook to open: the pipeline is the page.
 
-*Phase 1 first pull — Max Verstappen's fastest race lap at Bahrain 2024 (lap 39, 1:32.608, soft tyre), speed vs distance over the 5.41 km lap, generated from FastF1 telemetry in [`notebooks/01-fastf1-first-pull.ipynb`](./notebooks/01-fastf1-first-pull.ipynb).*
+<!-- hero: replace with a deployed-dashboard screenshot (assets/screenshots/wk4-streamlit-hero.png)
+     once captured in-browser — the dashboard sits behind Streamlit Cloud's wake/auth
+     redirect, so the capture is a manual browser step (see BUILD-LOG 2026-05-28). -->
 
 ---
 
@@ -137,6 +143,17 @@ python scripts\prewarm_cache.py
 
 The cache will land in `fastf1_cache/` (gitignored — regenerable).
 Subsequent `session.load()` calls in notebooks return in ~1 second.
+
+---
+
+## Phase 1 artefact — first FastF1 pull
+
+![Verstappen fastest race lap — Bahrain 2024 (speed vs distance)](assets/screenshots/bahrain-2024-ver-fastest-lap.png)
+
+*Where this started: Max Verstappen's fastest race lap at Bahrain 2024 (lap 39,
+1:32.608, soft tyre), speed vs distance over the 5.41 km lap, straight from FastF1
+telemetry in [`notebooks/01-fastf1-first-pull.ipynb`](./notebooks/01-fastf1-first-pull.ipynb).
+This was the Phase 1 hero; the live dashboard above is the Phase 2 one.*
 
 ---
 
