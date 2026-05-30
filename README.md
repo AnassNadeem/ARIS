@@ -19,6 +19,17 @@ no notebook to open: the pipeline is the page.
      once captured in-browser — the dashboard sits behind Streamlit Cloud's wake/auth
      redirect, so the capture is a manual browser step (see BUILD-LOG 2026-05-28). -->
 
+**Where it stands today (Phase 2 complete):** ARIS ingests a full FastF1 season
+into Postgres with an idempotent, all-or-nothing-per-session pipeline, derives a
+moving-average lap-time baseline per tyre stint, and serves it through a public
+Streamlit dashboard. The baseline is computed twice — once in pandas, once as a
+Postgres window query — and the two match to **machine epsilon** across eight
+reference races, which is the canary that proves the ingest is lossless before any
+model touches it. That baseline — **0.460 s MAE on green-flag laps** — is the floor
+the Phase 3 predictor (hand-coded physics + an XGBoost residual, starting June) has
+to beat, and the cross-check is what catches a beat that comes from leakage rather
+than signal.
+
 ---
 
 ## Status
