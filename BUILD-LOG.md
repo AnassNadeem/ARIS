@@ -164,12 +164,17 @@ A daily journal of what got built, what broke, and what I learned. One bullet pe
 
 **Weekly retro (Wk 4):**
 
+- **Shipped:** Public Streamlit URL live (Neon-backed, 2024 season laps); sector-breakdown chart + race/driver-selector polish on the dashboard; `TrackStatus='1'` green-only filter in both the pandas baseline path and the SQL canary; `results/wk2-baseline-mae.csv` regenerated at the **0.460 s** floor; `wk2_day3_block4.py` promoted to `aris.eval.run_baseline_all_races` with a `-m` entry point; telemetry gear-clean rule (420 bad gears nulled, 0 rows lost); README reframed around the live demo (Phase-1 hero demoted, pitch + status table + roadmap updated); root `requirements.txt` populated as a pip fallback; `v0.2-pipeline` tagged + pushed; Phase 3 leakage-tripwire spec written; Wk 5 plan written.
+- **Slipped:** The deployed-dashboard **screenshot** — and therefore the README hero swap to an image and **LinkedIn post #1** — slipped to Wk 5 Day 3. Root cause: the capture is a manual in-browser step (Streamlit Cloud wake/auth redirect blocks headless capture; the local-render fallback was blocked by a venv wedged on OneDrive file locks during `uv sync`). Honest gate result, not a fudge: 3 of 4 criteria passed, criterion 3 failed, deferred per the rule. GitHub release pages for `v0.1`/`v0.2` drafted but not created (outward-facing, staged for the week-close window). `ARIS-Tracker.xlsx` rows still a manual carry-over.
+- **Numbers:** Baseline floor **1.088 s → 0.460 s** (green-only filter; 6734 → 6383 scored laps). Cross-check **6.66e-16 s** local (8 races, Day 3) and **8.33e-16 s** against live Neon (5 ingested 2024 races, Day 4) — lossless on both. Tests **46 unit pass / 6 DB-integration skip** with no `ARIS_DB_URL` (CI's exact state). Telemetry: 420 out-of-range gears nulled, 840 934 rows intact. Commits this week: ~14 on `main` Mon May 25 → Sat May 30 (Day 1 ×4, Day 2 ×2, Day 3 ×5, Day 4 ×4, Day 5 ×3, Day 6 ×3 — local docs excluded as `docs/` is gitignored).
+- **Changes for Wk 5:** Fix the venv (kill the OneDrive lock contention — likely move the repo off the synced folder or exclude `.venv` from OneDrive) so the dashboard screenshot + any local app run stop being blocked; that single fix unblocks the README hero and the LinkedIn post on Wk 5 Day 3. Build the leakage tripwire **before** any feature engineering — it's Phase 3 Day 1's only real commit. Send the Brunel WhatsApp mid-week once the first physics layer exists; don't defer it a third time.
+
 **Phase 2 retrospective:**
 
-- Tag shipped: `v0.2-pipeline`
-- Live URL:
-- LinkedIn post #2 link:
-- What I'd change:
+- **Tag shipped:** `v0.2-pipeline` (on `00eb3cc`) — "Phase 2 close: live URL, Postgres ingest, sector chart, TrackStatus-filtered baseline."
+- **Live URL:** https://aris-f1.streamlit.app — Streamlit Community Cloud, reading the 2024 season laps from Neon Postgres.
+- **LinkedIn post #2 link:** *(this is post #1 in the social plan)* — **deferred to Wk 5 Day 3.** Gate passed 3/4; the dashboard-screenshot hero is the one missing piece, and it's the post's lead attachment too, so both wait on the same capture. Penalty for waiting: zero.
+- **What I'd change:** (1) The single biggest tax this phase was environment, not engineering — the OneDrive-synced `.venv` cost a real deliverable (the screenshot). Should have moved the working tree off the synced folder at Phase 2 start. (2) The cloud deploy was prep-only for a week before the manual Neon/Streamlit steps got pressed — the scripted half (connection diagnosis, schema apply, ingest) was reproducible, but the browser half had no runbook discipline until `DEPLOY.md` forced it. (3) The green-flag filter should have been in the baseline from Wk 2 — shipping a 1.088 s floor that was really 0.460 s once SC/red-flag laps came out meant the first public baseline number was inflated for two weeks. What went *right*: the dual pandas/SQL cross-check at machine epsilon is the decision I'd defend in any interview — it turned "I think the ingest worked" into "the ingest is provably lossless," and it's what will catch a Phase 3 model that beats the floor by leaking instead of learning.
 
 ---
 
