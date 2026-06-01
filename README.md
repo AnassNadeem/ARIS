@@ -15,9 +15,7 @@ served live from an idempotent FastF1 → Postgres ingest of the 2024 season,
 cross-checked against the pandas baseline at machine epsilon. No build to run,
 no notebook to open: the pipeline is the page.
 
-<!-- hero: replace with a deployed-dashboard screenshot (assets/screenshots/wk4-streamlit-hero.png)
-     once captured in-browser — the dashboard sits behind Streamlit Cloud's wake/auth
-     redirect, so the capture is a manual browser step (see BUILD-LOG 2026-05-28). -->
+[![ARIS Phase 2 dashboard — Bahrain 2024 race, Max Verstappen: lap-time trace, per-sector breakdown, and the MA(2) baseline floor](assets/screenshots/wk4-streamlit-hero.png)](https://aris-f1.streamlit.app)
 
 **Where it stands today (Phase 2 complete):** ARIS ingests a full FastF1 season
 into Postgres with an idempotent, all-or-nothing-per-session pipeline, derives a
