@@ -55,3 +55,4 @@ docs/
 *.log
 wandb/
 mlruns/
+.gstack/
