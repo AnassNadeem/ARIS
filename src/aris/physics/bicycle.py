@@ -13,6 +13,12 @@ from dataclasses import dataclass
 
 G = 9.81  # m/s^2
 
+# Empirical linear fuel penalty. Grip-limited cornering cancels mass (see notes), so the
+# Day-2 physics is fuel-blind; fuel actually costs time on straight-line acceleration,
+# which the grip-limited straight model also ignores. We add it back as a calibrated
+# linear term — the long-standing F1 rule of thumb of ~0.03 s of lap time per kg of fuel.
+FUEL_PENALTY_S_PER_KG = 0.03
+
 
 @dataclass(frozen=True)
 class Car:
@@ -40,14 +46,17 @@ class Track:
     corners: tuple[Corner, ...]
     straight_length_m: float
     name: str = ""
+    pit_loss_s: float = 0.0  # time lost vs a green lap when this lap is an in/out (pit) lap
 
 
 @dataclass(frozen=True)
 class StintState:
-    """Inputs to a single predicted lap. Day 3 adds fuel_kg + tyre_age_laps."""
+    """Inputs to a single predicted lap. fuel_kg + pit_lap added Wk5 Day 3."""
 
     car: Car
     track: Track
+    fuel_kg: float = 0.0  # current fuel load; heavier ⇒ slower via the linear penalty
+    pit_lap: bool = False  # if this lap enters/exits the pits, add track.pit_loss_s
 
 
 def lateral_accel_limit(car: Car) -> float:
@@ -106,7 +115,11 @@ def predict_lap_time(state: StintState) -> float:
         max_speed_ms=car.max_speed_ms,
         accel_ms2=lateral_accel_limit(car),  # longitudinal grip == lateral grip (friction circle)
     )
-    return corner_time + n * segment_time
+    physics_time = corner_time + n * segment_time
+
+    fuel_time = FUEL_PENALTY_S_PER_KG * state.fuel_kg
+    pit_time = track.pit_loss_s if state.pit_lap else 0.0
+    return physics_time + fuel_time + pit_time
 
 
 def bahrain_2024() -> Track:
@@ -131,4 +144,9 @@ def bahrain_2024() -> Track:
     )
     arc_total = sum(c.arc_length_m for c in corners)
     lap_length_m = 5412.0
-    return Track(corners=corners, straight_length_m=lap_length_m - arc_total, name="Bahrain")
+    return Track(
+        corners=corners,
+        straight_length_m=lap_length_m - arc_total,
+        name="Bahrain",
+        pit_loss_s=21.0,  # ≈ pit-lane time loss vs a green lap at Bahrain
+    )

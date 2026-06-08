@@ -108,6 +108,59 @@ cells = [
         "fig.tight_layout()\n"
         "plt.show()"
     ),
+    md(
+        "## Day 3 — fuel-burn + pit-loss terms\n\n"
+        "Two linear corrections on top of the physics. **Fuel:** the car carries ~110 kg at "
+        "the start and burns ~1.7 kg/lap; at ~0.03 s per kg, a full tank costs ~3 s vs empty. "
+        "**Pit-loss:** an in/out lap costs ~21 s at Bahrain. We model fuel across the whole "
+        "race so this (final) stint correctly sits at low fuel, then re-score."
+    ),
+    code(
+        "from aris.eval.scoring import mae\n\n"
+        "START_FUEL_KG, BURN_PER_LAP_KG = 110.0, 1.7\n"
+        'lap_no = stint["LapNumber"].to_numpy()\n'
+        "fuel_kg = (START_FUEL_KG - BURN_PER_LAP_KG * (lap_no - 1)).clip(min=0)\n\n"
+        "track = bahrain_2024()\n"
+        "pred_base = [predicted_s] * len(actual_s)\n"
+        "pred_fuel = [predict_lap_time(StintState(Car(), track, fuel_kg=f)) for f in fuel_kg]\n\n"
+        "mae_base = mae(actual_s, pred_base)\n"
+        "mae_fuel = mae(actual_s, pred_fuel)\n"
+        'print(f"fuel over this stint: {fuel_kg.max():.0f} -> {fuel_kg.min():.0f} kg")\n'
+        'print(f"MAE physics-only:     {mae_base:.2f} s")\n'
+        'print(f"MAE + fuel term:      {mae_fuel:.2f} s")\n'
+        "full = predict_lap_time(StintState(Car(), track, fuel_kg=100.0))\n"
+        "green_ref = predict_lap_time(StintState(Car(), track, fuel_kg=30.0))\n"
+        "pit = predict_lap_time(StintState(Car(), track, fuel_kg=30.0, pit_lap=True))\n"
+        'print(f"full-tank (100 kg) lap: {full:.2f} s  (+{full - predicted_s:.2f} vs empty)")\n'
+        'print(f"in/out (pit) lap:       {pit:.2f} s  (+{pit - green_ref:.2f} pit-loss)")'
+    ),
+    code(
+        "fig, ax = plt.subplots(figsize=(9, 4.5))\n"
+        'ax.plot(tyre_life, actual_s, "o-", color="#1f77b4", label="actual (VER)")\n'
+        'ax.plot(tyre_life, pred_base, "--", color="#d62728", lw=2, label="physics only (flat)")\n'
+        'ax.plot(tyre_life, pred_fuel, "-", color="#ff7f0e", lw=2, label="physics + fuel")\n'
+        'ax.set_xlabel("tyre life (laps)")\n'
+        'ax.set_ylabel("lap time (s)")\n'
+        'ax.set_title("Bahrain 2024 — VER: adding the fuel-burn slope")\n'
+        'ax.grid(True, alpha=0.3)\n'
+        "ax.legend()\n"
+        "fig.tight_layout()\n"
+        'out2 = REPO / "assets" / "screenshots" / "wk5-bicycle-fuel.png"\n'
+        'fig.savefig(out2, dpi=110, bbox_inches="tight")\n'
+        'print("saved", out2.relative_to(REPO))'
+    ),
+    md(
+        "### Honest read: the fuel term is correct but doesn't help here\n\n"
+        "The fuel term adds the right *shape* — a gentle downward slope as the tank empties — "
+        "but it's worth <1 s across this light-fuel final stint, while the error it's competing "
+        "with is the **~16 s constant bias from missing downforce**. So the MAE barely moves "
+        "(and, because the base is already too slow, adding any positive fuel penalty nudges it "
+        "slightly *worse* on this stint). That is exactly the expected outcome, not a failure: "
+        "a near-constant bias is an intercept the **Wk-6 residual ML learns trivially**, and the "
+        "fuel/pit-loss terms exist to get the per-lap *structure* right, not the absolute level. "
+        "Hand-tuning the grip constant to erase the bias would over-fit one stint and generalise "
+        "badly — the residual model closes it from data instead."
+    ),
 ]
 
 nb = nbf.v4.new_notebook()

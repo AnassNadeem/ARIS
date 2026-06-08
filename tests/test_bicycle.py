@@ -5,6 +5,7 @@ import math
 import pytest
 
 from aris.physics.bicycle import (
+    FUEL_PENALTY_S_PER_KG,
     Car,
     Corner,
     StintState,
@@ -101,3 +102,35 @@ class TestPredictLapTime:
         short = predict_lap_time(StintState(car, Track((Corner(80, 70),), 1000.0)))
         long = predict_lap_time(StintState(car, Track((Corner(80, 70),), 3000.0)))
         assert long > short
+
+
+class TestFuelAndPitLoss:
+    def test_fuel_adds_time_linearly(self):
+        track = bahrain_2024()
+        dry = predict_lap_time(StintState(Car(), track, fuel_kg=0.0))
+        loaded = predict_lap_time(StintState(Car(), track, fuel_kg=100.0))
+        assert loaded - dry == pytest.approx(FUEL_PENALTY_S_PER_KG * 100.0)
+
+    def test_more_fuel_is_slower(self):
+        track = bahrain_2024()
+        light = predict_lap_time(StintState(Car(), track, fuel_kg=10.0))
+        heavy = predict_lap_time(StintState(Car(), track, fuel_kg=90.0))
+        assert heavy > light
+
+    def test_zero_fuel_recovers_pure_physics(self):
+        track = bahrain_2024()
+        with_default = predict_lap_time(StintState(Car(), track))
+        with_zero = predict_lap_time(StintState(Car(), track, fuel_kg=0.0))
+        assert with_default == pytest.approx(with_zero)
+
+    def test_pit_lap_adds_exactly_pit_loss(self):
+        track = bahrain_2024()
+        green = predict_lap_time(StintState(Car(), track, fuel_kg=30.0, pit_lap=False))
+        pit = predict_lap_time(StintState(Car(), track, fuel_kg=30.0, pit_lap=True))
+        assert pit - green == pytest.approx(track.pit_loss_s)
+
+    def test_no_pit_loss_when_track_has_none(self):
+        plain = Track((Corner(80, 70),), 2000.0)  # pit_loss_s defaults to 0
+        green = predict_lap_time(StintState(Car(), plain, pit_lap=False))
+        pit = predict_lap_time(StintState(Car(), plain, pit_lap=True))
+        assert pit == pytest.approx(green)
