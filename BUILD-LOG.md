@@ -179,23 +179,13 @@ A daily journal of what got built, what broke, and what I learned. One bullet pe
 
 ---
 
-## Phase 3 — Lap-time predictor (Weeks 5–7, Jun 1 – Jun 21)
+## Phase 3 — Lap-time predictor (Weeks 5–7, Jun 8 – Jun 28)
 
-### Week 5 (Jun 1 – Jun 7) — leakage tripwire + bicycle model + Brunel WhatsApp
+> **Calendar slip (logged honestly, not backfilled):** Week 5 was written Sat May 30 to run Jun 1–6, but the calendar week Jun 1–7 was not worked — the repo's last commit before today is the Wk 4 close-out (`648c8d1`, Jun 1). Rather than fabricate six days of Jun-1 entries, Phase 3 starts on the real date it started: **Mon Jun 8**. The whole Phase-3 calendar shifts back one week (Wk 5 → Jun 8–14, Wk 6 → Jun 15–21, Wk 7 → Jun 22–28); downstream phase/week dates inherit the same one-week shift and get corrected as each is reached. Target ship date is re-examined at the Phase 3 retro, not silently held.
 
-- **2026-06-01 (Mon):**
-- **2026-06-02 (Tue):**
-- **2026-06-03 (Wed):**
-- **2026-06-04 (Thu):**
-- **2026-06-05 (Fri):**
-- **2026-06-06 (Sat):**
-- **2026-06-07 (Sun):** *off*
+### Week 5 (Jun 8 – Jun 14) — leakage tripwire + bicycle model + Brunel WhatsApp
 
-**Weekly retro (Wk 5):**
-
-### Week 6 (Jun 8 – Jun 14) — tire degradation curve
-
-- **2026-06-08 (Mon):**
+- **2026-06-08 (Mon):** *Phase 3 opens — the leakage tripwire, before any model or feature.* The non-negotiable Day-1 commit: a test that fails loudly if a feature row can ever see its own target or a future lap, built *first* so every later Phase-3 number is honest by construction. **`src/aris/models/cv.py`** — `race_by_race_folds(df, race_col='race_id')` yields leave-one-race-out `(train_idx, test_idx)` with positional indices and provably zero race overlap per fold; this is the split the tripwire enforces and the harness Phase 3 scores against. **`tests/test_no_leakage.py`** — the keystone. A synthetic one-driver/one-stint frame where every lap's `LapTimeS` is unique and far-separated (90 + 0.05·tyre_life + 100·lap + noise), so any feature that secretly includes a lap *moves measurably* when that lap is perturbed. `assert_leakage_safe` perturbs (a) lap i's own target and (b) every lap after i, asserting lap i's feature is bit-identical in both cases — the operational definition of "feature support ⊂ laps < N within (driver, stint)." It is **red against a deliberately leaky builder** (`rolling(k)` with the `shift(1)` dropped → self-leak caught with a `"self leak"` AssertionError) and **green against the correct `shift(1).rolling(k)`**; the exact MA(2) baseline Phase 2 shipped passes as a regression guard, and a separate test confirms shuffling future rows leaves all past features unchanged. Pure synthetic, no DB — runs in CI. **`tests/test_cv.py`** — 7 cases: no race on both sides of a fold, each race held out exactly once, train/test partition the frame, positional-not-label indices. **Verification:** 12 new tests green; full non-DB suite **60 passed** (`ruff` clean; the 6 `test_db`/`test_ingest` cases error locally only because the Docker Postgres isn't up this session — they skip in CI where no `.env` sets `ARIS_DB_URL`, and Day 1 touches no DB path). Pushed `main`; **CI green** on `f6161c9`. *Tonight: Rajamani Ch. 2 single-track derivation so Tue starts with the model, not the maths.* Commit: `f6161c9`.
 - **2026-06-09 (Tue):**
 - **2026-06-10 (Wed):**
 - **2026-06-11 (Thu):**
@@ -203,9 +193,9 @@ A daily journal of what got built, what broke, and what I learned. One bullet pe
 - **2026-06-13 (Sat):**
 - **2026-06-14 (Sun):** *off*
 
-**Weekly retro (Wk 6):**
+**Weekly retro (Wk 5):**
 
-### Week 7 (Jun 15 – Jun 21) — residual ML + conformal calibration
+### Week 6 (Jun 15 – Jun 21) — tire degradation curve
 
 - **2026-06-15 (Mon):**
 - **2026-06-16 (Tue):**
@@ -214,6 +204,18 @@ A daily journal of what got built, what broke, and what I learned. One bullet pe
 - **2026-06-19 (Fri):**
 - **2026-06-20 (Sat):**
 - **2026-06-21 (Sun):** *off*
+
+**Weekly retro (Wk 6):**
+
+### Week 7 (Jun 22 – Jun 28) — residual ML + conformal calibration
+
+- **2026-06-22 (Mon):**
+- **2026-06-23 (Tue):**
+- **2026-06-24 (Wed):**
+- **2026-06-25 (Thu):**
+- **2026-06-26 (Fri):**
+- **2026-06-27 (Sat):**
+- **2026-06-28 (Sun):** *off*
 
 **Weekly retro (Wk 7):**
 
