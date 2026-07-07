@@ -11,6 +11,8 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from aris.physics.tires import tire_pace_loss
+
 G = 9.81  # m/s^2
 
 # Empirical linear fuel penalty. Grip-limited cornering cancels mass (see notes), so the
@@ -57,6 +59,8 @@ class StintState:
     track: Track
     fuel_kg: float = 0.0  # current fuel load; heavier ⇒ slower via the linear penalty
     pit_lap: bool = False  # if this lap enters/exits the pits, add track.pit_loss_s
+    compound: str = "MEDIUM"
+    lap_in_stint: int = 1  # tyre life within stint (1 = out-lap)
 
 
 def lateral_accel_limit(car: Car) -> float:
@@ -119,7 +123,8 @@ def predict_lap_time(state: StintState) -> float:
 
     fuel_time = FUEL_PENALTY_S_PER_KG * state.fuel_kg
     pit_time = track.pit_loss_s if state.pit_lap else 0.0
-    return physics_time + fuel_time + pit_time
+    tire_time = tire_pace_loss(state.compound, state.lap_in_stint)
+    return physics_time + fuel_time + pit_time + tire_time
 
 
 def bahrain_2024() -> Track:
