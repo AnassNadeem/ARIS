@@ -47,7 +47,8 @@ with st.sidebar:
         "physics + residual-ML + LLM-narration model.\n\n"
         "This dashboard reads the `sessions` / `drivers` / `laps` tables "
         "populated by the idempotent FastF1 → Postgres ingest.\n\n"
-        "[Project README](https://github.com/AnassNadeem/ARIS#readme)"
+        "[Project README](https://github.com/AnassNadeem/ARIS#readme)\n\n"
+        "**Pages:** [Race Strategy](Strategy)"
     )
 
 seasons = db.fetch_seasons()
