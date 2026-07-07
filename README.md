@@ -36,7 +36,7 @@ than signal.
 |---|---|
 | **Started** | 2026-05-04 |
 | **Ship target** | 2026-08-31 (`v1.0-shipped`) |
-| **Current phase** | Phase 2 complete — Phase 3 (lap-time predictor) opens Jun 1 |
+| **Current phase** | v1 strategy demo — physics + XGBoost + MC recommender + narration |
 | **Live demo** | [aris-f1.streamlit.app](https://aris-f1.streamlit.app) |
 | **Last tag** | [`v0.2-pipeline`](https://github.com/AnassNadeem/ARIS/releases/tag/v0.2-pipeline) — Postgres ingest + live dashboard; baseline floor **0.460 s MAE** on green-flag laps across 8 races / 6383 laps |
 | **Cadence** | 6 hrs/day × 6 days/week (Sundays off) |
@@ -117,14 +117,21 @@ MATLAB / Simulink port of the bicycle module — separate repo
 
 ```
 ARIS/
-├── src/aris/           # production logic (physics, models, eval, simulate)
-├── scripts/            # one-off CLIs (ingest, prewarm, eval)
-├── notebooks/          # exploration only; ≤5 across Phases 0–2
-├── tests/              # pytest — ingest idempotency, scoring, stint detection
-├── data/               # gitignored (raw + processed parquet)
-├── models/             # gitignored (trained artefacts)
-├── results/            # gitignored (eval outputs)
-├── BUILD-LOG.md        # daily journal, honest about slips
+├── src/aris/           # production logic (io, eval, physics, models, strategy)
+│   ├── io/             # Postgres + FastF1 ingest
+│   ├── eval/           # baselines, scoring, laptime harness
+│   ├── physics/        # bicycle model, tyres, stint detection
+│   ├── models/         # features, residual XGBoost, predict
+│   ├── state.py        # RaceState snapshot
+│   ├── simulate.py     # counterfactual pit/stay-out
+│   ├── montecarlo.py   # slim MC confidence layer
+│   ├── recommend.py    # top-3 strategy search
+│   └── narrate.py      # Ollama radio-call narration
+├── apps/               # Streamlit (lap explorer + Strategy page)
+├── scripts/            # ingest, train_residual, smoke_strategy
+├── models/             # gitignored trained artefacts (residual_xgb.json)
+├── tests/
+├── BUILD-LOG.md
 └── ARIS-EXECUTION-PLAN.md
 ```
 
@@ -170,6 +177,43 @@ python -m aris.eval.run_baseline_all_races # regenerate the 0.460 s green-flag f
 
 The FastF1 cache lands in `fastf1_cache/` (gitignored — regenerable); subsequent
 `session.load()` calls return in ~1 second.
+
+---
+
+## v1 strategy demo (end-to-end)
+
+ARIS v1 adds a **Race Strategy** page: pick a replay lap, optionally override
+compound/fuel, and get top-3 pit/stay-out recommendations with a narrated radio call.
+
+**Prerequisites:** Postgres with 2024 season ingested, FastF1 cache warmed, and
+(optionally) the trained residual model in `models/residual_xgb.json`.
+
+```powershell
+# 1. Environment
+docker compose up -d
+uv sync --extra dev          # or: pip install -r requirements.txt
+python scripts\ingest_season.py 2024
+
+# 2. Train the XGBoost residual (first run only; ~2 min with warm cache)
+python scripts\train_residual.py
+
+# 3. Launch dashboard — use the "Strategy" page in the sidebar
+streamlit run apps\streamlit_app.py
+
+# 4. CLI smoke test (Bahrain 2024 R, VER, lap 15)
+python scripts\smoke_strategy.py --no-llm
+
+# 5. Held-out lap-time MAE eval
+python -m aris.eval.laptime
+```
+
+**Ollama narration (optional):** install [Ollama](https://ollama.com), pull
+`llama3.1:8b-instruct-q5_K_M`, and leave the "Use Ollama narration" checkbox on
+in the Strategy page. If Ollama is down, ARIS falls back to a template radio call.
+
+**Honest predictor note:** the physics + tyre + XGBoost stack is wired end-to-end;
+held-out MAE may still be above the 0.460 s MA(2) baseline floor while the model
+matures — the strategy demo runs on the full stack regardless.
 
 ---
 
