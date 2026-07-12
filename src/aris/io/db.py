@@ -177,6 +177,188 @@ _DRIVER_MA2_QUERY = text(
 )
 
 
+_TEAMS_QUERY = text(
+    """
+    SELECT DISTINCT team
+    FROM drivers
+    WHERE driver_id IN (SELECT DISTINCT driver_id FROM laps WHERE session_id = :session_id)
+      AND team IS NOT NULL
+    ORDER BY team
+    """
+)
+
+
+def fetch_teams(session_id: int) -> list[str]:
+    """Distinct teams with at least one lap in the session."""
+    with engine().connect() as conn:
+        rows = conn.execute(_TEAMS_QUERY, {"session_id": session_id}).all()
+    return [str(r[0]) for r in rows]
+
+
+_DRIVERS_BY_TEAM_QUERY = text(
+    """
+    SELECT driver_id, code, full_name, team
+    FROM drivers
+    WHERE driver_id IN (SELECT DISTINCT driver_id FROM laps WHERE session_id = :session_id)
+      AND team = :team
+    ORDER BY code
+    """
+)
+
+
+def fetch_drivers_by_team(session_id: int, team: str) -> pd.DataFrame:
+    """Drivers for one team in a session."""
+    with engine().connect() as conn:
+        return pd.read_sql(
+            _DRIVERS_BY_TEAM_QUERY,
+            conn,
+            params={"session_id": session_id, "team": team},
+        )
+
+
+_ALL_LAPS_QUERY = text(
+    """
+    SELECT d.driver_id, d.code, d.full_name, d.team,
+           l.lap_number, l.lap_time_s, l.compound, l.tyre_life, l.stint,
+           l.sector_1_s, l.sector_2_s, l.sector_3_s,
+           l.track_status, l.pit_in, l.pit_out
+    FROM laps l
+    JOIN drivers d ON d.driver_id = l.driver_id
+    WHERE l.session_id = :session_id
+    ORDER BY l.lap_number, d.code
+    """
+)
+
+
+def fetch_all_laps(session_id: int) -> pd.DataFrame:
+    """Field-wide laps with driver metadata for leaderboard replay."""
+    with engine().connect() as conn:
+        return pd.read_sql(_ALL_LAPS_QUERY, conn, params={"session_id": session_id})
+
+
+_WEEKEND_SESSIONS_QUERY = text(
+    """
+    SELECT session_id, session_type, country, date
+    FROM sessions
+    WHERE year = :year AND round_no = :round_no
+    ORDER BY CASE session_type
+        WHEN 'FP1' THEN 1 WHEN 'FP2' THEN 2 WHEN 'FP3' THEN 3
+        WHEN 'Q' THEN 4 WHEN 'SQ' THEN 5 WHEN 'SS' THEN 6
+        WHEN 'R' THEN 7 WHEN 'SR' THEN 8 ELSE 9 END
+    """
+)
+
+
+def fetch_weekend_sessions(year: int, round_no: int) -> pd.DataFrame:
+    """All sessions for a race weekend."""
+    with engine().connect() as conn:
+        return pd.read_sql(
+            _WEEKEND_SESSIONS_QUERY,
+            conn,
+            params={"year": year, "round_no": round_no},
+        )
+
+
+_WEATHER_QUERY = text(
+    """
+    SELECT air_temp_c, track_temp_c, humidity_pct, rainfall
+    FROM session_weather
+    WHERE session_id = :session_id
+    """
+)
+
+
+def fetch_session_weather(session_id: int) -> dict | None:
+    """Session weather summary or None if not ingested."""
+    with engine().connect() as conn:
+        row = conn.execute(_WEATHER_QUERY, {"session_id": session_id}).fetchone()
+    if row is None:
+        return None
+    return {
+        "air_temp_c": float(row.air_temp_c) if row.air_temp_c is not None else None,
+        "track_temp_c": float(row.track_temp_c) if row.track_temp_c is not None else None,
+        "humidity_pct": float(row.humidity_pct) if row.humidity_pct is not None else None,
+        "rainfall": bool(row.rainfall),
+    }
+
+
+_SESSION_RESULTS_QUERY = text(
+    """
+    SELECT d.code, d.full_name, d.team, r.grid_pos, r.finish_pos, r.points
+    FROM session_results r
+    JOIN drivers d ON d.driver_id = r.driver_id
+    WHERE r.session_id = :session_id
+    ORDER BY COALESCE(r.finish_pos, 99), d.code
+    """
+)
+
+
+def fetch_session_results(session_id: int) -> pd.DataFrame:
+    """Grid/finish results for a session."""
+    with engine().connect() as conn:
+        return pd.read_sql(_SESSION_RESULTS_QUERY, conn, params={"session_id": session_id})
+
+
+def fetch_driver_by_code(session_id: int, code: str) -> pd.Series | None:
+    """Resolve driver_id for a 3-letter code in a session."""
+    drivers = fetch_drivers(session_id)
+    match = drivers[drivers["code"] == code.upper()]
+    if match.empty:
+        return None
+    return match.iloc[0]
+
+
+def fetch_race_session_id(year: int, round_no: int) -> int | None:
+    """Session id for the race (R) of a weekend."""
+    with engine().connect() as conn:
+        row = conn.execute(
+            text(
+                "SELECT session_id FROM sessions "
+                "WHERE year = :year AND round_no = :round_no AND session_type = 'R'"
+            ),
+            {"year": year, "round_no": round_no},
+        ).fetchone()
+    return int(row[0]) if row else None
+
+
+def save_strategy_feedback(
+    session_id: int,
+    driver_id: int,
+    lap_number: int,
+    *,
+    decision_json: dict,
+    aris_rec_json: dict,
+    actual_json: dict,
+    delta_s: float | None = None,
+) -> None:
+    """Persist one post-race feedback row."""
+    import json
+
+    with engine().begin() as conn:
+        conn.execute(
+            text(
+                """
+                INSERT INTO strategy_feedback
+                    (session_id, driver_id, lap_number, decision_json,
+                     aris_rec_json, actual_json, delta_s)
+                VALUES
+                    (:session_id, :driver_id, :lap_number,
+                     CAST(:decision_json AS jsonb), CAST(:aris_rec_json AS jsonb),
+                     CAST(:actual_json AS jsonb), :delta_s)
+                """
+            ),
+            {
+                "session_id": session_id,
+                "driver_id": driver_id,
+                "lap_number": lap_number,
+                "decision_json": json.dumps(decision_json),
+                "aris_rec_json": json.dumps(aris_rec_json),
+                "actual_json": json.dumps(actual_json),
+                "delta_s": delta_s,
+            },
+        )
+
+
 def fetch_driver_ma2_mae(session_id: int, driver_id: int) -> tuple[float | None, int]:
     """MA(2) baseline MAE for one driver in one session.
 
