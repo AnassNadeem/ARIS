@@ -23,6 +23,11 @@ fastf1.Cache.enable_cache(str(CACHE_DIR))
 # (year, event-name, session-type). Event name is the GP location/country
 # as FastF1 fuzzy-matches it. Session type: R=Race, Q=Quali, S=Sprint, FPn.
 SESSIONS: list[tuple[int, str, str]] = [
+    (2025, "Bahrain", "FP1"),
+    (2025, "Bahrain", "FP2"),
+    (2025, "Bahrain", "FP3"),
+    (2025, "Bahrain", "Q"),
+    (2025, "Bahrain", "R"),
     (2024, "Bahrain", "R"),
     (2024, "Saudi Arabia", "R"),
     (2024, "Australia", "R"),
