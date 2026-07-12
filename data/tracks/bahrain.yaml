@@ -1,0 +1,8 @@
+name: Bahrain
+country: Bahrain
+total_laps: 57
+pit_loss_s: 21.0
+physics_profile: bahrain_2024
+round_aliases:
+  - bahrain
+  - sakhir
