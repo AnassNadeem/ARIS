@@ -1,25 +1,17 @@
-# Pip fallback for the local app + test environment.
-#
-# The canonical dependency source is pyproject.toml; `uv sync --extra dev` (what
-# CI runs) is the recommended path. This file mirrors the runtime + dev subset so
-# a plain `python -m venv .venv && pip install -r requirements.txt` also gets you
-# a working local dashboard + test run, no uv required. Streamlit Cloud reads its
-# own pinned subset from apps/requirements.txt, not this file.
-
-# runtime
-numpy
-pandas
-matplotlib
-fastf1
+# Streamlit Community Cloud reads this file, not pyproject.toml.
+# Mirrors the runtime subset of [project].dependencies that the deployed app
+# actually imports. FastF1 stays in — fetch_seasons/fetch_races never touch it
+# at request time, but keeping the same import surface as local rules out a
+# whole class of "works on my laptop" surprises.
+streamlit>=1.40
+pandas>=2.0
+numpy>=1.26
 sqlalchemy>=2.0
 psycopg[binary]>=3.1
 python-dotenv>=1.0
-streamlit>=1.40
+altair>=5.0
 scikit-learn>=1.4
 xgboost>=2.0
 pydantic>=2.0
 httpx>=0.27
-
-# dev / test
-pytest>=8.0
-ruff>=0.5
+pyyaml>=6.0
