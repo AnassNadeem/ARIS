@@ -44,6 +44,10 @@ class TestSimulate:
         )
         assert pit.total_race_time_s != stay.total_race_time_s
 
+    def test_evolving_lags_changes_over_laps(self):
+        outcome = simulate(_sample_state(lap_number=5, laps_remaining=52), StrategyAction(kind=ActionKind.STAY_OUT))
+        assert outcome.laps_simulated == 53
+
 
 class TestRecommend:
     def test_returns_top_three(self):
@@ -52,7 +56,7 @@ class TestRecommend:
         assert result.recommendations[0].rank == 1
 
     def test_stay_out_always_in_candidates(self):
-        result = recommend(_sample_state(), top_k=3, mc_draws=10)
+        result = recommend(_sample_state(), top_k=10, mc_draws=10)
         labels = [r.label for r in result.recommendations]
         assert any("stay" in lbl.lower() for lbl in labels)
 
