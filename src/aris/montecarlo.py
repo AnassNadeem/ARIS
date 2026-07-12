@@ -1,11 +1,17 @@
-"""Slim Monte Carlo layer — sample pace + pit-loss variance."""
+"""Slim Monte Carlo layer — per-lap pace variance."""
 
 from __future__ import annotations
 
 import numpy as np
 from pydantic import BaseModel
 
-from aris.simulate import PACE_SIGMA_S, ActionKind, StrategyAction, simulate
+from aris.simulate import (
+    PACE_SIGMA_S,
+    ActionKind,
+    StrategyAction,
+    _pit_schedule,
+    _simulate_remainder,
+)
 from aris.state import RaceState
 
 DEFAULT_DRAWS = 100
@@ -26,7 +32,23 @@ def _action_label(action: StrategyAction) -> str:
         return "Stay out"
     if action.kind == ActionKind.PIT_NOW:
         return f"Pit now -> {action.pit_compound or 'HARD'}"
+    if action.pit_laps:
+        return f"Pits {action.pit_laps} -> {action.pit_compounds}"
     return f"Pit L{action.pit_lap} -> {action.pit_compound or 'HARD'}"
+
+
+def _simulate_with_draw(
+    state: RaceState, action: StrategyAction, rng: np.random.Generator
+) -> float:
+    n_laps = max(1, state.laps_remaining)
+    noise = rng.normal(0.0, PACE_SIGMA_S, size=n_laps).tolist()
+    schedule = _pit_schedule(action, state)
+    if action.kind != ActionKind.STAY_OUT:
+        pit_noise = rng.normal(0.0, 0.5)
+        if noise:
+            noise[0] += pit_noise
+    total, _, _ = _simulate_remainder(state, pit_schedule=schedule, pace_noise=noise)
+    return total
 
 
 def run_mc(
@@ -37,14 +59,11 @@ def run_mc(
     seed: int = 42,
 ) -> MCDistribution:
     rng = np.random.default_rng(seed)
-    baseline = simulate(state, StrategyAction(kind=ActionKind.STAY_OUT))
+    baseline = _simulate_with_draw(state, StrategyAction(kind=ActionKind.STAY_OUT), rng)
 
     totals: list[float] = []
     for _ in range(n_draws):
-        outcome = simulate(state, action)
-        noise = rng.normal(0.0, PACE_SIGMA_S) * outcome.laps_simulated
-        pit_noise = rng.normal(0.0, 0.5) if action.kind != ActionKind.STAY_OUT else 0.0
-        totals.append(outcome.total_race_time_s + noise + pit_noise)
+        totals.append(_simulate_with_draw(state, action, rng))
 
     arr = np.array(totals)
     return MCDistribution(
@@ -53,6 +72,6 @@ def run_mc(
         std_time_s=float(arr.std()),
         p10_time_s=float(np.percentile(arr, 10)),
         p90_time_s=float(np.percentile(arr, 90)),
-        mean_delta_vs_stay_out_s=float(arr.mean() - baseline.total_race_time_s),
+        mean_delta_vs_stay_out_s=float(arr.mean() - baseline),
         n_draws=n_draws,
     )
