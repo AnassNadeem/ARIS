@@ -74,7 +74,12 @@ def _clean_gear(value: object) -> int | None:
 
 
 def _load_session(
-    year: int, event: int | str, session_type: str, *, with_telemetry: bool = False
+    year: int,
+    event: int | str,
+    session_type: str,
+    *,
+    with_telemetry: bool = False,
+    with_weather: bool = True,
 ):
     """Load one FastF1 session from the repo-local cache (telemetry optional)."""
     import fastf1  # lazy: keeps `import aris.io.ingest` cheap; shim already applied.
@@ -82,7 +87,12 @@ def _load_session(
     _CACHE_DIR.mkdir(parents=True, exist_ok=True)
     fastf1.Cache.enable_cache(str(_CACHE_DIR))
     sess = fastf1.get_session(year, event, session_type)
-    sess.load(laps=True, telemetry=with_telemetry, weather=False, messages=False)
+    sess.load(
+        laps=True,
+        telemetry=with_telemetry,
+        weather=with_weather,
+        messages=False,
+    )
     return sess
 
 
@@ -283,6 +293,87 @@ def _telemetry_rows_for_lap(lap, session_id: int, driver_id: int) -> list[dict]:
     return rows
 
 
+_INSERT_WEATHER = text(
+    """
+    INSERT INTO session_weather (session_id, air_temp_c, track_temp_c, humidity_pct, rainfall)
+    VALUES (:session_id, :air_temp_c, :track_temp_c, :humidity_pct, :rainfall)
+    ON CONFLICT (session_id) DO UPDATE SET
+        air_temp_c = EXCLUDED.air_temp_c,
+        track_temp_c = EXCLUDED.track_temp_c,
+        humidity_pct = EXCLUDED.humidity_pct,
+        rainfall = EXCLUDED.rainfall
+    """
+)
+
+_INSERT_RESULT = text(
+    """
+    INSERT INTO session_results (session_id, driver_id, grid_pos, finish_pos, points)
+    VALUES (:session_id, :driver_id, :grid_pos, :finish_pos, :points)
+    ON CONFLICT (session_id, driver_id) DO UPDATE SET
+        grid_pos = EXCLUDED.grid_pos,
+        finish_pos = EXCLUDED.finish_pos,
+        points = EXCLUDED.points
+    """
+)
+
+
+def _weather_summary(sess) -> dict | None:
+    """Median session weather from FastF1 weather dataframe."""
+    weather = getattr(sess, "weather_data", None)
+    if weather is None or weather.empty:
+        return None
+    rainfall = bool(weather.get("Rainfall", pd.Series([False])).any())
+    return {
+        "air_temp_c": _num(weather["AirTemp"].median()) if "AirTemp" in weather else None,
+        "track_temp_c": _num(weather["TrackTemp"].median()) if "TrackTemp" in weather else None,
+        "humidity_pct": _num(weather["Humidity"].median()) if "Humidity" in weather else None,
+        "rainfall": rainfall,
+    }
+
+
+def _result_rows(sess, session_id: int, code_to_id: dict[str, int]) -> list[dict]:
+    """Grid/finish positions from FastF1 session results."""
+    rows: list[dict] = []
+    for _, r in sess.results.iterrows():
+        code = str(r.get("Abbreviation", ""))
+        driver_id = code_to_id.get(code)
+        if driver_id is None:
+            continue
+        rows.append(
+            {
+                "session_id": session_id,
+                "driver_id": driver_id,
+                "grid_pos": _int(r.get("GridPosition")),
+                "finish_pos": _int(r.get("Position")),
+                "points": _num(r.get("Points")),
+            }
+        )
+    return rows
+
+
+def _table_exists(conn: Connection, table: str) -> bool:
+    return bool(
+        conn.execute(
+            text("SELECT to_regclass(:name) IS NOT NULL"),
+            {"name": f"public.{table}"},
+        ).scalar_one()
+    )
+
+
+def _upsert_weather(conn: Connection, session_id: int, summary: dict | None) -> int:
+    if summary is None or not _table_exists(conn, "session_weather"):
+        return 0
+    conn.execute(_INSERT_WEATHER, {"session_id": session_id, **summary})
+    return 1
+
+
+def _upsert_results(conn: Connection, rows: list[dict]) -> int:
+    if not rows or not _table_exists(conn, "session_results"):
+        return 0
+    conn.execute(_INSERT_RESULT, rows)
+    return len(rows)
+
+
 def _upsert_telemetry(conn: Connection, session_id: int, code_to_id: dict[str, int], sess) -> int:
     """Upsert every lap's telemetry samples; return rows_inserted.
 
@@ -334,7 +425,9 @@ def ingest_session(
             f"session_type {session_type!r} not one of {sorted(_VALID_SESSION_TYPES)}"
         )
 
-    sess = _load_session(year, event, session_type, with_telemetry=include_telemetry)
+    sess = _load_session(
+        year, event, session_type, with_telemetry=include_telemetry, with_weather=True
+    )
     round_no = int(sess.event["RoundNumber"])
     country = str(sess.event["Country"])
     raw_date = sess.date
@@ -342,6 +435,7 @@ def ingest_session(
 
     enriched = detect_stints(sess.laps)
     driver_rows = _driver_rows(sess, year)
+    weather_summary = _weather_summary(sess)
 
     # One transaction for the whole session: engine().begin() commits on a
     # clean exit and rolls back on any exception — never a half-ingested race.
@@ -353,6 +447,10 @@ def ingest_session(
         lap_rows = _lap_rows(enriched, session_id, code_to_id)
         n_laps = _upsert_laps(conn, session_id, lap_rows)
         counts = {"sessions": n_sessions, "drivers": n_drivers, "laps": n_laps}
+        counts["weather"] = _upsert_weather(conn, session_id, weather_summary)
+        counts["results"] = _upsert_results(
+            conn, _result_rows(sess, session_id, code_to_id)
+        )
         if include_telemetry:
             counts["telemetry"] = _upsert_telemetry(conn, session_id, code_to_id, sess)
 
