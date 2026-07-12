@@ -10,6 +10,7 @@ from sqlalchemy import text
 
 from aris.io import db
 from aris.models.features import estimate_fuel_kg
+from aris.tracks import load_track_config
 
 DEFAULT_TOTAL_LAPS = 57
 DEFAULT_TRACK_NAME = "Bahrain"
@@ -20,6 +21,9 @@ class RaceStateOverrides(BaseModel):
     tyre_life: int | None = None
     fuel_kg: float | None = None
     gap_to_leader_s: float | None = None
+    gap_ahead_s: float | None = None
+    gap_behind_s: float | None = None
+    position: int | None = None
     pit_compound: str | None = None
 
 
@@ -40,10 +44,17 @@ class RaceState(BaseModel):
     total_laps: int = DEFAULT_TOTAL_LAPS
     track_name: str = DEFAULT_TRACK_NAME
     gap_to_leader_s: float | None = None
+    gap_ahead_s: float | None = None
+    gap_behind_s: float | None = None
+    position: int | None = None
+    undercut_threat: bool = False
     pit_compound: str = "HARD"
     lag1_pace: float | None = None
     lag2_pace: float | None = None
     stint_roll3: float | None = None
+    air_temp_c: float | None = None
+    track_temp_c: float | None = None
+    track_status: str | None = None
 
     def with_overrides(self, overrides: RaceStateOverrides) -> RaceState:
         data = self.model_dump()
@@ -71,7 +82,8 @@ def build_race_state(
     lap_number: int,
     *,
     overrides: RaceStateOverrides | None = None,
-    total_laps: int = DEFAULT_TOTAL_LAPS,
+    total_laps: int | None = None,
+    field_gaps: dict | None = None,
 ) -> RaceState:
     with db.engine().connect() as conn:
         sess = conn.execute(
@@ -82,6 +94,10 @@ def build_race_state(
             text("SELECT code, full_name, team FROM drivers WHERE driver_id = :did"),
             {"did": driver_id},
         ).one()
+
+    track_cfg = load_track_config(str(sess.country))
+    if total_laps is None:
+        total_laps = track_cfg.total_laps
 
     laps = db.fetch_laps(session_id, driver_id)
     if laps.empty:
@@ -96,6 +112,12 @@ def build_race_state(
     tyre_life = int(lap.get("tyre_life") or 1)
     fuel = estimate_fuel_kg(int(lap_number), total_laps=total_laps)
     lag1, lag2, roll3 = _pace_lags(laps, lap_number)
+    weather = db.fetch_session_weather(session_id) or {}
+    track_status = str(lap["track_status"]) if pd.notna(lap.get("track_status")) else None
+
+    gaps = field_gaps or {}
+    gap_ahead = gaps.get("gap_ahead_s")
+    undercut = gap_ahead is not None and 0 < gap_ahead < 22.0
 
     state = RaceState(
         session_id=session_id,
@@ -112,10 +134,19 @@ def build_race_state(
         fuel_kg=fuel,
         laps_remaining=max(0, total_laps - int(lap_number)),
         total_laps=total_laps,
+        track_name=track_cfg.name,
         pit_compound="HARD",
         lag1_pace=lag1,
         lag2_pace=lag2,
         stint_roll3=roll3,
+        gap_to_leader_s=gaps.get("gap_to_leader_s"),
+        gap_ahead_s=gap_ahead,
+        gap_behind_s=gaps.get("gap_behind_s"),
+        position=gaps.get("position"),
+        undercut_threat=undercut,
+        air_temp_c=weather.get("air_temp_c"),
+        track_temp_c=weather.get("track_temp_c"),
+        track_status=track_status,
     )
     if overrides:
         state = state.with_overrides(overrides)
