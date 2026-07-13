@@ -1,0 +1,174 @@
+/* ARIS dashboard global theme */
+body, .stApp {
+    background-color: #0D0D0D !important;
+    color: #FAFAF8 !important;
+}
+* {
+    font-family: 'Courier New', Courier, monospace !important;
+}
+.stButton > button {
+    background: transparent !important;
+    border: 0.5px solid #2a2a2a !important;
+    color: #888884 !important;
+    border-radius: 4px !important;
+    font-family: 'Courier New', monospace !important;
+}
+.stButton > button:hover {
+    border-color: #E8002D !important;
+    color: #FAFAF8 !important;
+}
+.stTextInput > div > div > input,
+.stTextArea > div > div > textarea {
+    background: #111 !important;
+    border: 0.5px solid #2a2a2a !important;
+    color: #FAFAF8 !important;
+    border-radius: 4px !important;
+}
+div[data-testid="stSidebar"] {
+    background: #0a0a0a !important;
+}
+.block-container {
+    padding-top: 1rem !important;
+    max-width: 100% !important;
+}
+h1, h2, h3, h4, h5, h6, p, label, span {
+    color: #FAFAF8;
+}
+.stMetric label {
+    color: #888884 !important;
+}
+hr {
+    border-color: #1e1e1e !important;
+}
+
+/* ARIS custom classes */
+.aris-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 0 1rem 0;
+    border-bottom: 0.5px solid #1e1e1e;
+    margin-bottom: 1rem;
+}
+.aris-logo {
+    font-size: 1.8rem;
+    font-weight: bold;
+    color: #E8002D;
+    letter-spacing: 2px;
+}
+.aris-tagline {
+    font-size: 0.7rem;
+    color: #888884;
+}
+.aris-step-bar {
+    display: flex;
+    gap: 1.5rem;
+    align-items: center;
+    margin: 0.5rem 0 1.5rem 0;
+}
+.aris-step {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: #888884;
+    font-size: 0.75rem;
+}
+.aris-step.active {
+    color: #FAFAF8;
+}
+.aris-step-num {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 1px solid #2a2a2a;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+}
+.aris-step.active .aris-step-num {
+    background: #E8002D;
+    border-color: #E8002D;
+    color: #FAFAF8;
+}
+.aris-step.done .aris-step-num {
+    background: #4CAF50;
+    border-color: #4CAF50;
+    color: #0D0D0D;
+}
+.aris-card {
+    background: #111111;
+    border: 0.5px solid #1e1e1e;
+    border-radius: 4px;
+    padding: 0.75rem;
+}
+.aris-card.selected {
+    border: 1.5px solid #E8002D;
+}
+.aris-bottom-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: #111111;
+    border-top: 0.5px solid #1e1e1e;
+    padding: 0.75rem 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    z-index: 999;
+}
+.aris-badge-live {
+    background: #E8002D;
+    color: #FAFAF8;
+    padding: 0.2rem 0.6rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: bold;
+}
+.aris-badge-dry { background: #4CAF5033; color: #4CAF50; padding: 0.15rem 0.4rem; border-radius: 3px; font-size: 0.65rem; }
+.aris-badge-wet { background: #2196F333; color: #64B5F6; padding: 0.15rem 0.4rem; border-radius: 3px; font-size: 0.65rem; }
+.aris-badge-mixed { background: #F5A62333; color: #F5A623; padding: 0.15rem 0.4rem; border-radius: 3px; font-size: 0.65rem; }
+.aris-chat-aris {
+    background: #111;
+    border: 0.5px solid #1e1e1e;
+    border-radius: 4px;
+    padding: 0.6rem;
+    margin: 0.4rem 0;
+    text-align: left;
+}
+.aris-chat-user {
+    background: #E8002D0a;
+    border: 0.5px solid #E8002D33;
+    border-radius: 4px;
+    padding: 0.6rem;
+    margin: 0.4rem 0;
+    text-align: right;
+}
+.aris-chat-label {
+    font-size: 0.65rem;
+    color: #888884;
+    margin-bottom: 0.25rem;
+}
+.aris-btn-primary button {
+    background: #E8002D !important;
+    color: #FAFAF8 !important;
+    border: none !important;
+    font-weight: bold !important;
+}
+.aris-btn-primary button:hover {
+    background: #c40026 !important;
+}
+.aris-btn-selected button {
+    background: #E8002D !important;
+    color: #FAFAF8 !important;
+    border: 1.5px solid #E8002D !important;
+}
+.aris-pit-now button {
+    background: #E8002D !important;
+    color: #FAFAF8 !important;
+    border: none !important;
+    font-size: 1.1rem !important;
+    font-weight: bold !important;
+    padding: 0.5rem 2rem !important;
+}
