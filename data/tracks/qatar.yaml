@@ -1,0 +1,49 @@
+name: Qatar
+country: Qatar
+total_laps: 57
+pit_loss_s: 23.0
+lap_length_m: 5391.7
+corners:
+- radius_m: 65.4
+  arc_length_m: 62.7
+- radius_m: 72.7
+  arc_length_m: 70.9
+- radius_m: 165.6
+  arc_length_m: 61.3
+- radius_m: 90.8
+  arc_length_m: 68.5
+- radius_m: 87.5
+  arc_length_m: 73.4
+- radius_m: 35.3
+  arc_length_m: 72.9
+- radius_m: 70.4
+  arc_length_m: 74.3
+- radius_m: 341.5
+  arc_length_m: 57.1
+- radius_m: 191.5
+  arc_length_m: 74.0
+- radius_m: 62.4
+  arc_length_m: 66.0
+- radius_m: 324.7
+  arc_length_m: 141.7
+- radius_m: 135.6
+  arc_length_m: 64.4
+- radius_m: 147.6
+  arc_length_m: 66.4
+- radius_m: 60.9
+  arc_length_m: 58.6
+- radius_m: 225.4
+  arc_length_m: 53.7
+- radius_m: 56.6
+  arc_length_m: 67.3
+round_aliases:
+- qatar
+- lusail
+source:
+  year: 2025
+  gp: Qatar
+  method: "total_laps=session.total_laps; pit_loss=median(pit_lap - clean@tyre_life\xB1\
+    1,same_compound,LapNumber\xB15,TrackStatus==1,free-air\u2264stint_med+1s); corners=get_circuit_info\
+    \ + telemetry circle fit"
+  layout_note: Built from most recent year in Phase D scope; see PHASE-D-SUMMARY for
+    multi-year layout flags.

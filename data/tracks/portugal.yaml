@@ -1,0 +1,50 @@
+name: Portugal
+country: Portugal
+total_laps: 66
+pit_loss_s: 22.2
+lap_length_m: 4633.9
+corners:
+- radius_m: 58.8
+  arc_length_m: 60.8
+- radius_m: 114.1
+  arc_length_m: 67.8
+- radius_m: 28.3
+  arc_length_m: 77.0
+- radius_m: 56.1
+  arc_length_m: 73.7
+- radius_m: 25.0
+  arc_length_m: 28.7
+- radius_m: 178.6
+  arc_length_m: 62.6
+- radius_m: 79.4
+  arc_length_m: 61.4
+- radius_m: 39.3
+  arc_length_m: 17.1
+- radius_m: 114.6
+  arc_length_m: 50.0
+- radius_m: 76.2
+  arc_length_m: 71.1
+- radius_m: 49.7
+  arc_length_m: 70.8
+- radius_m: 118.2
+  arc_length_m: 64.3
+- radius_m: 43.6
+  arc_length_m: 72.0
+- radius_m: 38.6
+  arc_length_m: 73.0
+- radius_m: 165.7
+  arc_length_m: 67.4
+round_aliases:
+- portugal
+- portimao
+- "portim\xE3o"
+- algarve
+- portuguese
+source:
+  year: 2021
+  gp: Portugal
+  method: "total_laps=session.total_laps; pit_loss=median(pit_lap - clean@tyre_life\xB1\
+    1,same_compound,LapNumber\xB15,TrackStatus==1,free-air\u2264stint_med+1s); corners=get_circuit_info\
+    \ + telemetry circle fit"
+  layout_note: Built from most recent year in Phase D scope; see PHASE-D-SUMMARY for
+    multi-year layout flags.

@@ -1,0 +1,55 @@
+name: Miami
+country: United States
+total_laps: 57
+pit_loss_s: 13.3
+lap_length_m: 5324.8
+corners:
+- radius_m: 40.0
+  arc_length_m: 69.6
+- radius_m: 80.9
+  arc_length_m: 75.8
+- radius_m: 159.6
+  arc_length_m: 67.5
+- radius_m: 126.2
+  arc_length_m: 68.7
+- radius_m: 97.4
+  arc_length_m: 63.8
+- radius_m: 113.3
+  arc_length_m: 72.1
+- radius_m: 96.1
+  arc_length_m: 71.6
+- radius_m: 57.0
+  arc_length_m: 24.9
+- radius_m: 262.3
+  arc_length_m: 60.0
+- radius_m: 183.5
+  arc_length_m: 69.9
+- radius_m: 55.6
+  arc_length_m: 74.4
+- radius_m: 52.8
+  arc_length_m: 71.6
+- radius_m: 89.8
+  arc_length_m: 74.7
+- radius_m: 33.8
+  arc_length_m: 75.9
+- radius_m: 42.7
+  arc_length_m: 70.2
+- radius_m: 43.6
+  arc_length_m: 78.5
+- radius_m: 29.6
+  arc_length_m: 53.8
+- radius_m: 93.4
+  arc_length_m: 40.8
+- radius_m: 236.3
+  arc_length_m: 70.5
+round_aliases:
+- miami
+- miami gardens
+source:
+  year: 2025
+  gp: Miami
+  method: "total_laps=session.total_laps; pit_loss=median(pit_lap - clean@tyre_life\xB1\
+    1,same_compound,LapNumber\xB15,TrackStatus==1,free-air\u2264stint_med+1s); corners=get_circuit_info\
+    \ + telemetry circle fit"
+  layout_note: Built from most recent year in Phase D scope; see PHASE-D-SUMMARY for
+    multi-year layout flags.

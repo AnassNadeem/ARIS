@@ -1,0 +1,54 @@
+name: Russia
+country: Russia
+total_laps: 53
+pit_loss_s: 20.5
+lap_length_m: 5789.6
+corners:
+- radius_m: 374.1
+  arc_length_m: 68.4
+- radius_m: 60.6
+  arc_length_m: 78.3
+- radius_m: 186.0
+  arc_length_m: 72.7
+- radius_m: 63.2
+  arc_length_m: 67.8
+- radius_m: 53.0
+  arc_length_m: 62.4
+- radius_m: 251.5
+  arc_length_m: 69.0
+- radius_m: 65.7
+  arc_length_m: 28.7
+- radius_m: 82.7
+  arc_length_m: 72.4
+- radius_m: 155.8
+  arc_length_m: 70.0
+- radius_m: 81.5
+  arc_length_m: 70.3
+- radius_m: 70.0
+  arc_length_m: 72.2
+- radius_m: 173.3
+  arc_length_m: 75.2
+- radius_m: 60.6
+  arc_length_m: 78.7
+- radius_m: 60.8
+  arc_length_m: 74.2
+- radius_m: 51.9
+  arc_length_m: 74.7
+- radius_m: 50.9
+  arc_length_m: 52.8
+- radius_m: 54.5
+  arc_length_m: 72.4
+- radius_m: 80.5
+  arc_length_m: 76.0
+round_aliases:
+- russia
+- sochi
+- russian
+source:
+  year: 2021
+  gp: Russia
+  method: "total_laps=session.total_laps; pit_loss=median(pit_lap - clean@tyre_life\xB1\
+    1,same_compound,LapNumber\xB15,TrackStatus==1,free-air\u2264stint_med+1s); corners=get_circuit_info\
+    \ + telemetry circle fit"
+  layout_note: Built from most recent year in Phase D scope; see PHASE-D-SUMMARY for
+    multi-year layout flags.

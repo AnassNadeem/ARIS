@@ -1,0 +1,55 @@
+name: Singapore
+country: Singapore
+total_laps: 62
+pit_loss_s: 15.8
+lap_length_m: 4890.5
+corners:
+- radius_m: 74.6
+  arc_length_m: 66.0
+- radius_m: 113.1
+  arc_length_m: 67.0
+- radius_m: 36.4
+  arc_length_m: 58.3
+- radius_m: 213.8
+  arc_length_m: 61.4
+- radius_m: 96.9
+  arc_length_m: 70.1
+- radius_m: 269.3
+  arc_length_m: 74.2
+- radius_m: 73.8
+  arc_length_m: 68.8
+- radius_m: 89.7
+  arc_length_m: 68.9
+- radius_m: 56.8
+  arc_length_m: 77.1
+- radius_m: 53.1
+  arc_length_m: 46.4
+- radius_m: 126.4
+  arc_length_m: 76.0
+- radius_m: 65.3
+  arc_length_m: 42.3
+- radius_m: 28.7
+  arc_length_m: 15.0
+- radius_m: 41.3
+  arc_length_m: 18.6
+- radius_m: 198.7
+  arc_length_m: 73.7
+- radius_m: 51.6
+  arc_length_m: 22.5
+- radius_m: 78.3
+  arc_length_m: 67.4
+- radius_m: 77.4
+  arc_length_m: 78.3
+- radius_m: 219.6
+  arc_length_m: 69.4
+round_aliases:
+- singapore
+- marina bay
+source:
+  year: 2025
+  gp: Singapore
+  method: "total_laps=session.total_laps; pit_loss=median(pit_lap - clean@tyre_life\xB1\
+    1,same_compound,LapNumber\xB15,TrackStatus==1,free-air\u2264stint_med+1s); corners=get_circuit_info\
+    \ + telemetry circle fit"
+  layout_note: Built from most recent year in Phase D scope; see PHASE-D-SUMMARY for
+    multi-year layout flags.

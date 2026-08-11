@@ -1,0 +1,56 @@
+name: Imola
+country: Italy
+total_laps: 63
+pit_loss_s: 21.4
+lap_length_m: 4884.3
+corners:
+- radius_m: 300.6
+  arc_length_m: 62.7
+- radius_m: 59.7
+  arc_length_m: 62.5
+- radius_m: 70.3
+  arc_length_m: 72.4
+- radius_m: 114.5
+  arc_length_m: 69.8
+- radius_m: 151.9
+  arc_length_m: 64.5
+- radius_m: 70.7
+  arc_length_m: 68.5
+- radius_m: 36.4
+  arc_length_m: 62.2
+- radius_m: 299.5
+  arc_length_m: 75.8
+- radius_m: 70.8
+  arc_length_m: 79.2
+- radius_m: 160.9
+  arc_length_m: 49.9
+- radius_m: 62.3
+  arc_length_m: 58.4
+- radius_m: 54.7
+  arc_length_m: 76.4
+- radius_m: 162.6
+  arc_length_m: 43.8
+- radius_m: 72.0
+  arc_length_m: 79.5
+- radius_m: 65.0
+  arc_length_m: 50.7
+- radius_m: 240.0
+  arc_length_m: 65.1
+- radius_m: 56.4
+  arc_length_m: 71.3
+- radius_m: 69.7
+  arc_length_m: 76.0
+- radius_m: 334.7
+  arc_length_m: 66.7
+round_aliases:
+- imola
+- emilia romagna
+- emilia-romagna
+source:
+  year: 2025
+  gp: Emilia Romagna
+  method: "total_laps=session.total_laps; pit_loss=median(pit_lap - clean@tyre_life\xB1\
+    1,same_compound,LapNumber\xB15,TrackStatus==1,free-air\u2264stint_med+1s); corners=get_circuit_info\
+    \ + telemetry circle fit"
+  layout_note: Built from most recent year in Phase D scope; see PHASE-D-SUMMARY for
+    multi-year layout flags.

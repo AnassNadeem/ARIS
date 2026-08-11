@@ -1,0 +1,52 @@
+name: Mexico
+country: Mexico
+total_laps: 71
+pit_loss_s: 19.1
+lap_length_m: 4242.6
+corners:
+- radius_m: 52.9
+  arc_length_m: 72.2
+- radius_m: 45.3
+  arc_length_m: 71.1
+- radius_m: 59.3
+  arc_length_m: 78.1
+- radius_m: 48.0
+  arc_length_m: 68.6
+- radius_m: 34.4
+  arc_length_m: 65.3
+- radius_m: 35.8
+  arc_length_m: 74.2
+- radius_m: 51.9
+  arc_length_m: 43.5
+- radius_m: 183.4
+  arc_length_m: 70.3
+- radius_m: 99.7
+  arc_length_m: 62.1
+- radius_m: 82.9
+  arc_length_m: 61.0
+- radius_m: 121.1
+  arc_length_m: 56.0
+- radius_m: 61.4
+  arc_length_m: 64.8
+- radius_m: 31.7
+  arc_length_m: 72.2
+- radius_m: 74.2
+  arc_length_m: 69.9
+- radius_m: 328.4
+  arc_length_m: 52.1
+- radius_m: 58.0
+  arc_length_m: 74.0
+- radius_m: 113.0
+  arc_length_m: 64.5
+round_aliases:
+- mexico
+- mexico city
+- mexican
+source:
+  year: 2025
+  gp: Mexico City
+  method: "total_laps=session.total_laps; pit_loss=median(pit_lap - clean@tyre_life\xB1\
+    1,same_compound,LapNumber\xB15,TrackStatus==1,free-air\u2264stint_med+1s); corners=get_circuit_info\
+    \ + telemetry circle fit"
+  layout_note: Built from most recent year in Phase D scope; see PHASE-D-SUMMARY for
+    multi-year layout flags.

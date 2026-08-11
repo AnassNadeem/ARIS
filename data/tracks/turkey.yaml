@@ -1,0 +1,46 @@
+name: Turkey
+country: Turkey
+total_laps: 58
+pit_loss_s: 20.3
+lap_length_m: 5263.8
+corners:
+- radius_m: 51.3
+  arc_length_m: 75.5
+- radius_m: 390.7
+  arc_length_m: 72.3
+- radius_m: 80.9
+  arc_length_m: 66.2
+- radius_m: 35.7
+  arc_length_m: 70.1
+- radius_m: 41.1
+  arc_length_m: 54.6
+- radius_m: 93.9
+  arc_length_m: 72.1
+- radius_m: 51.7
+  arc_length_m: 48.4
+- radius_m: 118.5
+  arc_length_m: 56.3
+- radius_m: 49.3
+  arc_length_m: 78.4
+- radius_m: 107.1
+  arc_length_m: 69.5
+- radius_m: 137.8
+  arc_length_m: 71.7
+- radius_m: 32.6
+  arc_length_m: 70.8
+- radius_m: 38.1
+  arc_length_m: 75.5
+- radius_m: 43.9
+  arc_length_m: 75.7
+round_aliases:
+- turkey
+- istanbul
+- turkish
+source:
+  year: 2021
+  gp: Turkey
+  method: "total_laps=session.total_laps; pit_loss=median(pit_lap - clean@tyre_life\xB1\
+    1,same_compound,LapNumber\xB15,TrackStatus==1,free-air\u2264stint_med+1s); corners=get_circuit_info\
+    \ + telemetry circle fit"
+  layout_note: Built from most recent year in Phase D scope; see PHASE-D-SUMMARY for
+    multi-year layout flags.

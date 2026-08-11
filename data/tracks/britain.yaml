@@ -1,0 +1,58 @@
+name: Britain
+country: United Kingdom
+total_laps: 52
+pit_loss_s: 18.7
+lap_length_m: 5817.8
+corners:
+- radius_m: 160.0
+  arc_length_m: 63.6
+- radius_m: 165.7
+  arc_length_m: 50.5
+- radius_m: 44.7
+  arc_length_m: 72.8
+- radius_m: 37.9
+  arc_length_m: 62.7
+- radius_m: 142.8
+  arc_length_m: 67.2
+- radius_m: 64.5
+  arc_length_m: 74.4
+- radius_m: 39.9
+  arc_length_m: 74.7
+- radius_m: 167.2
+  arc_length_m: 54.6
+- radius_m: 154.1
+  arc_length_m: 67.1
+- radius_m: 433.8
+  arc_length_m: 55.6
+- radius_m: 99.6
+  arc_length_m: 43.5
+- radius_m: 156.6
+  arc_length_m: 68.3
+- radius_m: 106.3
+  arc_length_m: 68.9
+- radius_m: 153.4
+  arc_length_m: 64.2
+- radius_m: 98.3
+  arc_length_m: 74.4
+- radius_m: 131.5
+  arc_length_m: 73.3
+- radius_m: 68.5
+  arc_length_m: 76.7
+- radius_m: 118.3
+  arc_length_m: 71.8
+round_aliases:
+- britain
+- british
+- silverstone
+- united kingdom
+- great britain
+- uk
+- 70th anniversary
+source:
+  year: 2025
+  gp: Britain
+  method: "total_laps=session.total_laps; pit_loss=median(pit_lap - clean@tyre_life\xB1\
+    1,same_compound,LapNumber\xB15,TrackStatus==1,free-air\u2264stint_med+1s); corners=get_circuit_info\
+    \ + telemetry circle fit"
+  layout_note: Built from most recent year in Phase D scope; see PHASE-D-SUMMARY for
+    multi-year layout flags.

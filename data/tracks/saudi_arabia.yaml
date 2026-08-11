@@ -1,0 +1,73 @@
+name: Saudi Arabia
+country: Saudi Arabia
+total_laps: 50
+pit_loss_s: 17.7
+lap_length_m: 6073.7
+corners:
+- radius_m: 62.1
+  arc_length_m: 30.7
+- radius_m: 35.6
+  arc_length_m: 27.6
+- radius_m: 229.7
+  arc_length_m: 76.1
+- radius_m: 74.9
+  arc_length_m: 32.7
+- radius_m: 157.2
+  arc_length_m: 72.2
+- radius_m: 203.6
+  arc_length_m: 70.2
+- radius_m: 110.5
+  arc_length_m: 48.2
+- radius_m: 59.4
+  arc_length_m: 62.6
+- radius_m: 91.9
+  arc_length_m: 71.7
+- radius_m: 77.0
+  arc_length_m: 33.6
+- radius_m: 398.4
+  arc_length_m: 76.9
+- radius_m: 238.6
+  arc_length_m: 61.4
+- radius_m: 97.7
+  arc_length_m: 71.5
+- radius_m: 237.2
+  arc_length_m: 78.1
+- radius_m: 318.0
+  arc_length_m: 61.7
+- radius_m: 64.5
+  arc_length_m: 28.1
+- radius_m: 101.9
+  arc_length_m: 66.2
+- radius_m: 152.4
+  arc_length_m: 66.5
+- radius_m: 371.3
+  arc_length_m: 50.2
+- radius_m: 308.9
+  arc_length_m: 67.2
+- radius_m: 192.6
+  arc_length_m: 63.0
+- radius_m: 68.1
+  arc_length_m: 41.3
+- radius_m: 93.3
+  arc_length_m: 67.9
+- radius_m: 205.5
+  arc_length_m: 57.1
+- radius_m: 363.3
+  arc_length_m: 57.6
+- radius_m: 366.5
+  arc_length_m: 57.2
+- radius_m: 40.6
+  arc_length_m: 67.1
+round_aliases:
+- saudi arabia
+- saudi
+- jeddah
+- saudi arabian
+source:
+  year: 2025
+  gp: Saudi Arabia
+  method: "total_laps=session.total_laps; pit_loss=median(pit_lap - clean@tyre_life\xB1\
+    1,same_compound,LapNumber\xB15,TrackStatus==1,free-air\u2264stint_med+1s); corners=get_circuit_info\
+    \ + telemetry circle fit"
+  layout_note: Built from most recent year in Phase D scope; see PHASE-D-SUMMARY for
+    multi-year layout flags.

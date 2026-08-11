@@ -1,0 +1,58 @@
+name: Azerbaijan
+country: Azerbaijan
+total_laps: 51
+pit_loss_s: 17.7
+lap_length_m: 5937.0
+corners:
+- radius_m: 47.1
+  arc_length_m: 68.8
+- radius_m: 39.3
+  arc_length_m: 46.5
+- radius_m: 45.4
+  arc_length_m: 72.9
+- radius_m: 50.2
+  arc_length_m: 62.5
+- radius_m: 55.2
+  arc_length_m: 24.1
+- radius_m: 89.2
+  arc_length_m: 75.6
+- radius_m: 43.2
+  arc_length_m: 32.5
+- radius_m: 60.2
+  arc_length_m: 43.5
+- radius_m: 77.5
+  arc_length_m: 33.8
+- radius_m: 109.5
+  arc_length_m: 73.2
+- radius_m: 59.9
+  arc_length_m: 68.4
+- radius_m: 45.5
+  arc_length_m: 69.3
+- radius_m: 86.6
+  arc_length_m: 57.5
+- radius_m: 179.3
+  arc_length_m: 63.2
+- radius_m: 35.5
+  arc_length_m: 55.4
+- radius_m: 61.8
+  arc_length_m: 27.0
+- radius_m: 355.0
+  arc_length_m: 64.5
+- radius_m: 129.0
+  arc_length_m: 56.3
+- radius_m: 100.3
+  arc_length_m: 43.8
+- radius_m: 194.2
+  arc_length_m: 59.0
+round_aliases:
+- azerbaijan
+- baku
+- azerbaijani
+source:
+  year: 2025
+  gp: Azerbaijan
+  method: "total_laps=session.total_laps; pit_loss=median(pit_lap - clean@tyre_life\xB1\
+    1,same_compound,LapNumber\xB15,TrackStatus==1,free-air\u2264stint_med+1s); corners=get_circuit_info\
+    \ + telemetry circle fit"
+  layout_note: Built from most recent year in Phase D scope; see PHASE-D-SUMMARY for
+    multi-year layout flags.

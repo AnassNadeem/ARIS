@@ -1,0 +1,46 @@
+name: Netherlands
+country: Netherlands
+total_laps: 72
+pit_loss_s: 16.4
+lap_length_m: 4236.1
+corners:
+- radius_m: 41.9
+  arc_length_m: 62.3
+- radius_m: 71.2
+  arc_length_m: 59.3
+- radius_m: 53.5
+  arc_length_m: 71.7
+- radius_m: 207.4
+  arc_length_m: 61.6
+- radius_m: 157.7
+  arc_length_m: 59.9
+- radius_m: 167.1
+  arc_length_m: 66.2
+- radius_m: 91.5
+  arc_length_m: 67.3
+- radius_m: 71.1
+  arc_length_m: 68.1
+- radius_m: 42.4
+  arc_length_m: 72.2
+- radius_m: 48.9
+  arc_length_m: 72.4
+- radius_m: 50.9
+  arc_length_m: 75.2
+- radius_m: 72.1
+  arc_length_m: 73.0
+- radius_m: 51.4
+  arc_length_m: 62.2
+- radius_m: 131.0
+  arc_length_m: 55.9
+round_aliases:
+- netherlands
+- zandvoort
+- dutch
+source:
+  year: 2025
+  gp: Netherlands
+  method: "total_laps=session.total_laps; pit_loss=median(pit_lap - clean@tyre_life\xB1\
+    1,same_compound,LapNumber\xB15,TrackStatus==1,free-air\u2264stint_med+1s); corners=get_circuit_info\
+    \ + telemetry circle fit"
+  layout_note: Built from most recent year in Phase D scope; see PHASE-D-SUMMARY for
+    multi-year layout flags.

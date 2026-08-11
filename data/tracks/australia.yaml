@@ -1,0 +1,47 @@
+name: Australia
+country: Australia
+total_laps: 57
+pit_loss_s: 9.0
+lap_length_m: 5238.7
+corners:
+- radius_m: 111.7
+  arc_length_m: 73.6
+- radius_m: 127.9
+  arc_length_m: 75.8
+- radius_m: 40.3
+  arc_length_m: 62.2
+- radius_m: 68.6
+  arc_length_m: 69.1
+- radius_m: 143.9
+  arc_length_m: 68.7
+- radius_m: 54.1
+  arc_length_m: 74.1
+- radius_m: 185.7
+  arc_length_m: 75.6
+- radius_m: 220.2
+  arc_length_m: 64.7
+- radius_m: 80.7
+  arc_length_m: 66.8
+- radius_m: 64.2
+  arc_length_m: 65.0
+- radius_m: 50.9
+  arc_length_m: 69.7
+- radius_m: 67.5
+  arc_length_m: 73.9
+- radius_m: 45.8
+  arc_length_m: 78.8
+- radius_m: 67.0
+  arc_length_m: 63.7
+round_aliases:
+- australia
+- melbourne
+- albert park
+- australian
+source:
+  year: 2025
+  gp: Australia
+  method: "total_laps=session.total_laps; pit_loss=median(pit_lap - clean@tyre_life\xB1\
+    1,same_compound,LapNumber\xB15,TrackStatus==1,free-air\u2264stint_med+1s); corners=get_circuit_info\
+    \ + telemetry circle fit"
+  layout_note: Built from most recent year in Phase D scope; see PHASE-D-SUMMARY for
+    multi-year layout flags.

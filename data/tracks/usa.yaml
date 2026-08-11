@@ -1,0 +1,60 @@
+name: United States
+country: United States
+total_laps: 56
+pit_loss_s: 20.1
+lap_length_m: 5449.8
+corners:
+- radius_m: 46.6
+  arc_length_m: 77.5
+- radius_m: 144.5
+  arc_length_m: 71.5
+- radius_m: 120.4
+  arc_length_m: 70.1
+- radius_m: 104.9
+  arc_length_m: 79.0
+- radius_m: 107.3
+  arc_length_m: 71.6
+- radius_m: 157.8
+  arc_length_m: 60.3
+- radius_m: 68.7
+  arc_length_m: 72.7
+- radius_m: 61.3
+  arc_length_m: 74.8
+- radius_m: 55.9
+  arc_length_m: 50.9
+- radius_m: 162.2
+  arc_length_m: 71.2
+- radius_m: 47.8
+  arc_length_m: 75.3
+- radius_m: 43.7
+  arc_length_m: 78.0
+- radius_m: 68.7
+  arc_length_m: 73.1
+- radius_m: 75.7
+  arc_length_m: 70.4
+- radius_m: 59.9
+  arc_length_m: 41.1
+- radius_m: 135.3
+  arc_length_m: 69.7
+- radius_m: 88.6
+  arc_length_m: 72.3
+- radius_m: 102.2
+  arc_length_m: 77.2
+- radius_m: 69.5
+  arc_length_m: 54.4
+- radius_m: 39.0
+  arc_length_m: 75.0
+round_aliases:
+- united states
+- usa
+- austin
+- cota
+- americas
+source:
+  year: 2025
+  gp: United States
+  method: "total_laps=session.total_laps; pit_loss=median(pit_lap - clean@tyre_life\xB1\
+    1,same_compound,LapNumber\xB15,TrackStatus==1,free-air\u2264stint_med+1s); corners=get_circuit_info\
+    \ + telemetry circle fit"
+  layout_note: Built from most recent year in Phase D scope; see PHASE-D-SUMMARY for
+    multi-year layout flags.

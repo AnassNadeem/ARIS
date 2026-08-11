@@ -1,0 +1,48 @@
+name: "N\xFCrburgring"
+country: Germany
+total_laps: 60
+pit_loss_s: 20.8
+lap_length_m: 5118.2
+corners:
+- radius_m: 28.5
+  arc_length_m: 74.6
+- radius_m: 65.8
+  arc_length_m: 70.5
+- radius_m: 40.8
+  arc_length_m: 73.2
+- radius_m: 48.2
+  arc_length_m: 71.1
+- radius_m: 71.0
+  arc_length_m: 59.2
+- radius_m: 41.9
+  arc_length_m: 68.2
+- radius_m: 32.0
+  arc_length_m: 71.1
+- radius_m: 115.8
+  arc_length_m: 65.0
+- radius_m: 153.8
+  arc_length_m: 67.3
+- radius_m: 48.5
+  arc_length_m: 73.7
+- radius_m: 57.7
+  arc_length_m: 67.8
+- radius_m: 179.9
+  arc_length_m: 69.9
+- radius_m: 36.5
+  arc_length_m: 77.0
+- radius_m: 36.9
+  arc_length_m: 77.5
+- radius_m: 59.7
+  arc_length_m: 74.9
+round_aliases:
+- nurburgring
+- "n\xFCrburgring"
+- eifel
+source:
+  year: 2020
+  gp: Eifel
+  method: "total_laps=session.total_laps; pit_loss=median(pit_lap - clean@tyre_life\xB1\
+    1,same_compound,LapNumber\xB15,TrackStatus==1,free-air\u2264stint_med+1s); corners=get_circuit_info\
+    \ + telemetry circle fit"
+  layout_note: Built from most recent year in Phase D scope; see PHASE-D-SUMMARY for
+    multi-year layout flags.

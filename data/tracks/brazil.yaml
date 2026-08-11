@@ -1,0 +1,51 @@
+name: Brazil
+country: Brazil
+total_laps: 71
+pit_loss_s: 18.5
+lap_length_m: 4233.7
+corners:
+- radius_m: 54.4
+  arc_length_m: 23.7
+- radius_m: 58.2
+  arc_length_m: 36.1
+- radius_m: 152.5
+  arc_length_m: 76.8
+- radius_m: 100.1
+  arc_length_m: 70.5
+- radius_m: 145.7
+  arc_length_m: 55.1
+- radius_m: 142.2
+  arc_length_m: 68.1
+- radius_m: 120.4
+  arc_length_m: 76.6
+- radius_m: 51.6
+  arc_length_m: 74.8
+- radius_m: 41.6
+  arc_length_m: 69.2
+- radius_m: 41.7
+  arc_length_m: 18.2
+- radius_m: 69.8
+  arc_length_m: 72.5
+- radius_m: 56.1
+  arc_length_m: 71.4
+- radius_m: 212.6
+  arc_length_m: 78.2
+- radius_m: 236.3
+  arc_length_m: 60.5
+- radius_m: 305.5
+  arc_length_m: 72.2
+round_aliases:
+- brazil
+- brasil
+- sao paulo
+- "s\xE3o paulo"
+- interlagos
+- brazilian
+source:
+  year: 2025
+  gp: Sao Paulo
+  method: "total_laps=session.total_laps; pit_loss=median(pit_lap - clean@tyre_life\xB1\
+    1,same_compound,LapNumber\xB15,TrackStatus==1,free-air\u2264stint_med+1s); corners=get_circuit_info\
+    \ + telemetry circle fit"
+  layout_note: Built from most recent year in Phase D scope; see PHASE-D-SUMMARY for
+    multi-year layout flags.

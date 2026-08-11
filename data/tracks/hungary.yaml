@@ -1,0 +1,51 @@
+name: Hungary
+country: Hungary
+total_laps: 70
+pit_loss_s: 18.5
+lap_length_m: 4355.0
+corners:
+- radius_m: 31.5
+  arc_length_m: 47.3
+- radius_m: 268.6
+  arc_length_m: 64.8
+- radius_m: 46.9
+  arc_length_m: 45.6
+- radius_m: 62.9
+  arc_length_m: 74.4
+- radius_m: 101.8
+  arc_length_m: 55.5
+- radius_m: 67.5
+  arc_length_m: 45.1
+- radius_m: 81.0
+  arc_length_m: 78.2
+- radius_m: 88.1
+  arc_length_m: 69.1
+- radius_m: 81.7
+  arc_length_m: 75.4
+- radius_m: 140.3
+  arc_length_m: 70.6
+- radius_m: 173.4
+  arc_length_m: 69.3
+- radius_m: 103.6
+  arc_length_m: 68.1
+- radius_m: 36.2
+  arc_length_m: 74.5
+- radius_m: 381.9
+  arc_length_m: 68.6
+- radius_m: 38.2
+  arc_length_m: 77.3
+- radius_m: 55.7
+  arc_length_m: 66.5
+round_aliases:
+- hungary
+- budapest
+- hungaroring
+- hungarian
+source:
+  year: 2025
+  gp: Hungary
+  method: "total_laps=session.total_laps; pit_loss=median(pit_lap - clean@tyre_life\xB1\
+    1,same_compound,LapNumber\xB15,TrackStatus==1,free-air\u2264stint_med+1s); corners=get_circuit_info\
+    \ + telemetry circle fit"
+  layout_note: Built from most recent year in Phase D scope; see PHASE-D-SUMMARY for
+    multi-year layout flags.

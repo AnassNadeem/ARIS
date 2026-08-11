@@ -1,0 +1,52 @@
+name: Hockenheim
+country: Germany
+total_laps: 64
+pit_loss_s: 19.3
+lap_length_m: 4568.5
+corners:
+- radius_m: 76.9
+  arc_length_m: 68.9
+- radius_m: 63.2
+  arc_length_m: 78.6
+- radius_m: 95.9
+  arc_length_m: 44.6
+- radius_m: 110.2
+  arc_length_m: 74.2
+- radius_m: 70.0
+  arc_length_m: 59.0
+- radius_m: 16.1
+  arc_length_m: 30.7
+- radius_m: 101.3
+  arc_length_m: 55.7
+- radius_m: 64.9
+  arc_length_m: 70.2
+- radius_m: 95.3
+  arc_length_m: 67.9
+- radius_m: 90.4
+  arc_length_m: 70.8
+- radius_m: 131.0
+  arc_length_m: 77.4
+- radius_m: 79.4
+  arc_length_m: 77.8
+- radius_m: 39.8
+  arc_length_m: 63.9
+- radius_m: 67.2
+  arc_length_m: 76.2
+- radius_m: 101.8
+  arc_length_m: 70.9
+- radius_m: 41.7
+  arc_length_m: 57.6
+- radius_m: 58.1
+  arc_length_m: 67.4
+round_aliases:
+- hockenheim
+- hockenheimring
+- german grand prix
+source:
+  year: 2019
+  gp: Germany
+  method: "total_laps=session.total_laps; pit_loss=median(pit_lap - clean@tyre_life\xB1\
+    1,same_compound,LapNumber\xB15,TrackStatus==1,free-air\u2264stint_med+1s); corners=get_circuit_info\
+    \ + telemetry circle fit"
+  layout_note: Built from most recent year in Phase D scope; see PHASE-D-SUMMARY for
+    multi-year layout flags.

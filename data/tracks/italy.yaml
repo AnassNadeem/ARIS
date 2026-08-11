@@ -1,0 +1,40 @@
+name: Italy
+country: Italy
+total_laps: 53
+pit_loss_s: 21.3
+lap_length_m: 5738.6
+corners:
+- radius_m: 48.4
+  arc_length_m: 68.5
+- radius_m: 36.0
+  arc_length_m: 77.2
+- radius_m: 337.3
+  arc_length_m: 73.9
+- radius_m: 74.8
+  arc_length_m: 45.7
+- radius_m: 120.7
+  arc_length_m: 43.3
+- radius_m: 81.6
+  arc_length_m: 74.3
+- radius_m: 71.0
+  arc_length_m: 60.3
+- radius_m: 92.4
+  arc_length_m: 75.6
+- radius_m: 155.1
+  arc_length_m: 65.6
+- radius_m: 107.1
+  arc_length_m: 63.0
+- radius_m: 53.0
+  arc_length_m: 66.2
+round_aliases:
+- italy
+- monza
+- italian
+source:
+  year: 2025
+  gp: Italy
+  method: "total_laps=session.total_laps; pit_loss=median(pit_lap - clean@tyre_life\xB1\
+    1,same_compound,LapNumber\xB15,TrackStatus==1,free-air\u2264stint_med+1s); corners=get_circuit_info\
+    \ + telemetry circle fit"
+  layout_note: Built from most recent year in Phase D scope; see PHASE-D-SUMMARY for
+    multi-year layout flags.

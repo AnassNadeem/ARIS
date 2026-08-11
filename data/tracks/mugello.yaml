@@ -1,0 +1,18 @@
+name: Mugello
+country: Italy
+total_laps: 59
+pit_loss_s: 16.6
+lap_length_m: 5230.6
+corners: []
+round_aliases:
+- mugello
+- tuscany
+- tuscan
+source:
+  year: 2020
+  gp: Tuscany
+  method: "total_laps=session.total_laps; pit_loss=median(pit_lap - clean@tyre_life\xB1\
+    1,same_compound,LapNumber\xB15,TrackStatus==1,free-air\u2264stint_med+1s); corners=get_circuit_info\
+    \ + telemetry circle fit"
+  layout_note: Built from most recent year in Phase D scope; see PHASE-D-SUMMARY for
+    multi-year layout flags.
