@@ -5,9 +5,10 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from aris.physics.bicycle import Car, StintState, bahrain_2024
+from aris.physics.bicycle import Car, StintState, Track, bahrain_2024
 from aris.physics.bicycle import predict_lap_time as physics_predict
 from aris.physics.stint import detect_stints, filter_clean_laps
+from aris.tracks import load_track_config
 
 _FUEL_START_KG = 110.0
 _FUEL_BURN_PER_LAP = 1.7
@@ -34,7 +35,12 @@ def estimate_fuel_kg(lap_number: int, total_laps: int = 57) -> float:
     return max(0.0, _FUEL_START_KG - burned)
 
 
-def physics_prediction_row(row: pd.Series, track=None) -> float:
+def resolve_track(gp_or_country: str) -> Track:
+    """Load bicycle Track for a GP/country name (YAML corners when present)."""
+    return load_track_config(gp_or_country).load_physics()
+
+
+def physics_prediction_row(row: pd.Series, track: Track | None = None) -> float:
     t = track or bahrain_2024()
     state = StintState(
         car=Car(),
@@ -47,17 +53,26 @@ def physics_prediction_row(row: pd.Series, track=None) -> float:
     return physics_predict(state)
 
 
-def build_feature_frame(laps_df: pd.DataFrame, *, race_id: str) -> pd.DataFrame:
+def build_feature_frame(
+    laps_df: pd.DataFrame,
+    *,
+    race_id: str,
+    track: Track | None = None,
+    total_laps: int | None = None,
+) -> pd.DataFrame:
     enriched = detect_stints(laps_df)
     clean = filter_clean_laps(enriched)
     if clean.empty:
         return pd.DataFrame()
 
+    t = track or bahrain_2024()
+    laps_total = total_laps if total_laps is not None else 57
+
     df = clean.copy()
     df["race_id"] = race_id
     df["compound_code"] = df["Compound"].map(_compound_code)
     df["tyre_life"] = df["TyreLife"].fillna(1).astype(int)
-    df["fuel_kg"] = df["LapNumber"].map(lambda n: estimate_fuel_kg(int(n)))
+    df["fuel_kg"] = df["LapNumber"].map(lambda n: estimate_fuel_kg(int(n), total_laps=laps_total))
     df["pit_lap"] = False
     df["compound"] = df["Compound"].fillna("MEDIUM")
 
@@ -65,7 +80,7 @@ def build_feature_frame(laps_df: pd.DataFrame, *, race_id: str) -> pd.DataFrame:
     df["lag1_pace"] = grouped.shift(1)
     df["lag2_pace"] = grouped.shift(2)
     df["stint_roll3"] = grouped.transform(lambda s: s.shift(1).rolling(3, min_periods=1).mean())
-    df["physics_pred"] = df.apply(physics_prediction_row, axis=1)
+    df["physics_pred"] = df.apply(lambda row: physics_prediction_row(row, track=t), axis=1)
     df["target"] = df["LapTimeS"]
     df["residual"] = df["target"] - df["physics_pred"]
 
@@ -85,7 +100,29 @@ def feature_matrix(frame: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, np.ndar
 def build_from_fastf1(year: int, gp: str) -> pd.DataFrame:
     import fastf1
 
+    from aris.tracks import _match_track_file
+
     session = fastf1.get_session(year, gp, "R")
     session.load(laps=True, telemetry=False, weather=False, messages=False)
-    race_id = f"{year}-{gp.replace(' ', '_')}"
-    return build_feature_frame(session.laps, race_id=race_id)
+    event_name = str(session.event.EventName)
+    location = str(session.event.Location)
+    country = str(session.event.Country)
+    race_id = f"{year}-{event_name.replace(' ', '_')}"
+
+    # Resolve track YAML: GP arg → event name → location → country.
+    # Location before country so shared-country circuits (Italy/USA/Germany)
+    # and 2026 Madrid vs Barcelona resolve correctly.
+    if _match_track_file(gp) is not None:
+        cfg = load_track_config(gp)
+    elif _match_track_file(event_name) is not None:
+        cfg = load_track_config(event_name)
+    elif _match_track_file(location) is not None:
+        cfg = load_track_config(location)
+    else:
+        cfg = load_track_config(country)
+
+    track = cfg.load_physics()
+    total = int(session.total_laps) if session.total_laps else cfg.total_laps
+    return build_feature_frame(
+        session.laps, race_id=race_id, track=track, total_laps=total
+    )
