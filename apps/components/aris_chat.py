@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from aris.ask.rag import answer_question
+from aris.ask.keyword_qa import answer_question
 from aris.decisions.queue import DecisionKind, DecisionQueue
 from aris.engine.session import RaceEngineSession
 

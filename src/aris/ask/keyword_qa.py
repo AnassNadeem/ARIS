@@ -1,4 +1,8 @@
-"""Grounded Q&A over race session state — Ask ARIS mode."""
+"""Grounded Q&A over race session state — Ask ARIS mode.
+
+Keyword / rule-based matching on the question text against a structured
+session snapshot. Not retrieval-augmented generation.
+"""
 
 from __future__ import annotations
 
