@@ -10,6 +10,7 @@ from aris.physics.bicycle import (
     Corner,
     StintState,
     Track,
+    approach_delta_s,
     bahrain_2024,
     corner_speed,
     lateral_accel_limit,
@@ -134,3 +135,19 @@ class TestFuelAndPitLoss:
         green = predict_lap_time(StintState(Car(), plain, pit_lap=False))
         pit = predict_lap_time(StintState(Car(), plain, pit_lap=True))
         assert pit == pytest.approx(green)
+
+
+class TestApproachDelta:
+    def test_lift_t7_positive(self):
+        d = approach_delta_s(bahrain_2024(), corner_index=7, distance_m=30.0, mode="lift")
+        assert d > 0.0
+        assert d < 2.0  # lumped model: tens of metres, not seconds of SC
+
+    def test_more_lift_costs_more(self):
+        small = approach_delta_s(bahrain_2024(), corner_index=7, distance_m=10.0, mode="lift")
+        large = approach_delta_s(bahrain_2024(), corner_index=7, distance_m=40.0, mode="lift")
+        assert large > small
+
+    def test_bad_corner_raises(self):
+        with pytest.raises(ValueError, match="out of range"):
+            approach_delta_s(bahrain_2024(), corner_index=99, distance_m=30.0, mode="lift")

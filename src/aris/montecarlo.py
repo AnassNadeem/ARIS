@@ -32,6 +32,10 @@ def _action_label(action: StrategyAction) -> str:
         return "Stay out"
     if action.kind == ActionKind.PIT_NOW:
         return f"Pit now -> {action.pit_compound or 'HARD'}"
+    if action.kind == ActionKind.LIFT:
+        return f"Lift {action.distance_m or 0:.0f}m into T{action.corner_index}"
+    if action.kind == ActionKind.BRAKE:
+        return f"Brake {action.distance_m or 0:.0f}m earlier into T{action.corner_index}"
     if action.pit_laps:
         return f"Pits {action.pit_laps} -> {action.pit_compounds}"
     return f"Pit L{action.pit_lap} -> {action.pit_compound or 'HARD'}"

@@ -127,6 +127,86 @@ def predict_lap_time(state: StintState) -> float:
     return physics_time + fuel_time + pit_time + tire_time
 
 
+def approach_delta_s(
+    track: Track,
+    *,
+    corner_index: int,
+    distance_m: float,
+    mode: str,
+    car: Car | None = None,
+) -> float:
+    """Lap-time cost of lifting or braking ``distance_m`` earlier into a corner.
+
+    ``corner_index`` is 1-based (T1…Tn). Extends the existing per-corner straight
+    segments: the final ``distance_m`` of the approach to that corner is covered
+    at corner speed instead of the grip-limited accel/cruise profile.
+
+    - ``mode="lift"``: throttle lift / early coast into the corner.
+    - ``mode="brake"``: brake point moved earlier by ``distance_m`` (same
+      kinematic cost under this lumped model; kept as a distinct action so
+      callers can narrate intent separately).
+
+    Returns a non-negative delta in seconds (earlier lift/brake ⇒ slower lap).
+    """
+    if distance_m <= 0:
+        return 0.0
+    if mode not in {"lift", "brake"}:
+        raise ValueError(f"mode must be 'lift' or 'brake', got {mode!r}")
+    c = car or Car()
+    corners = track.corners
+    if not corners:
+        raise ValueError("track has no corners")
+    if corner_index < 1 or corner_index > len(corners):
+        raise ValueError(
+            f"corner_index {corner_index} out of range for {len(corners)}-corner track"
+        )
+    idx = corner_index - 1
+    n = len(corners)
+    segment_m = track.straight_length_m / n
+    d = min(float(distance_m), segment_m)
+
+    speeds = [corner_speed(c, corner.radius_m) for corner in corners]
+    # Entry to this approach: previous corner speed (or this corner if first).
+    entry = speeds[idx - 1] if idx > 0 else speeds[idx]
+    v_corner = speeds[idx]
+    accel = lateral_accel_limit(c)
+
+    baseline = _straight_time(
+        segment_m,
+        entry_speed_ms=entry,
+        max_speed_ms=c.max_speed_ms,
+        accel_ms2=accel,
+    )
+    # Early lift/brake: cover (segment - d) with the normal profile, then the
+    # last d metres at corner speed (already slowed / coasting).
+    shortened = _straight_time(
+        max(0.0, segment_m - d),
+        entry_speed_ms=entry,
+        max_speed_ms=c.max_speed_ms,
+        accel_ms2=accel,
+    )
+    coast = d / max(v_corner, 1e-6)
+    modified = shortened + coast
+    return max(0.0, modified - baseline)
+
+
+def predict_lap_time_with_line_action(
+    state: StintState,
+    *,
+    corner_index: int,
+    distance_m: float,
+    mode: str,
+) -> float:
+    """Baseline ``predict_lap_time`` plus a single-corner lift/brake delta."""
+    return predict_lap_time(state) + approach_delta_s(
+        state.track,
+        corner_index=corner_index,
+        distance_m=distance_m,
+        mode=mode,
+        car=state.car,
+    )
+
+
 def bahrain_2024() -> Track:
     """Bahrain International Circuit ≈ 5.412 km, 15 corners. Radii eyeballed off the map."""
     # (radius_m, arc_length_m) — approximate, not surveyed. See notes for the caveat.

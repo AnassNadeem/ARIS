@@ -1,4 +1,4 @@
-"""Counterfactual race simulation — pit now vs stay out vs pit lap N."""
+"""Counterfactual race simulation — pit / lift / brake actions."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from aris.models.features import estimate_fuel_kg
 from aris.models.predict import predict_lap_time
+from aris.physics.bicycle import Car, approach_delta_s
 from aris.state import RaceState
 from aris.tracks import load_track_config
 
@@ -18,6 +19,8 @@ class ActionKind(StrEnum):
     STAY_OUT = "stay_out"
     PIT_NOW = "pit_now"
     PIT_LAP = "pit_lap"
+    LIFT = "lift"
+    BRAKE = "brake"
 
 
 class StrategyAction(BaseModel):
@@ -26,6 +29,9 @@ class StrategyAction(BaseModel):
     pit_compound: str | None = None
     pit_laps: list[int] | None = None
     pit_compounds: list[str] | None = None
+    # 1-based corner index + metres earlier (LIFT / BRAKE).
+    corner_index: int | None = None
+    distance_m: float | None = None
 
 
 class PredictedOutcome(BaseModel):
@@ -39,6 +45,10 @@ class PredictedOutcome(BaseModel):
 
 def _pit_loss_s(state: RaceState) -> float:
     return load_track_config(state.country).pit_loss_s
+
+
+def _track_for(state: RaceState):
+    return load_track_config(state.country).load_physics()
 
 
 def _update_lags(times: list[float]) -> tuple[float | None, float | None, float | None]:
@@ -72,6 +82,23 @@ def _predict_lap(
     ) + noise
 
 
+def _line_delta_s(state: RaceState, action: StrategyAction) -> float:
+    """Physics delta for a one-shot lift/brake on the current lap."""
+    if action.kind not in (ActionKind.LIFT, ActionKind.BRAKE):
+        return 0.0
+    if action.corner_index is None or action.distance_m is None:
+        return 0.0
+    track = _track_for(state)
+    mode = "lift" if action.kind == ActionKind.LIFT else "brake"
+    return approach_delta_s(
+        track,
+        corner_index=int(action.corner_index),
+        distance_m=float(action.distance_m),
+        mode=mode,
+        car=Car(),
+    )
+
+
 def _pit_schedule(action: StrategyAction, state: RaceState) -> list[tuple[int, str]]:
     if action.pit_laps and action.pit_compounds:
         return list(zip(action.pit_laps, action.pit_compounds, strict=False))
@@ -89,6 +116,7 @@ def _simulate_remainder(
     *,
     pit_schedule: list[tuple[int, str]],
     pace_noise: list[float] | None = None,
+    line_delta_first_lap_s: float = 0.0,
 ) -> tuple[float, int, str]:
     total = 0.0
     laps = 0
@@ -103,6 +131,7 @@ def _simulate_remainder(
     pit_map = dict(pit_schedule)
     pit_loss = _pit_loss_s(state)
     noise_idx = 0
+    first_lap = True
 
     for lap in range(state.lap_number, state.total_laps + 1):
         fuel = estimate_fuel_kg(lap, total_laps=state.total_laps)
@@ -124,18 +153,22 @@ def _simulate_remainder(
             compound = pit_compound
             tyre_life = 1
             laps += 1
+            first_lap = False
             continue
 
         lap_time = _predict_lap(
             compound=compound, tyre_life=tyre_life, fuel_kg=fuel,
             pit_lap=False, lag1=lag1, lag2=lag2, roll3=roll3, noise=noise,
         )
+        if first_lap and line_delta_first_lap_s:
+            lap_time += line_delta_first_lap_s
         total += lap_time
         recent_times.append(lap_time)
         if len(recent_times) > 10:
             recent_times = recent_times[-10:]
         tyre_life += 1
         laps += 1
+        first_lap = False
 
     evidence = "; ".join(evidence_parts) if evidence_parts else "stay on current compound"
     return total, laps, evidence
@@ -151,10 +184,26 @@ def simulate(
     baseline_time, _, _ = _simulate_remainder(
         state, pit_schedule=stay_schedule, pace_noise=pace_noise
     )
+
+    line_delta = _line_delta_s(state, action)
     schedule = _pit_schedule(action, state)
     total, n_laps, evidence = _simulate_remainder(
-        state, pit_schedule=schedule, pace_noise=pace_noise
+        state,
+        pit_schedule=schedule,
+        pace_noise=pace_noise,
+        line_delta_first_lap_s=line_delta,
     )
+    if action.kind == ActionKind.LIFT and action.corner_index and action.distance_m:
+        evidence = (
+            f"lift {action.distance_m:.0f}m into T{action.corner_index} "
+            f"(+{line_delta:.3f}s physics)"
+        )
+    elif action.kind == ActionKind.BRAKE and action.corner_index and action.distance_m:
+        evidence = (
+            f"brake {action.distance_m:.0f}m earlier into T{action.corner_index} "
+            f"(+{line_delta:.3f}s physics)"
+        )
+
     delta = total - baseline_time
     mean_lap = total / n_laps if n_laps else 0.0
 

@@ -48,6 +48,16 @@ class TestSimulate:
         outcome = simulate(_sample_state(lap_number=5, laps_remaining=52), StrategyAction(kind=ActionKind.STAY_OUT))
         assert outcome.laps_simulated == 53
 
+    def test_lift_t7_slower_than_stay_out(self):
+        stay = simulate(_sample_state(), StrategyAction(kind=ActionKind.STAY_OUT))
+        lift = simulate(
+            _sample_state(),
+            StrategyAction(kind=ActionKind.LIFT, corner_index=7, distance_m=30.0),
+        )
+        assert lift.delta_vs_stay_out_s > 0.0
+        assert lift.total_race_time_s > stay.total_race_time_s
+        assert "lift" in lift.evidence.lower()
+
 
 class TestRecommend:
     def test_returns_top_three(self):

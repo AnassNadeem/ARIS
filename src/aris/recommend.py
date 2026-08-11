@@ -1,4 +1,4 @@
-"""Strategy recommender — enumerate pit windows, score with simulate + MC."""
+"""Strategy recommender — enumerate pit / line actions, score with simulate + MC."""
 
 from __future__ import annotations
 
@@ -76,57 +76,23 @@ def _candidate_actions(state: RaceState) -> list[StrategyAction]:
                     pit_compounds=compounds,
                 )
             )
+
+    # Physics-backed line actions (replaces former hardcoded DRS/defend deltas).
+    for corner in (1, 7, 10):
+        actions.append(
+            StrategyAction(kind=ActionKind.LIFT, corner_index=corner, distance_m=30.0)
+        )
+        actions.append(
+            StrategyAction(kind=ActionKind.BRAKE, corner_index=corner, distance_m=20.0)
+        )
     return actions
 
 
-def _tactical_recommendations(state: RaceState) -> list[Recommendation]:
-    recs: list[Recommendation] = []
-    if state.gap_ahead_s is not None and state.gap_ahead_s < 1.0:
-        recs.append(
-            Recommendation(
-                rank=0,
-                label="DRS attack — push this lap",
-                action=StrategyAction(kind=ActionKind.STAY_OUT),
-                delta_vs_stay_out_s=-0.15,
-                mean_race_time_s=0.0,
-                confidence_std_s=0.2,
-                p10_delta_s=-0.3,
-                p90_delta_s=0.1,
-                evidence="gap ahead < 1.0s — DRS range",
-                tactical="DRS_ATTACK",
-                narration_context={
-                    "driver": state.driver_code,
-                    "lap": state.lap_number,
-                    "strategy": "DRS attack",
-                    "delta_s": -0.15,
-                },
-            )
-        )
-    if state.gap_behind_s is not None and state.gap_behind_s < 1.0:
-        recs.append(
-            Recommendation(
-                rank=0,
-                label="Defend — manage tyres",
-                action=StrategyAction(kind=ActionKind.STAY_OUT),
-                delta_vs_stay_out_s=0.05,
-                mean_race_time_s=0.0,
-                confidence_std_s=0.15,
-                p10_delta_s=-0.1,
-                p90_delta_s=0.2,
-                evidence="car behind within 1.0s",
-                tactical="DEFEND",
-                narration_context={
-                    "driver": state.driver_code,
-                    "lap": state.lap_number,
-                    "strategy": "Defend position",
-                    "delta_s": 0.05,
-                },
-            )
-        )
-    return recs
-
-
 def _label_for(action: StrategyAction) -> str:
+    if action.kind == ActionKind.LIFT and action.corner_index and action.distance_m:
+        return f"Lift {action.distance_m:.0f}m into T{action.corner_index}"
+    if action.kind == ActionKind.BRAKE and action.corner_index and action.distance_m:
+        return f"Brake {action.distance_m:.0f}m earlier into T{action.corner_index}"
     if action.pit_laps and action.pit_compounds:
         stops = ", ".join(
             f"L{p}->{c}" for p, c in zip(action.pit_laps, action.pit_compounds, strict=False)
@@ -146,6 +112,9 @@ def recommend(
     mc_draws: int = DEFAULT_DRAWS,
     include_tactical: bool = True,
 ) -> RecommendationResult:
+    # include_tactical retained for API compatibility; hardcoded DRS/defend
+    # deltas were removed in Phase C — line actions are scored via simulate().
+    _ = include_tactical
     scored: list[Recommendation] = []
 
     for action in _candidate_actions(state):
@@ -176,11 +145,13 @@ def recommend(
                     "delta_s": round(delta, 2),
                     "confidence_std_s": round(mc.std_time_s, 2),
                 },
+                tactical=(
+                    action.kind.value
+                    if action.kind in (ActionKind.LIFT, ActionKind.BRAKE)
+                    else None
+                ),
             )
         )
-
-    if include_tactical:
-        scored.extend(_tactical_recommendations(state))
 
     scored.sort(key=lambda r: r.delta_vs_stay_out_s)
     top = scored[:top_k]
