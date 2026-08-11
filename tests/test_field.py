@@ -35,6 +35,14 @@ class TestStandings:
         assert standings[0].position == 1
         assert standings[1].gap_to_leader_s > 0
 
+    def test_mid_lap_hides_later_sectors_and_full_lap_time(self):
+        standings = compute_standings(_sample_all_laps(), lap_number=1, sector_idx=1)
+        assert standings[0].sector_1_s == 30.0
+        assert standings[0].sector_2_s is None
+        assert standings[0].sector_3_s is None
+        assert standings[0].last_lap_s is None
+        assert standings[0].pit_in is False
+
 
 class TestSectors:
     def test_purple_for_session_best(self):

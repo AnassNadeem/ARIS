@@ -13,6 +13,9 @@ future lap. This test proves that operationally rather than by inspection:
 
 The tripwire is red against a builder that forgets the `shift(1)` (sees lap N)
 and green against the correct `shift(1).rolling`. It runs in CI with no DB.
+
+Also covers Phase A temporal-cutoff guards: held-out race disjointness and
+mid-lap StandingRow sector visibility.
 """
 
 from __future__ import annotations
@@ -22,6 +25,10 @@ import pandas as pd
 import pytest
 
 from aris.eval.baseline import moving_average_baseline
+from aris.eval.laptime import HELD_OUT_RACES
+from aris.field.standings import compute_standings
+from aris.models.features import build_feature_frame
+from aris.models.residual import REFERENCE_RACES
 
 
 def _synthetic_stint(n_laps: int = 10, seed: int = 0) -> pd.DataFrame:
@@ -44,6 +51,66 @@ def _synthetic_stint(n_laps: int = 10, seed: int = 0) -> pd.DataFrame:
             "TyreLife": tyre_life,
             "LapTimeS": unique_time,
         }
+    )
+
+
+def _synthetic_fastf1_stint(n_laps: int = 8) -> pd.DataFrame:
+    """Minimal FastF1-shaped frame for build_feature_frame leakage checks."""
+    laps = []
+    for n in range(1, n_laps + 1):
+        laps.append(
+            {
+                "Driver": "VER",
+                "LapNumber": n,
+                "LapTime": pd.Timedelta(seconds=90.0 + n),
+                "Compound": "MEDIUM",
+                "TyreLife": n,
+                "PitInTime": pd.NaT,
+                "PitOutTime": pd.NaT,
+                "TrackStatus": "1",
+            }
+        )
+    return pd.DataFrame(laps)
+
+
+def _midlap_standings_frame() -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "driver_id": 1,
+                "code": "VER",
+                "full_name": "Max",
+                "team": "RBR",
+                "lap_number": 1,
+                "lap_time_s": 95.0,
+                "sector_1_s": 30.0,
+                "sector_2_s": 36.0,
+                "sector_3_s": 29.0,
+                "compound": "SOFT",
+                "tyre_life": 1,
+                "stint": 1,
+                "track_status": "1",
+                "pit_in": True,
+                "pit_out": False,
+            },
+            {
+                "driver_id": 1,
+                "code": "VER",
+                "full_name": "Max",
+                "team": "RBR",
+                "lap_number": 2,
+                "lap_time_s": 94.0,
+                "sector_1_s": 29.5,
+                "sector_2_s": 35.0,
+                "sector_3_s": 29.5,
+                "compound": "SOFT",
+                "tyre_life": 2,
+                "stint": 1,
+                "track_status": "1",
+                "pit_in": False,
+                "pit_out": False,
+            },
+        ]
     )
 
 
@@ -135,3 +202,51 @@ class TestLeakageTripwire:
         # shift(1).rolling(3): laps 0..2 NaN, first real prediction at lap 3
         assert np.isnan(feats[:3]).all()
         assert not np.isnan(feats[3])
+
+
+class TestHeldOutDisjoint:
+    def test_held_out_races_disjoint_from_reference(self):
+        overlap = set(HELD_OUT_RACES) & set(REFERENCE_RACES)
+        assert not overlap, f"held-out overlaps training races: {sorted(overlap)}"
+
+
+class TestMidLapStandingsCutoff:
+    def test_sector1_hides_later_sectors_full_lap_and_pit_in(self):
+        rows = compute_standings(_midlap_standings_frame(), lap_number=2, sector_idx=1)
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.sector_1_s == 29.5
+        assert row.sector_2_s is None
+        assert row.sector_3_s is None
+        assert row.last_lap_s == 95.0  # prior completed lap only
+        assert row.pit_in is False
+
+    def test_sector3_exposes_full_lap(self):
+        rows = compute_standings(_midlap_standings_frame(), lap_number=2, sector_idx=3)
+        row = rows[0]
+        assert row.sector_1_s == 29.5
+        assert row.sector_2_s == 35.0
+        assert row.sector_3_s == 29.5
+        assert row.last_lap_s == 94.0
+
+
+class TestFeatureFrameCausalLags:
+    def test_lag_features_invariant_to_future_lap_times(self):
+        base_df = _synthetic_fastf1_stint()
+        base = build_feature_frame(base_df, race_id="synth")
+        assert not base.empty
+
+        future = base_df.copy()
+        # Perturb the last lap's time — earlier rows' lag features must not move.
+        future.loc[future.index[-1], "LapTime"] = pd.Timedelta(seconds=999.0)
+        after = build_feature_frame(future, race_id="synth")
+
+        cut_lap = int(base_df["LapNumber"].iloc[-1])
+        past_base = base[base["LapNumber"] < cut_lap].sort_values("LapNumber")
+        past_after = after[after["LapNumber"] < cut_lap].sort_values("LapNumber")
+        for col in ("lag1_pace", "lag2_pace", "stint_roll3"):
+            assert np.allclose(
+                past_base[col].to_numpy(dtype=float),
+                past_after[col].to_numpy(dtype=float),
+                equal_nan=True,
+            )
