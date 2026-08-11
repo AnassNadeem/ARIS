@@ -1,8 +1,9 @@
 """One-shot Neon deploy helper.
 
 Reads `.env.cloud` at the repo root, points ARIS at the Neon Postgres URL it
-contains, applies `db/schema.sql`, ingests the 2024 season, and prints final
-row counts. Idempotent — re-running is safe.
+contains, applies `db/schema.sql` plus `db/migrations/002_weekend_data.sql`,
+ingests the 2024 season, and prints final row counts. Idempotent — re-running
+is safe.
 
 Usage (from the repo root, with .env.cloud already filled in):
 
@@ -25,6 +26,11 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from dotenv import dotenv_values  # noqa: E402
+
+_SCHEMA_FILES = (
+    ROOT / "db" / "schema.sql",
+    ROOT / "db" / "migrations" / "002_weekend_data.sql",
+)
 
 
 def _load_cloud_env() -> str:
@@ -57,17 +63,26 @@ def _check_connection(url: str) -> None:
     print("       ok")
 
 
-def _apply_schema(url: str) -> None:
+def _apply_sql_file(url: str, path: Path) -> int:
+    """Execute semicolon-delimited statements from one SQL file; return count."""
     from sqlalchemy import create_engine, text
 
-    print("[2/4] applying db/schema.sql ...", flush=True)
-    sql = (ROOT / "db" / "schema.sql").read_text(encoding="utf-8")
+    sql = path.read_text(encoding="utf-8")
     stmts = [s.strip() for s in re.split(r";\s*\n", sql) if s.strip()]
     engine = create_engine(url)
     with engine.begin() as conn:
         for stmt in stmts:
             conn.execute(text(stmt))
-    print(f"       applied {len(stmts)} statements")
+    return len(stmts)
+
+
+def _apply_schema(url: str) -> None:
+    print("[2/4] applying db/schema.sql + migrations ...", flush=True)
+    for path in _SCHEMA_FILES:
+        if not path.exists():
+            sys.exit(f"ERROR: missing SQL file: {path}")
+        n = _apply_sql_file(url, path)
+        print(f"       {path.relative_to(ROOT)}: applied {n} statements")
 
 
 def _ingest_2024() -> None:
@@ -107,7 +122,12 @@ def _sanity_counts() -> None:
         sessions = conn.execute(text("SELECT count(*) FROM sessions")).scalar()
         drivers = conn.execute(text("SELECT count(*) FROM drivers")).scalar()
         laps = conn.execute(text("SELECT count(*) FROM laps")).scalar()
-    print(f"       sessions={sessions} drivers={drivers} laps={laps}")
+        weather = conn.execute(text("SELECT count(*) FROM session_weather")).scalar()
+        results = conn.execute(text("SELECT count(*) FROM session_results")).scalar()
+    print(
+        f"       sessions={sessions} drivers={drivers} laps={laps} "
+        f"weather={weather} results={results}"
+    )
     print()
     print("Done. Next: deploy on Streamlit Cloud and paste ARIS_DB_URL into Secrets.")
     print("See DEPLOY.md Step 3 for the exact form fields.")
