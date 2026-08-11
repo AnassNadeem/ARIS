@@ -26,6 +26,7 @@ results/*
 !results/.gitkeep
 !results/wk2-baseline-mae.csv
 !results/wk2-window-sweep.csv
+!results/heldout-laptime-mae.csv
 
 # Parquet & pickles outside the data dir
 *.parquet
@@ -48,8 +49,10 @@ Thumbs.db
 # Claude Code local state (personal, not portable)
 .claude/
 
-# Internal planning + learning docs (kept local, pushed selectively later)
-docs/
+# docs/: public top-level markdown; keep planning/learning + private audits local
+docs/planning/
+docs/learning/
+docs/REPO-STATUS-*.md
 
 # Logs
 *.log
