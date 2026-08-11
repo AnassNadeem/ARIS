@@ -188,45 +188,37 @@ A daily journal of what got built, what broke, and what I learned. One bullet pe
 - **2026-06-08 (Mon):** *Phase 3 opens — the leakage tripwire, before any model or feature.* The non-negotiable Day-1 commit: a test that fails loudly if a feature row can ever see its own target or a future lap, built *first* so every later Phase-3 number is honest by construction. **`src/aris/models/cv.py`** — `race_by_race_folds(df, race_col='race_id')` yields leave-one-race-out `(train_idx, test_idx)` with positional indices and provably zero race overlap per fold; this is the split the tripwire enforces and the harness Phase 3 scores against. **`tests/test_no_leakage.py`** — the keystone. A synthetic one-driver/one-stint frame where every lap's `LapTimeS` is unique and far-separated (90 + 0.05·tyre_life + 100·lap + noise), so any feature that secretly includes a lap *moves measurably* when that lap is perturbed. `assert_leakage_safe` perturbs (a) lap i's own target and (b) every lap after i, asserting lap i's feature is bit-identical in both cases — the operational definition of "feature support ⊂ laps < N within (driver, stint)." It is **red against a deliberately leaky builder** (`rolling(k)` with the `shift(1)` dropped → self-leak caught with a `"self leak"` AssertionError) and **green against the correct `shift(1).rolling(k)`**; the exact MA(2) baseline Phase 2 shipped passes as a regression guard, and a separate test confirms shuffling future rows leaves all past features unchanged. Pure synthetic, no DB — runs in CI. **`tests/test_cv.py`** — 7 cases: no race on both sides of a fold, each race held out exactly once, train/test partition the frame, positional-not-label indices. **Verification:** 12 new tests green; full non-DB suite **60 passed** (`ruff` clean; the 6 `test_db`/`test_ingest` cases error locally only because the Docker Postgres isn't up this session — they skip in CI where no `.env` sets `ARIS_DB_URL`, and Day 1 touches no DB path). Pushed `main`; **CI green** on `f6161c9`. *Tonight: Rajamani Ch. 2 single-track derivation so Tue starts with the model, not the maths.* Commit: `f6161c9`.
 - **2026-06-09 (Tue):** *Single-track bicycle model — the interpretable physics backbone.* (Built Jun 8 in the same session as Day 1 — pace ran ahead of the calendar; logged under its planned day.) **`learning/notes/bicycle-model.md`** — Rajamani Ch. 2 notes written *before* code: the two results ARIS actually uses (grip-limited cornering `v=√(μgR)` from the friction circle, and longitudinal load transfer `ΔF=m·a·h/L`), and an explicit list of the simplifications that make the model knowingly wrong (no downforce, linear tyre/no thermal, no fuel mass, lumped geometry). **`src/aris/physics/bicycle.py`** — typed, frozen dataclasses (`Car`, `Corner`, `Track`, `StintState`) + `predict_lap_time(state) -> float`: sums grip-limited corner times and a per-corner trapezoidal straight profile. **One physics correction during the build:** the first cut lumped all 4357 m of straight into a single accelerate-cruise-brake blast, which predicted **80.8 s** — *faster* than the real ~93 s pole, because one brake event is unphysical. Distributing the straight across one inter-corner segment per corner (you must brake and re-accelerate at every corner exit) moved the prediction to **111.3 s** — now slower than reality, the honest no-downforce direction the notes claim. **`tests/test_bicycle.py`** — 16 physical-sanity cases: corner speed matches `√(μgR)` and is monotonic in radius/μ and capped at `v_max`; load transfer is zero at zero accel, monotonic, and symmetric for accel-vs-braking; lap time is positive, order-plausible (60–240 s), shorter with more grip, and **invariant to mass** (a documented Day-2 limitation — mass cancels in grip-limited cornering, so the fuel-burn term is a Day-3 add). **`notebooks/06-bicycle-vs-actual.ipynb`** (built + executed via `scripts/build_nb06_bicycle.py`, outputs embedded against real data) — overlays the flat 111.3 s prediction on VER's 19-lap SOFT stint (Bahrain 2024 R); actual median 94.67 s, **mean residual −16.66 s** (model too slow). The residual-vs-tyre-life plot is annotated with the three structured errors the Wk-6 ML will learn: cold-tyre out-lap, fuel burn (downward drift), tyre degradation (late-stint climb). Saved `assets/screenshots/wk5-bicycle-vs-actual.png`. **Verification:** full non-DB suite **76 passed** (60 → 76, +16 bicycle); `ruff` clean on all four touched files + the builder; notebook executed end-to-end on cached FastF1 data (no DB). Commit: `feat(physics): single-track bicycle model + predicted-vs-actual notebook`.
 - **2026-06-10 (Wed):** *Fuel-burn + pit-loss terms — and an honest "doesn't help yet."* (Built Jun 9, ahead of calendar.) **Block 1 (model):** added two linear corrections to `aris.physics.bicycle`. A module constant `FUEL_PENALTY_S_PER_KG = 0.03` (the F1 rule of thumb: ~0.03 s/lap per kg of fuel) plus `StintState.fuel_kg`, so `predict_lap_time` adds `0.03 · fuel_kg`; and a `Track.pit_loss_s` (Bahrain = 21 s) plus `StintState.pit_lap` that adds the pit-lane loss on in/out laps. Both default off, so every Day-2 test and prediction is unchanged — the mass-invariance test still holds (fuel is a *separate* additive term, not mass re-entering the grip-limited cornering). 5 new tests: fuel adds time *linearly* (delta == 0.03·kg), more fuel is slower, zero fuel recovers pure physics, pit lap adds exactly `pit_loss_s`, no pit cost when the track defines none. **Block 1 (notebook + honest read):** extended `06-bicycle-vs-actual.ipynb` to model fuel across the race (110 kg start, 1.7 kg/lap burn) so VER's final SOFT stint correctly sits at low fuel (45 → 15 kg here). Re-scored with `aris.eval.scoring.mae`: **physics-only 16.66 s → +fuel 17.56 s** — the fuel term makes it *slightly worse* on this stint, and that's the truthful result, not a bug. The fuel term adds the correct <1 s downward slope as the tank empties, but the error it competes with is the **~16 s constant bias from missing downforce**; adding any positive penalty to an already-too-slow base can't help. The terms are verified correct in isolation (full-tank lap **+3.00 s**, pit lap **+21.00 s**). The takeaway logged in the notebook: a near-constant bias is an intercept the Wk-6 residual ML learns trivially — the fuel/pit terms exist to get per-lap *structure* right, not the absolute level; hand-tuning grip to erase the bias would over-fit one stint. Saved `assets/screenshots/wk5-bicycle-fuel.png`. **Verification:** full non-DB suite **81 passed** (76 → 81); `ruff` clean; notebook re-executed end-to-end on cached data. **Blocks 2–4 (outward-facing, pending account actions):** the Brunel WhatsApp (§4 text) and LinkedIn post #1 are both prepped and gated-green but are account actions I can't perform — surfaced to the user with the WhatsApp template (needs the contact's name) and a note that the LinkedIn body is one week stale ("3 weeks in" / Phase 3 "starting June" — now mid-June, Phase 3 underway) and should be freshened before posting. The README hero screenshot (Block 3) was already completed in the Wk 4 Day 6 addendum. Commit: `feat(physics): fuel-burn + pit-loss terms on the bicycle model`.
-- **2026-06-11 (Thu):**
-- **2026-06-12 (Fri):**
-- **2026-06-13 (Sat):**
+- **2026-06-11 (Thu):** *(no commits — calendar slot empty)*
+- **2026-06-12 (Fri):** *(no commits — calendar slot empty)*
+- **2026-06-13 (Sat):** *(no commits — calendar slot empty)*
 - **2026-06-14 (Sun):** *off*
 
-**Weekly retro (Wk 5):**
+**Weekly retro (Wk 5):** Days 1–3 shipped (leakage tripwire, bicycle, fuel/pit). Thu–Sat had no commits. Outward-facing Brunel/LinkedIn items remained account-gated.
 
 ### Week 6 (Jun 15 – Jun 21) — tire degradation curve
 
-- **2026-06-15 (Mon):**
-- **2026-06-16 (Tue):**
-- **2026-06-17 (Wed):**
-- **2026-06-18 (Thu):**
-- **2026-06-19 (Fri):**
-- **2026-06-20 (Sat):**
+- **2026-06-15 (Mon) – 2026-06-21 (Sat):** *(no commits in this calendar week — see Jul 8 backfill for when tyre slopes landed)*
 - **2026-06-21 (Sun):** *off*
 
-**Weekly retro (Wk 6):**
+**Weekly retro (Wk 6):** Empty in-repo. Tyre work landed later (2026-07-08), not in this week.
 
 ### Week 7 (Jun 22 – Jun 28) — residual ML + conformal calibration
 
-- **2026-06-22 (Mon):**
-- **2026-06-23 (Tue):**
-- **2026-06-24 (Wed):**
-- **2026-06-25 (Thu):**
-- **2026-06-26 (Fri):**
-- **2026-06-27 (Sat):**
+- **2026-06-22 (Mon) – 2026-06-28 (Sat):** *(no commits in this calendar week)*
 - **2026-06-28 (Sun):** *off*
 
-**Weekly retro (Wk 7):**
+**Weekly retro (Wk 7):** Empty in-repo. Residual XGBoost + eval harness landed 2026-07-08; real split-conformal was **not** implemented (MC percentile helpers were added later and misnamed).
 
-**Phase 3 retrospective:**
+**Phase 3 retrospective (honest, as of Phase A backfill 2026-08-10):**
 
-- Tag shipped: `v0.3-predictor`
-- MAE on held-out (5 races): floor < 1.0 s / target < 0.7 s / stretch < 0.5 s →
-- Conformal 90% empirical coverage:
-- Brunel Racing reply status:
-- LinkedIn post #3 link:
-- What I'd change:
+- Tag shipped: `v0.3-predictor` — **not cut**
+- MAE on held-out (5 races, after Phase A disjoint fix): **1.735 s** overall (see `results/heldout-laptime-mae.csv`). Does not beat MA(2) floor 0.460 s.
+- Conformal 90% empirical coverage: **not done** (module was MC bands, later renamed)
+- Brunel Racing reply status: *(not evidenced in commits)*
+- LinkedIn post #3 link: *(not evidenced in commits)*
+- What I'd change: held-out set originally overlapped `REFERENCE_RACES` — fixed in Phase A.
+
+> **BACKFILL NOTE (2026-08-10):** From here through 2026-07-13 the daily rows below were empty while substantial code landed on `main`. Entries were reconstructed from `git log` commit messages/dates only. Where a message over-claims (e.g. “RAG”, “conformal”), the backfill records the commit message **and** the later honesty correction — it does not invent session narrative.
 
 ---
 
@@ -234,33 +226,17 @@ A daily journal of what got built, what broke, and what I learned. One bullet pe
 
 ### Week 8 (Jun 22 – Jun 28) — perturbation API
 
-- **2026-06-22 (Mon):**
-- **2026-06-23 (Tue):**
-- **2026-06-24 (Wed):**
-- **2026-06-25 (Thu):**
-- **2026-06-26 (Fri):**
-- **2026-06-27 (Sat):**
-- **2026-06-28 (Sun):** *off*
+- **2026-06-22 – 2026-06-28:** *(no commits — see Jul 8)*
 
-**Weekly retro (Wk 8):**
+**Weekly retro (Wk 8):** Empty.
 
 ### Week 9 (Jun 29 – Jul 5) — what-if Streamlit page
 
-- **2026-06-29 (Mon):**
-- **2026-06-30 (Tue):**
-- **2026-07-01 (Wed):**
-- **2026-07-02 (Thu):**
-- **2026-07-03 (Fri):**
-- **2026-07-04 (Sat):**
-- **2026-07-05 (Sun):** *off*
+- **2026-06-29 – 2026-07-05:** *(no commits)*
 
-**Weekly retro (Wk 9):**
+**Weekly retro (Wk 9):** Empty.
 
-**Phase 4 retrospective:**
-
-- Tag shipped: `v0.4-counterfactual`
-- Demo screenshot ("lift 30 m T7 → +0.18 s"):
-- LinkedIn post #4 link:
+**Phase 4 retrospective (as of backfill):** Pit-only counterfactual simulator (`simulate` / `recommend`) landed **2026-07-08**, not in weeks 8–9. No lift/brake/line actions. Tag `v0.4-counterfactual` **not cut**.
 
 ---
 
@@ -268,34 +244,23 @@ A daily journal of what got built, what broke, and what I learned. One bullet pe
 
 ### Week 10 (Jul 6 – Jul 12)
 
-- **2026-07-06 (Mon):**
-- **2026-07-07 (Tue):**
-- **2026-07-08 (Wed):**
-- **2026-07-09 (Thu):**
-- **2026-07-10 (Fri):**
-- **2026-07-11 (Sat):**
-- **2026-07-12 (Sun):** *off*
+- **2026-07-06 (Mon):** *(no commits)*
+- **2026-07-07 (Tue):** *(no commits)*
+- **2026-07-08 (Wed):** *Compressed stack land — tyre + residual + strategy + Strategy UI + docs* (eight commits on this date). From git messages: linear tyre degradation into bicycle (`f0bbaf0`); XGBoost residual + unified predictor (`b049cbc`); counterfactual simulator + MC + top-3 pit recommender (`e474286`); Ollama narration + laptime eval harness + smoke test (`ed57619`); Strategy Streamlit page (`4642c3b`); README/docs for v1 strategy demo + ML deps (`18f3c8d`). Commit messages do not spell out session intent beyond the subjects above.
+- **2026-07-09 (Thu) – 2026-07-11 (Sat):** *(no commits)*
+- **2026-07-12 (Sun):** *Large always-on / weekend drop* (many commits same day). From git messages: weekend DB migration (`8cfd0ca`); Bahrain track YAML + track loader (`6772790`, `41dd2a9`); field state/sectors/standings + tests (`f111c0c`, `a2e62aa`); engine clock/triggers/session (`321e564`); decision queue + actions + tests (`e007180`, `06b6c28`); weekend form/prewrite + tests (`c769d0d`, `916dba1`); DB/ingest weekend extensions + weekend ingest CLI (`42da168`, `e84d990`, `ba09c1c`); RaceState field extensions (`9b99417`); sector_split model (`b081309` — later noted unused/non-causal); MC/sim/recommend field-aware updates (`f749c77`, `354c92c`, `ccb06d3`); eval helpers named conformal + postrace (`13aff54` — conformal was MC percentiles); Ask layer named RAG (`addf0b2` — keyword rules); Bahrain 2025 dry-run + cache prewarm (`5cf11f9`, `c4b5d73`); Strategy page rebuild + components + tests + deps (`00fcc9f`, `89a17a7`, `666ce2c`, `7ff6824`).
+- *(BUILD-LOG calendar marked Jul 12 as “off”; commits exist anyway — recorded under the real date.)*
 
-**Weekly retro (Wk 10):**
+**Weekly retro (Wk 10):** Strategy demo path and always-on scaffolding largely appeared this week (mostly Sun Jul 12), not as a paced Mon–Sat log.
 
 ### Week 11 (Jul 13 – Jul 19) — MC slim layer + MATLAB port begins
 
-- **2026-07-13 (Mon):**
-- **2026-07-14 (Tue):**
-- **2026-07-15 (Wed):**
-- **2026-07-16 (Thu):**
-- **2026-07-17 (Fri):**
-- **2026-07-18 (Sat):**
-- **2026-07-19 (Sun):** *off*
+- **2026-07-13 (Mon):** `feat(ui): add four-screen Streamlit dashboard wired to ARIS models` (`d09d59a`) — parallel FastF1-direct UI under `dashboard/` (later removed in Phase A; `apps/` kept as canonical).
+- **2026-07-14 – 2026-07-19:** *(no further commits through tag history / log to 2026-08-10)*
 
-**Weekly retro (Wk 11):**
+**Weekly retro (Wk 11):** One UI commit. MATLAB port **not evidenced**.
 
-**Phase 5 retrospective:**
-
-- Tag shipped: `v0.5-always-on`
-- Loop cadence achieved: 5 s / 15 s fallback?
-- Event-driven recompute latency:
-- LinkedIn post #5 link:
+**Phase 5 retrospective (as of backfill):** Always-on exists as engine + Strategy page, not planned `replay.py`. Tag `v0.5-always-on` **not cut**.
 
 ---
 
@@ -303,33 +268,17 @@ A daily journal of what got built, what broke, and what I learned. One bullet pe
 
 ### Week 12 (Jul 20 – Jul 26)
 
-- **2026-07-20 (Mon):**
-- **2026-07-21 (Tue):**
-- **2026-07-22 (Wed):**
-- **2026-07-23 (Thu):**
-- **2026-07-24 (Fri):**
-- **2026-07-25 (Sat):**
-- **2026-07-26 (Sun):** *off*
+- **2026-07-20 – 2026-07-26:** *(no commits)*
 
-**Weekly retro (Wk 12):**
+**Weekly retro (Wk 12):** Empty. Narration itself landed earlier (Jul 8).
 
 ### Week 13 (Jul 27 – Aug 2)
 
-- **2026-07-27 (Mon):**
-- **2026-07-28 (Tue):**
-- **2026-07-29 (Wed):**
-- **2026-07-30 (Thu):**
-- **2026-07-31 (Fri):**
-- **2026-08-01 (Sat):**
-- **2026-08-02 (Sun):** *off*
+- **2026-07-27 – 2026-08-02:** *(no commits)*
 
-**Weekly retro (Wk 13):**
+**Weekly retro (Wk 13):** Empty.
 
-**Phase 6 retrospective:**
-
-- Tag shipped: `v0.6-narrated`
-- `aris-matlab-validation` repo link:
-- LinkedIn post #6 link:
+**Phase 6 retrospective (as of backfill):** Ollama narration present; Ask was keyword (not RAG). MATLAB validation repo **not published**. Tag `v0.6-narrated` **not cut**.
 
 ---
 
@@ -337,19 +286,13 @@ A daily journal of what got built, what broke, and what I learned. One bullet pe
 
 ### Week 14 (Aug 3 – Aug 9)
 
-- **2026-08-03 (Mon):**
-- **2026-08-04 (Tue):**
-- **2026-08-05 (Wed):**
-- **2026-08-06 (Thu):**
-- **2026-08-07 (Fri):**
-- **2026-08-08 (Sat):**
-- **2026-08-09 (Sun):** *off*
+- **2026-08-03 – 2026-08-09:** *(no commits on `main` in this window per `git log`)*
 
-**Weekly retro (Wk 14):**
+**Weekly retro (Wk 14):** Empty.
 
 ### Week 15 (Aug 10 – Aug 16) — demo video + Replay mode + HF Space
 
-- **2026-08-10 (Mon):**
+- **2026-08-10 (Mon):** *Phase A — Stabilize & de-risk* (executed this day; not yet a git commit at log-write time). Docs: `docs/data-sources.md`, `docs/decision-schema.md`, F1 disclaimer on README. Honest renames: `ask/rag.py` → `ask/keyword_qa.py`; `eval/conformal.py` → `eval/mc_intervals.py` (real mapie conformal deferred). Leakage: `HELD_OUT_RACES` made disjoint from `REFERENCE_RACES`; mid-lap `StandingRow` hides later sectors / unfinished lap time; `sector_splits_for_session` scoped post-session-only; residual whole-race training documented as intentional offline learning vs replay leakage. Held-out MAE recorded: **1.735 s**. Neon deploy script now applies migration 002. Deleted `dashboard/`, `.today-backup/`, orphan wk2 notebook helper scripts; fixed `inspect_cache.py` hardcoded path. BUILD-LOG backfilled from git history (this note).
 - **2026-08-11 (Tue):**
 - **2026-08-12 (Wed):**
 - **2026-08-13 (Thu):**

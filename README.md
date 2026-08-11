@@ -2,6 +2,12 @@
 
 [![ci](https://github.com/AnassNadeem/ARIS/actions/workflows/ci.yml/badge.svg)](https://github.com/AnassNadeem/ARIS/actions/workflows/ci.yml)
 
+> **Disclaimer:** ARIS is an unofficial project. It is not affiliated with,
+> associated with, authorized by, endorsed by, or in any way officially
+> connected to Formula 1, the FIA, Formula One Group, or any Formula 1
+> team or rights holder. “Formula 1”, “F1”, and related marks are
+> trademarks of their respective owners.
+
 **An always-on race-strategy software system that watches a live race,
 predicts what's about to happen, and proposes the next decision with a
 quantified lap-time delta and a calibrated confidence interval — built
@@ -17,16 +23,20 @@ no notebook to open: the pipeline is the page.
 
 [![ARIS Phase 2 dashboard — Bahrain 2024 race, Max Verstappen: lap-time trace, per-sector breakdown, and the MA(2) baseline floor](assets/screenshots/wk4-streamlit-hero.png)](https://aris-f1.streamlit.app)
 
-**Where it stands today (Phase 2 complete):** ARIS ingests a full FastF1 season
-into Postgres with an idempotent, all-or-nothing-per-session pipeline, derives a
-moving-average lap-time baseline per tyre stint, and serves it through a public
-Streamlit dashboard. The baseline is computed twice — once in pandas, once as a
+**Where it stands today:** Phase 2 (`v0.2-pipeline`) is tagged and live — FastF1 →
+Postgres ingest with an idempotent, all-or-nothing-per-session pipeline, a
+moving-average lap-time baseline per tyre stint, and a public Streamlit lap
+explorer. The baseline is computed twice — once in pandas, once as a
 Postgres window query — and the two match to **machine epsilon** across eight
-reference races, which is the canary that proves the ingest is lossless before any
-model touches it. That baseline — **0.460 s MAE on green-flag laps** — is the floor
-the Phase 3 predictor (hand-coded physics + an XGBoost residual, starting June) has
-to beat, and the cross-check is what catches a beat that comes from leakage rather
-than signal.
+reference races (canary that the ingest is lossless). That baseline —
+**0.460 s MAE on green-flag laps** — is the floor any predictor has to beat.
+
+Beyond the tag, `main` also carries a **v1 strategy demo** (physics + tyre
+slopes + XGBoost residual, pit counterfactuals, MC bands, Strategy page with
+field/decision queue). After Phase C (tune + inverse-variance blend with MA(2)),
+held-out MAE on five 2024 races is **MA(2) 0.469 · physics-only 15.211 ·
+physics+residual 0.787 · blended 0.549 s**. The blend is the closest stack to
+baseline but still does **not** beat it. Tags past `v0.2-pipeline` have not been cut.
 
 ---
 
@@ -36,9 +46,10 @@ than signal.
 |---|---|
 | **Started** | 2026-05-04 |
 | **Ship target** | 2026-08-31 (`v1.0-shipped`) |
-| **Current phase** | v1 strategy demo — physics + XGBoost + MC recommender + narration |
+| **Current phase** | Phase C (close predictor gap + richer actions) complete on `main`; strategy demo present but untagged past `v0.2` |
 | **Live demo** | [aris-f1.streamlit.app](https://aris-f1.streamlit.app) |
-| **Last tag** | [`v0.2-pipeline`](https://github.com/AnassNadeem/ARIS/releases/tag/v0.2-pipeline) — Postgres ingest + live dashboard; baseline floor **0.460 s MAE** on green-flag laps across 8 races / 6383 laps |
+| **Last tag** | [`v0.2-pipeline`](https://github.com/AnassNadeem/ARIS/releases/tag/v0.2-pipeline) — Postgres ingest + live lap explorer; baseline floor **0.460 s MAE** on green-flag laps across 8 races / 6383 laps |
+| **Held-out predictor MAE** | **MA(2) 0.469 · physics-only 15.211 · physics+residual 0.787 · blended 0.549 s** on 5×2024 races (`results/heldout-laptime-mae.csv`) — blended is closest but still does **not** beat baseline |
 | **Cadence** | 6 hrs/day × 6 days/week (Sundays off) |
 
 This repo is **under active construction**. Phases ship sequentially as
@@ -57,9 +68,9 @@ A **hybrid AI race strategist**. Six components, layered:
 | L1 | State estimation | Per-tick `RaceState` snapshot |
 | L2 | Lap-time predictor | Hand-coded bicycle model + tire deg curve, with an XGBoost residual learned on FastF1 data |
 | L3 | Counterfactual simulator | Perturb action → predict outcome (`simulate(state, action) → delta`) |
-| L4 | Recommender | Action search + Monte Carlo over remaining race, conformal prediction intervals |
+| L4 | Recommender | Action search + Monte Carlo over remaining race, MC percentile bands (not calibrated conformal) |
 | L5 | Narrator | Local Llama 3.1 turns top recommendation into one-sentence radio call |
-| L6 | Dashboard | Streamlit, four modes: Watch · Ask · What-if · Replay |
+| L6 | Dashboard | Streamlit (`apps/`): lap explorer + Strategy (Watch · Ask · What-if · Replay) |
 
 It runs **always-on** against a race replay (FastF1 historical, treated
 as live), updating recommendations on a tiered cadence:
@@ -99,17 +110,20 @@ MATLAB / Simulink port of the bicycle module — separate repo
 
 ## Roadmap
 
-| Phase | Weeks | Output | Tag |
-|---|---|---|---|
-| 0 | 0 | Loadout — Python, Docker, Ollama, NVIDIA + CUDA, repo skeleton | (prep, untagged) |
-| 1 | 1–2 | Python foundations + first FastF1 plot | `v0.1-foundation` ✅ |
-| 2 | 3–4 | Postgres ingest + Streamlit dashboard, deployed | `v0.2-pipeline` ✅ |
-| 3 | 5–7 | Lap-time predictor (physics + residual ML), MAE < 1.0 s on held-out | `v0.3-predictor` ◀ next |
-| 4 | 8–9 | Counterfactual simulator, "lift 30 m T7 → +0.18 s" demo | `v0.4-counterfactual` |
-| 5 | 10–11 | Always-on loop + recommendation feed, Monte Carlo slim layer, MATLAB port begins | `v0.5-always-on` |
-| 6 | 12–13 | LLM narration + MATLAB validation finish | `v0.6-narrated` |
-| 7 | 14–15 | Eval harness, conformal calibration, 90-second demo video, strategy backtest report | `v1.0-shipped` |
-| 8 | 16–17 | Placement-applications-ready CV + cover letters | `v1.0-placement-ready` |
+Status key: ✅ tagged · ◐ code on `main`, tag not cut · ○ not done.
+“◀ next” marks the next **tag** to cut after Phase A review — not “nothing exists yet.”
+
+| Phase | Weeks | Output | Tag | Status |
+|---|---|---|---|---|
+| 0 | 0 | Loadout — Python, Docker, Ollama, NVIDIA + CUDA, repo skeleton | (prep, untagged) | ✅ |
+| 1 | 1–2 | Python foundations + first FastF1 plot | `v0.1-foundation` | ✅ |
+| 2 | 3–4 | Postgres ingest + Streamlit lap explorer, deployed | `v0.2-pipeline` | ✅ |
+| 3 | 5–7 | Lap-time predictor (physics + residual ML); honest held-out MAE published | `v0.3-predictor` | ◐ code yes; Phase C blended **0.549 s** (above MA(2) 0.469 s); tag not cut |
+| 4 | 8–9 | Counterfactual simulator (pit + lift/brake actions) | `v0.4-counterfactual` | ◐ pit + lift/brake on `main`; tag not cut |
+| 5 | 10–11 | Always-on Strategy loop + MC bands; MATLAB port begins | `v0.5-always-on` | ◐ engine + Strategy UI + MC; MATLAB not started; tag not cut |
+| 6 | 12–13 | LLM narration + grounded Ask; MATLAB validation finish | `v0.6-narrated` | ◐ narration + keyword Ask; true RAG / MATLAB open; tag not cut |
+| 7 | 14–15 | Eval harness, real conformal (mapie), backtest report, demo video | `v1.0-shipped` | ○ (Phase A only stabilized naming/leakage) |
+| 8 | 16–17 | Placement-applications-ready CV + cover letters | `v1.0-placement-ready` | ○ |
 
 ---
 
@@ -127,8 +141,8 @@ ARIS/
 │   ├── montecarlo.py   # slim MC confidence layer
 │   ├── recommend.py    # top-3 strategy search
 │   └── narrate.py      # Ollama radio-call narration
-├── apps/               # Streamlit (lap explorer + Strategy page)
-├── scripts/            # ingest, train_residual, smoke_strategy
+├── apps/               # Streamlit (lap explorer + Strategy page) — canonical UI
+├── scripts/            # ingest, train_residual, smoke_strategy, deploy_to_neon
 ├── models/             # gitignored trained artefacts (residual_xgb.json)
 ├── tests/
 ├── BUILD-LOG.md
@@ -211,9 +225,25 @@ python -m aris.eval.laptime
 `llama3.1:8b-instruct-q5_K_M`, and leave the "Use Ollama narration" checkbox on
 in the Strategy page. If Ollama is down, ARIS falls back to a template radio call.
 
-**Honest predictor note:** the physics + tyre + XGBoost stack is wired end-to-end;
-held-out MAE may still be above the 0.460 s MA(2) baseline floor while the model
-matures — the strategy demo runs on the full stack regardless.
+**Honest predictor note:** the physics + tyre + XGBoost stack is wired end-to-end.
+On five 2024 held-out races disjoint from the 2018–2023 training corpus
+(China, Monaco, Spain, Belgium, Abu Dhabi; clean green-flag scored laps),
+side-by-side MAE is **MA(2) 0.469 · physics-only 15.211 · physics+residual
+0.787 · blended (physics+residual ⊕ MA(2)) 0.549 s**
+(`results/heldout-laptime-mae.csv`). Methodology: leakage-safe features,
+LORO-CV-then-fit-all residual (Phase C retuned depth/η on LORO only), then
+inverse-variance blend with MA(2) using causal rolling error variances.
+**The blend does not beat MA(2)** — recent-pace features were already in the
+residual (and dominate gain), so the gap is not a missing-lag bug; pure MA(2)
+remains a lower-variance smoother on mid/late-stint laps, and the blend can
+only partially borrow that strength without matching it.
+
+Raw next-lap MAE is not the only metric that matters for ARIS. MA(2) has no
+action-conditional or counterfactual capability: it cannot answer “what if we
+pit / lift / brake here?” The strategy stack exists to score those
+interventions; Phase D’s backtest will measure decision quality directly. That
+is additional context, not an excuse — the numbers above are still the best
+honest held-out point-forecast we can publish today.
 
 ---
 
