@@ -1,0 +1,52 @@
+name: China
+country: China
+total_laps: 56
+pit_loss_s: 17.4
+lap_length_m: 5367.3
+corners:
+- radius_m: 115.3
+  arc_length_m: 73.5
+- radius_m: 45.4
+  arc_length_m: 67.5
+- radius_m: 32.5
+  arc_length_m: 29.5
+- radius_m: 117.5
+  arc_length_m: 70.6
+- radius_m: 387.2
+  arc_length_m: 58.0
+- radius_m: 38.2
+  arc_length_m: 16.7
+- radius_m: 190.4
+  arc_length_m: 66.3
+- radius_m: 92.7
+  arc_length_m: 73.4
+- radius_m: 37.5
+  arc_length_m: 51.2
+- radius_m: 102.4
+  arc_length_m: 72.9
+- radius_m: 42.1
+  arc_length_m: 77.3
+- radius_m: 56.7
+  arc_length_m: 74.6
+- radius_m: 82.1
+  arc_length_m: 67.0
+- radius_m: 39.2
+  arc_length_m: 51.8
+- radius_m: 205.1
+  arc_length_m: 66.9
+- radius_m: 73.8
+  arc_length_m: 67.6
+round_aliases:
+- china
+- shanghai
+- chinese
+source:
+  year: 2024
+  gp: China
+  method: total_laps=session.total_laps; pit_loss=median(pit_lap - clean@similar_tyre_life);
+    corners=get_circuit_info + telemetry circle fit
+  pit_loss_year: 2024
+  pit_loss_gp: China
+  pit_loss_previous_s: 17.1
+  pit_loss_method: "strict: median(pit_lap - clean@tyre_life\xB11,same_compound,LapNumber\xB1\
+    5,TrackStatus==1,free-air\u2264stint_med+1s)"

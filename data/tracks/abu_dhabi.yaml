@@ -1,0 +1,55 @@
+name: Abu Dhabi
+country: UAE
+total_laps: 58
+pit_loss_s: 21.8
+lap_length_m: 5250.7
+corners:
+- radius_m: 49.2
+  arc_length_m: 66.5
+- radius_m: 115.8
+  arc_length_m: 57.0
+- radius_m: 134.3
+  arc_length_m: 59.0
+- radius_m: 402.8
+  arc_length_m: 69.1
+- radius_m: 38.5
+  arc_length_m: 72.3
+- radius_m: 63.0
+  arc_length_m: 74.9
+- radius_m: 51.8
+  arc_length_m: 71.7
+- radius_m: 383.8
+  arc_length_m: 64.5
+- radius_m: 72.2
+  arc_length_m: 70.7
+- radius_m: 182.5
+  arc_length_m: 72.5
+- radius_m: 123.0
+  arc_length_m: 73.8
+- radius_m: 50.8
+  arc_length_m: 75.5
+- radius_m: 73.2
+  arc_length_m: 71.4
+- radius_m: 71.8
+  arc_length_m: 72.9
+- radius_m: 95.8
+  arc_length_m: 68.9
+- radius_m: 51.6
+  arc_length_m: 73.8
+round_aliases:
+- abu dhabi
+- abudhabi
+- yas marina
+- yas island
+- uae
+- united arab emirates
+source:
+  year: 2024
+  gp: Abu Dhabi
+  method: total_laps=session.total_laps; pit_loss=median(pit_lap - clean@similar_tyre_life);
+    corners=get_circuit_info + telemetry circle fit
+  pit_loss_year: 2024
+  pit_loss_gp: Abu Dhabi
+  pit_loss_previous_s: 21.4
+  pit_loss_method: "strict: median(pit_lap - clean@tyre_life\xB11,same_compound,LapNumber\xB1\
+    5,TrackStatus==1,free-air\u2264stint_med+1s)"

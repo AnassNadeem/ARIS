@@ -1,0 +1,48 @@
+name: Spain
+country: Spain
+total_laps: 66
+pit_loss_s: 19.0
+lap_length_m: 4618.9
+corners:
+- radius_m: 66.7
+  arc_length_m: 72.8
+- radius_m: 77.4
+  arc_length_m: 72.5
+- radius_m: 150.6
+  arc_length_m: 74.6
+- radius_m: 56.1
+  arc_length_m: 53.9
+- radius_m: 151.2
+  arc_length_m: 66.9
+- radius_m: 235.0
+  arc_length_m: 57.9
+- radius_m: 64.7
+  arc_length_m: 74.7
+- radius_m: 194.8
+  arc_length_m: 65.0
+- radius_m: 141.7
+  arc_length_m: 71.1
+- radius_m: 55.6
+  arc_length_m: 70.9
+- radius_m: 168.0
+  arc_length_m: 68.5
+- radius_m: 47.6
+  arc_length_m: 78.6
+- radius_m: 86.1
+  arc_length_m: 51.7
+- radius_m: 145.6
+  arc_length_m: 72.0
+round_aliases:
+- spain
+- barcelona
+- catalunya
+source:
+  year: 2024
+  gp: Spain
+  method: total_laps=session.total_laps; pit_loss=median(pit_lap - clean@similar_tyre_life);
+    corners=get_circuit_info + telemetry circle fit
+  pit_loss_year: 2024
+  pit_loss_gp: Spain
+  pit_loss_previous_s: 17.2
+  pit_loss_method: "strict: median(pit_lap - clean@tyre_life\xB11,same_compound,LapNumber\xB1\
+    5,TrackStatus==1,free-air\u2264stint_med+1s)"

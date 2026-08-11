@@ -1,0 +1,58 @@
+name: Monaco
+country: Monaco
+total_laps: 78
+pit_loss_s: 19.2
+lap_length_m: 3282.4
+corners:
+- radius_m: 162.9
+  arc_length_m: 75.1
+- radius_m: 124.5
+  arc_length_m: 74.4
+- radius_m: 68.1
+  arc_length_m: 29.7
+- radius_m: 113.8
+  arc_length_m: 75.9
+- radius_m: 27.6
+  arc_length_m: 75.8
+- radius_m: 28.2
+  arc_length_m: 35.1
+- radius_m: 41.5
+  arc_length_m: 42.9
+- radius_m: 34.1
+  arc_length_m: 47.8
+- radius_m: 141.6
+  arc_length_m: 61.8
+- radius_m: 35.0
+  arc_length_m: 68.0
+- radius_m: 50.2
+  arc_length_m: 42.7
+- radius_m: 89.5
+  arc_length_m: 71.2
+- radius_m: 65.1
+  arc_length_m: 62.2
+- radius_m: 34.2
+  arc_length_m: 19.5
+- radius_m: 72.6
+  arc_length_m: 75.7
+- radius_m: 72.6
+  arc_length_m: 73.8
+- radius_m: 136.9
+  arc_length_m: 72.4
+- radius_m: 30.5
+  arc_length_m: 69.0
+- radius_m: 40.9
+  arc_length_m: 73.7
+round_aliases:
+- monaco
+- montecarlo
+- monte carlo
+source:
+  year: 2024
+  gp: Monaco
+  method: total_laps=session.total_laps; pit_loss=median(pit_lap - clean@similar_tyre_life);
+    corners=get_circuit_info + telemetry circle fit
+  pit_loss_year: 2024
+  pit_loss_gp: Monaco
+  pit_loss_previous_s: 23.0
+  pit_loss_method: "strict: median(pit_lap - clean@tyre_life\xB11,same_compound,LapNumber\xB1\
+    5,TrackStatus==1,free-air\u2264stint_med+1s)"

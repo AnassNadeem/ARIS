@@ -1,0 +1,60 @@
+name: Belgium
+country: Belgium
+total_laps: 44
+pit_loss_s: 14.6
+lap_length_m: 6944.1
+corners:
+- radius_m: 35.1
+  arc_length_m: 58.8
+- radius_m: 160.0
+  arc_length_m: 74.5
+- radius_m: 98.2
+  arc_length_m: 67.8
+- radius_m: 378.7
+  arc_length_m: 71.2
+- radius_m: 69.7
+  arc_length_m: 73.2
+- radius_m: 83.4
+  arc_length_m: 36.4
+- radius_m: 116.9
+  arc_length_m: 78.2
+- radius_m: 50.5
+  arc_length_m: 35.2
+- radius_m: 80.0
+  arc_length_m: 65.9
+- radius_m: 125.8
+  arc_length_m: 76.0
+- radius_m: 150.2
+  arc_length_m: 64.0
+- radius_m: 111.4
+  arc_length_m: 73.2
+- radius_m: 94.3
+  arc_length_m: 64.0
+- radius_m: 88.2
+  arc_length_m: 74.9
+- radius_m: 113.8
+  arc_length_m: 64.3
+- radius_m: 264.3
+  arc_length_m: 56.8
+- radius_m: 86.7
+  arc_length_m: 60.0
+- radius_m: 33.9
+  arc_length_m: 70.6
+- radius_m: 38.4
+  arc_length_m: 72.6
+round_aliases:
+- belgium
+- spa
+- belgian
+source:
+  year: 2024
+  gp: Belgium
+  method: "total_laps=session.total_laps; pit_loss=median(pit_lap - clean@tyre_life\xB1\
+    1,same_compound,LapNumber\xB15,TrackStatus==1,free-air\u2264stint_med+1s) [Phase\
+    \ C re-derivation; was 11.9 under Phase B life\xB12/startswith-1]; corners=get_circuit_info\
+    \ + telemetry circle fit"
+  pit_loss_previous_s: 14.6
+  pit_loss_year: 2024
+  pit_loss_gp: Belgium
+  pit_loss_method: "strict: median(pit_lap - clean@tyre_life\xB11,same_compound,LapNumber\xB1\
+    5,TrackStatus==1,free-air\u2264stint_med+1s)"
