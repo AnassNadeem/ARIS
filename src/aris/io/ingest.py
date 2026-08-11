@@ -361,17 +361,36 @@ def _table_exists(conn: Connection, table: str) -> bool:
 
 
 def _upsert_weather(conn: Connection, session_id: int, summary: dict | None) -> int:
+    """Upsert weather; return 1 only when a new row was inserted (not updated)."""
     if summary is None or not _table_exists(conn, "session_weather"):
         return 0
+    before = conn.execute(
+        text("SELECT count(*) FROM session_weather WHERE session_id = :sid"),
+        {"sid": session_id},
+    ).scalar_one()
     conn.execute(_INSERT_WEATHER, {"session_id": session_id, **summary})
-    return 1
+    after = conn.execute(
+        text("SELECT count(*) FROM session_weather WHERE session_id = :sid"),
+        {"sid": session_id},
+    ).scalar_one()
+    return after - before
 
 
 def _upsert_results(conn: Connection, rows: list[dict]) -> int:
+    """Upsert results; return count of newly inserted rows (updates do not count)."""
     if not rows or not _table_exists(conn, "session_results"):
         return 0
+    session_id = rows[0]["session_id"]
+    before = conn.execute(
+        text("SELECT count(*) FROM session_results WHERE session_id = :sid"),
+        {"sid": session_id},
+    ).scalar_one()
     conn.execute(_INSERT_RESULT, rows)
-    return len(rows)
+    after = conn.execute(
+        text("SELECT count(*) FROM session_results WHERE session_id = :sid"),
+        {"sid": session_id},
+    ).scalar_one()
+    return after - before
 
 
 def _upsert_telemetry(conn: Connection, session_id: int, code_to_id: dict[str, int], sess) -> int:

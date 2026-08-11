@@ -45,9 +45,18 @@ def bahrain_session_id() -> int:
 
 
 def test_ingest_is_idempotent(bahrain_session_id):
-    """Re-ingesting an already-present session inserts zero rows."""
+    """Re-ingesting an already-present session inserts zero rows.
+
+    Weather/results keys are always present in the return dict (migration 002);
+    on a re-ingest their insert counts must also be zero even though those
+    tables use ON CONFLICT DO UPDATE under the hood.
+    """
     counts = ingest_session(2024, 1, "R")
-    assert counts == {"sessions": 0, "drivers": 0, "laps": 0}
+    assert counts["sessions"] == 0
+    assert counts["drivers"] == 0
+    assert counts["laps"] == 0
+    assert counts.get("weather", 0) == 0
+    assert counts.get("results", 0) == 0
 
 
 def test_ingest_row_counts(bahrain_session_id):
