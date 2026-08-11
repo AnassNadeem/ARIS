@@ -26,7 +26,7 @@ from apps.components.strat_cards import render_strat_cards  # noqa: E402
 from aris.engine.clock import SectorClock  # noqa: E402
 from aris.engine.session import RaceEngineSession, SessionPhase  # noqa: E402
 from aris.engine.triggers import check_triggers  # noqa: E402
-from aris.eval.conformal import calibrated_delta_interval  # noqa: E402
+from aris.eval.mc_intervals import mc_delta_interval  # noqa: E402
 from aris.eval.postrace import compare_post_race, export_postrace, save_feedback_rows  # noqa: E402
 from aris.io import db  # noqa: E402
 from aris.montecarlo import run_mc  # noqa: E402
@@ -182,7 +182,7 @@ elif session.phase == SessionPhase.LIVE:
             action = StrategyAction(kind=ActionKind.PIT_LAP, pit_lap=pit_lap, pit_compound=compound)
             outcome = simulate(state, action)
             mc = run_mc(state, action, n_draws=50)
-            lo, hi = calibrated_delta_interval(mc)
+            lo, hi = mc_delta_interval(mc)
             st.metric("Delta vs stay out", f"{outcome.delta_vs_stay_out_s:+.2f}s")
             st.write(f"MC P10/P90 delta: {lo:+.2f}s / {hi:+.2f}s")
             rec = recommend(state, top_k=3, mc_draws=30)
