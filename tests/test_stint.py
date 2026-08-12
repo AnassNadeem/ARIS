@@ -59,6 +59,48 @@ class TestDetectStints:
         firsts = df.groupby("Driver").head(1)
         assert firsts["CompoundChange"].all()
 
+    def test_same_compound_pit_starts_new_stint(self):
+        """HARD→HARD (or any same-compound) pit must split StintId — E3.1 root cause."""
+        rows = []
+        lap_no = 1
+        for tyre_life in range(1, 6):
+            rows.append(
+                {
+                    "Driver": "ALB",
+                    "LapNumber": lap_no,
+                    "Compound": "HARD",
+                    "TyreLife": tyre_life,
+                    "LapTime": pd.Timedelta(seconds=96.0 + 0.05 * tyre_life),
+                    "PitInTime": pd.Timedelta(seconds=1) if tyre_life == 5 else pd.NaT,
+                    "PitOutTime": pd.NaT,
+                }
+            )
+            lap_no += 1
+        for tyre_life in range(1, 6):
+            rows.append(
+                {
+                    "Driver": "ALB",
+                    "LapNumber": lap_no,
+                    "Compound": "HARD",
+                    "TyreLife": tyre_life,
+                    "LapTime": pd.Timedelta(seconds=96.0 + 0.05 * tyre_life),
+                    "PitInTime": pd.NaT,
+                    "PitOutTime": pd.Timedelta(seconds=2) if tyre_life == 1 else pd.NaT,
+                }
+            )
+            lap_no += 1
+        df = detect_stints(pd.DataFrame(rows))
+        assert set(df["StintId"].unique()) == {1, 2}
+        assert int(df.loc[df["LapNumber"] == 6, "StintId"].iloc[0]) == 2
+
+    def test_prefers_fastf1_stint_column_when_present(self):
+        laps = _make_synthetic_laps(drivers=("VER",), laps_per_stint=5)
+        # Force same compound across both halves but label official Stint 1 then 2.
+        laps["Compound"] = "HARD"
+        laps["Stint"] = [1] * 5 + [2] * 5
+        df = detect_stints(laps)
+        assert set(df["StintId"].unique()) == {1, 2}
+
 
 class TestComputeStintMetrics:
     def test_returns_six_rows_for_three_drivers_two_stints(self):
@@ -135,3 +177,17 @@ class TestFilterCleanLaps:
         enriched = detect_stints(_make_synthetic_laps(drivers=("VER",), laps_per_stint=6))
         clean = filter_clean_laps(enriched)
         assert len(clean) == len(enriched)
+
+
+class TestDegSlopeCleanFilter:
+    def test_sc_laps_excluded_from_deg_slope(self):
+        """SC contamination must not enter DegSlope (E3.1 / E3.2)."""
+        laps = _make_synthetic_laps(drivers=("VER",), laps_per_stint=12, deg_per_lap=0.05)
+        laps["TrackStatus"] = "1"
+        # Blow up mid-stint-1 lap times under SC — pre-fix fit would go negative/wild.
+        sc = (laps["LapNumber"] >= 6) & (laps["LapNumber"] <= 8)
+        laps.loc[sc, "TrackStatus"] = "4"
+        laps.loc[sc, "LapTime"] = pd.Timedelta(seconds=150.0)
+        metrics = compute_stint_metrics(detect_stints(laps), min_laps=3)
+        stint1 = metrics[metrics["StintNumber"] == 1]["DegSlope"].iloc[0]
+        assert stint1 == pytest.approx(0.05, abs=1e-6)

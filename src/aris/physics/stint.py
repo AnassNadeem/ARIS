@@ -27,11 +27,32 @@ class Stint:
 
 
 def detect_stints(laps_df: pd.DataFrame) -> pd.DataFrame:
-    """Enrich a laps frame with LapTimeS, CompoundChange, StintId (per-driver, 1-indexed)."""
+    """Enrich a laps frame with LapTimeS, CompoundChange, StintId (per-driver, 1-indexed).
+
+    Stint boundaries: prefer FastF1's official ``Stint`` column when present.
+    Otherwise split on compound change **or** pit-out, so same-compound
+    consecutive tyre sets (HARD→HARD, MEDIUM→MEDIUM) are not merged. Merging
+    those resets TyreLife mid-"stint" and corrupts DegSlope (Phase E3.1).
+    """
     df = laps_df.sort_values(["Driver", "LapNumber"]).copy()
     df["LapTimeS"] = df["LapTime"].dt.total_seconds()
     df["CompoundChange"] = df.groupby("Driver")["Compound"].transform(lambda s: s != s.shift(1))
-    df["StintId"] = df.groupby("Driver")["CompoundChange"].cumsum()
+
+    use_ff1 = "Stint" in df.columns and df["Stint"].notna().any()
+    stint_ids = pd.Series(index=df.index, dtype=int)
+    for _drv, idx in df.groupby("Driver", sort=False).groups.items():
+        g = df.loc[idx]
+        if use_ff1 and g["Stint"].notna().any():
+            filled = g["Stint"].astype("Float64").ffill().bfill()
+            stint_ids.loc[idx] = pd.factorize(filled, sort=False)[0] + 1
+        else:
+            compound_change = g["Compound"] != g["Compound"].shift(1)
+            if "PitOutTime" in g.columns:
+                pit_out = g["PitOutTime"].notna()
+            else:
+                pit_out = pd.Series(False, index=g.index)
+            stint_ids.loc[idx] = (compound_change | pit_out).cumsum().astype(int).to_numpy()
+    df["StintId"] = stint_ids.astype(int)
     return df
 
 
@@ -72,21 +93,32 @@ def summarise_stints(enriched: pd.DataFrame) -> pd.DataFrame:
 
 
 def compute_stint_metrics(enriched: pd.DataFrame, min_laps: int = 3) -> pd.DataFrame:
-    """Per-stint summary including a TyreLife-vs-LapTimeS degradation slope."""
+    """Per-stint summary including a TyreLife-vs-LapTimeS degradation slope.
+
+    DegSlope is fit only on clean flying laps (``filter_clean_laps``: green
+    flag, non-pit) excluding the first lap of each stint. Pre-E3.2 the fit pool
+    kept SC/yellow laps, which inflated/deflated slopes on longer HARD runs.
+    """
     e = enriched.copy()
     first_lap_of_stint = e.groupby(["Driver", "StintId"])["LapNumber"].transform("min")
-    fit_pool = e[
-        (e["LapNumber"] != first_lap_of_stint)
-        & e["PitInTime"].isna()
-        & e["LapTimeS"].notna()
-    ]
+    clean = filter_clean_laps(e)
+    fit_pool = clean.loc[clean["LapNumber"] != first_lap_of_stint.loc[clean.index]]
 
     rows = []
     for (drv, sid), grp in e.groupby(["Driver", "StintId"]):
         fit = fit_pool[(fit_pool["Driver"] == drv) & (fit_pool["StintId"] == sid)]
         slope: float = np.nan
         if len(fit) >= min_laps and fit["TyreLife"].nunique() >= 2:
-            slope, _ = np.polyfit(fit["TyreLife"], fit["LapTimeS"], 1)
+            try:
+                x = fit["TyreLife"].to_numpy(dtype=float)
+                y = fit["LapTimeS"].to_numpy(dtype=float)
+                mask = np.isfinite(x) & np.isfinite(y)
+                if int(mask.sum()) >= min_laps and np.unique(x[mask]).size >= 2:
+                    slope, _ = np.polyfit(x[mask], y[mask], 1)
+                    if not np.isfinite(slope):
+                        slope = np.nan
+            except np.linalg.LinAlgError:
+                slope = np.nan
         rows.append(
             {
                 "Driver": drv,
