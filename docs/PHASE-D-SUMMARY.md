@@ -256,6 +256,7 @@ Docker Postgres up; `ARIS_DB_URL` set.
 | After D2 | **123 passed** |
 | After D3+D4 | **125 passed** (+2 prewrite window tests) |
 | **End of Phase D** | **125 passed**, 0 failed, 0 skipped |
+| Re-verified 2026-08-11 (this session) | **125 passed**, 0 failed (Docker Postgres up, `ARIS_DB_URL` set) |
 
 ---
 
@@ -289,10 +290,17 @@ Docker Postgres up; `ARIS_DB_URL` set.
    on every 2024 race. Next accuracy work is Phase E+ (not started).
 
 2. **Madrid 2026** — hold off until FastF1 has race geometry, then build a
-   dedicated `madrid.yaml` (do not reuse Catalunya). Confirm.
+   dedicated `madrid.yaml` (do not reuse Catalunya). Confirm. Caveat re-checked
+   in this pass: Location=`Madrid` alone correctly falls through (no YAML), but
+   `load_track_config("Spain")` / `build_from_fastf1(..., "Spain")` still hits
+   `spain.yaml` via the config **name/stem**, so a 2026 short-name Spain load
+   would still get Catalunya unless callers pass Location or a Madrid-specific
+   key. Alias `spanish` was already removed; that is not enough by itself.
 
 3. **2020 Sakhir outer** — separate YAML vs leave known wrong-alias on
    `bahrain`/`sakhir`? Recommend separate config if that race is ever scored.
+   Re-check: Sakhir GP 2020 is 87 laps / circuit_info corners empty vs Bahrain
+   GP 57 laps / 15 corners — same Location string, different layout.
 
 4. **Australia pit_loss_s = 9.0** — empirical under strict matcher but low.
    Re-derive from another year, or accept?
