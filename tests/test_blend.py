@@ -24,5 +24,15 @@ def test_rolling_error_variance_fallback_when_short():
 
 
 def test_rolling_error_variance_sample():
+    # MSE of [1,2,3] = (1+4+9)/3 — bias-aware (not sample variance=1).
     v = rolling_error_variance([1.0, 2.0, 3.0], min_obs=3)
-    assert math.isclose(v, 1.0, rel_tol=1e-9)
+    assert math.isclose(v, 14.0 / 3.0, rel_tol=1e-9)
+
+
+def test_rolling_error_mse_penalises_bias():
+    # Same scatter around different means: biased series must score worse.
+    centered = rolling_error_variance([-0.5, 0.0, 0.5], min_obs=3)
+    biased = rolling_error_variance([1.5, 2.0, 2.5], min_obs=3)
+    assert biased > centered
+    assert math.isclose(centered, (0.25 + 0.0 + 0.25) / 3.0, rel_tol=1e-9)
+

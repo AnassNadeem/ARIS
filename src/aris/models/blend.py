@@ -45,13 +45,18 @@ def rolling_error_variance(
     min_obs: int = 3,
     fallback: float = 1.0,
 ) -> float:
-    """Sample variance of recent absolute or signed errors.
+    """Mean squared error of recent signed errors (bias-aware precision).
 
-    Uses population variance when n >= min_obs; otherwise ``fallback``.
-    Empty / too-short history → fallback (uninformative prior).
+    Historically named ``rolling_error_variance``, but sample variance of
+    signed errors ignores a constant bias — a predictor that is always 1.5 s
+    slow with tiny scatter then receives too much IV blend weight (Phase E3.4:
+    Australia/Italy/Belgium/…). MSE = bias² + variance is the right risk
+    measure for inverse-variance combination against the truth.
+
+    Empty / too-short history → ``fallback`` (uninformative prior).
     """
     arr = np.asarray(list(errors), dtype=float)
     arr = arr[np.isfinite(arr)]
     if arr.size < min_obs:
         return float(fallback)
-    return float(np.var(arr, ddof=1)) if arr.size >= 2 else float(fallback)
+    return float(np.mean(np.square(arr)))

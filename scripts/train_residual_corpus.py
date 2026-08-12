@@ -31,7 +31,11 @@ def _frame_path(year: int, gp: str) -> Path:
     return _FRAMES_DIR / f"{year}_{safe}.parquet"
 
 
-def build_missing_frames(*, max_rate_limit_sleep_s: int = 3600) -> tuple[int, int, int]:
+def build_missing_frames(
+    *,
+    max_rate_limit_sleep_s: int = 3600,
+    force_rebuild: bool = False,
+) -> tuple[int, int, int]:
     """Load any REFERENCE_RACES not yet checkpointed. Returns (ok, skipped, failed)."""
     _FRAMES_DIR.mkdir(parents=True, exist_ok=True)
     _CACHE.mkdir(parents=True, exist_ok=True)
@@ -42,7 +46,7 @@ def build_missing_frames(*, max_rate_limit_sleep_s: int = 3600) -> tuple[int, in
     n = len(REFERENCE_RACES)
     for i, (year, gp) in enumerate(REFERENCE_RACES, start=1):
         dest = _frame_path(year, gp)
-        if dest.exists():
+        if dest.exists() and not force_rebuild:
             skipped += 1
             print(f"[{i}/{n}] CACHED {year} {gp}", flush=True)
             continue
@@ -58,7 +62,8 @@ def build_missing_frames(*, max_rate_limit_sleep_s: int = 3600) -> tuple[int, in
                 else:
                     frame.to_parquet(dest, index=False)
                     ok += 1
-                    print(f"[{i}/{n}] OK {label}: {len(frame)} laps -> {dest.name}", flush=True)
+                    verb = "REBUILT" if force_rebuild and dest.exists() else "OK"
+                    print(f"[{i}/{n}] {verb} {label}: {len(frame)} laps -> {dest.name}", flush=True)
                 break
             except RateLimitExceededError:
                 # Client sliding window is 500 calls / 3600s — wait for a full window.
@@ -111,9 +116,14 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--build-only", action="store_true")
     parser.add_argument("--train-only", action="store_true")
+    parser.add_argument(
+        "--rebuild-all",
+        action="store_true",
+        help="Rebuild every REFERENCE_RACES frame (ignore existing parquet cache)",
+    )
     args = parser.parse_args()
     if not args.train_only:
-        ok, skipped, failed = build_missing_frames()
+        ok, skipped, failed = build_missing_frames(force_rebuild=args.rebuild_all)
         print(f"build done: ok={ok} skipped={skipped} failed={failed}", flush=True)
     if not args.build_only:
         train_from_checkpoints()

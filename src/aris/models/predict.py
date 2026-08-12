@@ -18,6 +18,31 @@ _MODEL: ResidualModel | None = None
 _BLEND_WINDOW = 8
 _BLEND_MIN_OBS = 3
 _BLEND_FALLBACK_VAR = 1.0
+# When |physics_pred - lag1| is small, the bicycle is already near recent pace —
+# damp the XGB residual so it cannot overshoot (São Paulo E3.3: phys MAE ~3.4 s
+# but residual still applied ~8 s). Full residual restored once disagreement
+# reaches this many seconds.
+_RESIDUAL_PACE_AGREE_S = 8.0
+
+
+def damp_residual_toward_pace(
+    physics: float,
+    lag1_pace: float | None,
+    residual: float,
+    *,
+    agree_s: float = _RESIDUAL_PACE_AGREE_S,
+) -> float:
+    """Scale residual toward 0 when physics already agrees with recent pace.
+
+    ``scale = min(1, |physics - lag1| / agree_s)``. Causal: uses only lag1.
+    """
+    if lag1_pace is None or agree_s <= 0:
+        return float(residual)
+    if not (np.isfinite(physics) and np.isfinite(lag1_pace) and np.isfinite(residual)):
+        return float(residual)
+    gap = abs(float(physics) - float(lag1_pace))
+    scale = min(1.0, gap / float(agree_s))
+    return float(residual) * scale
 
 
 def _get_model() -> ResidualModel | None:
@@ -91,6 +116,7 @@ def predict_lap_time(
         }
     )
     residual = float(model.predict_residual(pd.DataFrame([row]))[0])
+    residual = damp_residual_toward_pace(physics, lag1_pace, residual)
     return physics + residual
 
 
@@ -106,6 +132,8 @@ def predict_from_lap_row(row: pd.Series, track: Track | None = None) -> float:
         return physics
     feat_row = row[FEATURE_COLS] if all(c in row.index for c in FEATURE_COLS) else row
     residual = float(model.predict_residual(pd.DataFrame([feat_row]))[0])
+    lag1 = float(row["lag1_pace"]) if "lag1_pace" in row.index and pd.notna(row.get("lag1_pace")) else None
+    residual = damp_residual_toward_pace(physics, lag1, residual)
     return physics + residual
 
 
