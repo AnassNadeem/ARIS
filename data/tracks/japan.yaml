@@ -52,3 +52,25 @@ source:
     \ + telemetry circle fit"
   layout_note: Built from most recent year in Phase D scope; see PHASE-D-SUMMARY for
     multi-year layout flags.
+  compound_slopes_method: session-level inverse-variance pool of fuel-corrected DegSlope
+    (E3.2; FP2+R long runs NumLaps>=5, DegSlope in (-0.5, 1.0); Race LapTimeS -= FUEL_PENALTY*estimate_fuel_kg;
+    stint split on FastF1 Stint/pit-out; clean-lap DegSlope fit)
+  compound_slopes_n_stints: 377
+  compound_slopes_fuel_corrected_stints: 242
+  compound_slopes_track_evolution_corrected: false
+  compound_slopes_defaults:
+    SOFT: 0.08
+    MEDIUM: 0.05
+    HARD: 0.03
+  compound_slopes_fitted_pre_sanity:
+    SOFT: 0.087
+    MEDIUM: 0.0404
+    HARD: 0.0218
+  compound_slopes_used_global_fallback: false
+  compound_slopes_fit_utc: '2026-08-12T15:56:41Z'
+  compound_slopes_clean_lap_fit: true
+  compound_slopes_pit_split: true
+compound_slopes:
+  SOFT: 0.087
+  MEDIUM: 0.0404
+  HARD: 0.0218

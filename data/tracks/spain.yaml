@@ -46,3 +46,25 @@ source:
   pit_loss_previous_s: 17.2
   pit_loss_method: "strict: median(pit_lap - clean@tyre_life\xB11,same_compound,LapNumber\xB1\
     5,TrackStatus==1,free-air\u2264stint_med+1s)"
+  compound_slopes_method: session-level inverse-variance pool of fuel-corrected DegSlope
+    (E3.2; FP2+R long runs NumLaps>=5, DegSlope in (-0.5, 1.0); Race LapTimeS -= FUEL_PENALTY*estimate_fuel_kg;
+    stint split on FastF1 Stint/pit-out; clean-lap DegSlope fit)
+  compound_slopes_n_stints: 739
+  compound_slopes_fuel_corrected_stints: 466
+  compound_slopes_track_evolution_corrected: false
+  compound_slopes_defaults:
+    SOFT: 0.08
+    MEDIUM: 0.05
+    HARD: 0.03
+  compound_slopes_fitted_pre_sanity:
+    SOFT: 0.0729
+    MEDIUM: 0.0664
+    HARD: 0.0641
+  compound_slopes_used_global_fallback: false
+  compound_slopes_fit_utc: '2026-08-12T15:58:54Z'
+  compound_slopes_clean_lap_fit: true
+  compound_slopes_pit_split: true
+compound_slopes:
+  SOFT: 0.0729
+  MEDIUM: 0.0664
+  HARD: 0.0641

@@ -1,7 +1,7 @@
 name: Netherlands
 country: Netherlands
 total_laps: 72
-pit_loss_s: 16.4
+pit_loss_s: 18.5
 lap_length_m: 4236.1
 corners:
 - radius_m: 41.9
@@ -44,3 +44,39 @@ source:
     \ + telemetry circle fit"
   layout_note: Built from most recent year in Phase D scope; see PHASE-D-SUMMARY for
     multi-year layout flags.
+  compound_slopes_method: FALLBACK to DEFAULT_COMPOUND_SLOPE after fuel-corrected
+    DegSlope fit failed sanity (ordering failed (SOFT=0.0609, MEDIUM=0.0346, HARD=0.0491;
+    need SOFT > MEDIUM > HARD); E3.2; FP2+R long runs NumLaps>=5, DegSlope in (-0.5,
+    1.0); Race fuel detrend; stint split on FastF1 Stint/pit-out; clean-lap DegSlope;
+    fitted magnitude must be in (0.0, 0.25])
+  compound_slopes_n_stints: 381
+  compound_slopes_defaults:
+    SOFT: 0.08
+    MEDIUM: 0.05
+    HARD: 0.03
+  pit_loss_per_year:
+    '2021': 18.5
+    '2022': 19.8
+    '2023': 18.5
+    '2024': 19.5
+    '2025': 16.4
+  pit_loss_multi_year_median_s: 18.5
+  pit_loss_phase_d_s: 16.4
+  pit_loss_previous_s: 16.4
+  pit_loss_method: "strict multi-year median 2021-2025: median(pit_lap - clean@tyre_life\xB1\
+    1,same_compound,LapNumber\xB15,TrackStatus==1,free-air\u2264stint_med+1s)"
+  compound_slopes_fuel_corrected_stints: 279
+  compound_slopes_fitted_pre_sanity:
+    SOFT: 0.0609
+    MEDIUM: 0.0346
+    HARD: 0.0491
+  compound_slopes_used_global_fallback: true
+  compound_slopes_fit_utc: '2026-08-12T16:02:10Z'
+  compound_slopes_track_evolution_corrected: false
+  compound_slopes_track_evolution_stints: 0
+  compound_slopes_clean_lap_fit: true
+  compound_slopes_pit_split: true
+compound_slopes:
+  SOFT: 0.08
+  MEDIUM: 0.05
+  HARD: 0.03

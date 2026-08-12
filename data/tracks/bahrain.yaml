@@ -12,3 +12,27 @@ source:
   pit_loss_previous_s: 21.0
   pit_loss_method: "strict: median(pit_lap - clean@tyre_life\xB11,same_compound,LapNumber\xB1\
     5,TrackStatus==1,free-air\u2264stint_med+1s)"
+  compound_slopes_method: FALLBACK to DEFAULT_COMPOUND_SLOPE after fuel-corrected
+    DegSlope fit failed sanity (ordering failed (SOFT=0.0378, MEDIUM=0.0992, HARD=0.1138;
+    need SOFT > MEDIUM > HARD); E3.2; FP2+R long runs NumLaps>=5, DegSlope in (-0.5,
+    1.0); Race fuel detrend; stint split on FastF1 Stint/pit-out; clean-lap DegSlope;
+    fitted magnitude must be in (0.0, 0.25])
+  compound_slopes_n_stints: 699
+  compound_slopes_fuel_corrected_stints: 478
+  compound_slopes_track_evolution_corrected: false
+  compound_slopes_defaults:
+    SOFT: 0.08
+    MEDIUM: 0.05
+    HARD: 0.03
+  compound_slopes_fitted_pre_sanity:
+    SOFT: 0.0378
+    MEDIUM: 0.0992
+    HARD: 0.1138
+  compound_slopes_used_global_fallback: true
+  compound_slopes_fit_utc: '2026-08-12T15:55:44Z'
+  compound_slopes_clean_lap_fit: true
+  compound_slopes_pit_split: true
+compound_slopes:
+  SOFT: 0.08
+  MEDIUM: 0.05
+  HARD: 0.03
