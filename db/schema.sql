@@ -20,7 +20,7 @@ CREATE TABLE sessions (
     round_no     SMALLINT NOT NULL,
     country      TEXT     NOT NULL,
     session_type TEXT     NOT NULL
-                 CHECK (session_type IN ('FP1', 'FP2', 'FP3', 'Q', 'SQ', 'SS', 'R', 'SR')),
+                 CHECK (session_type IN ('FP1', 'FP2', 'FP3', 'Q', 'SQ', 'SS', 'S', 'R', 'SR')),
     date         TIMESTAMPTZ,
     -- Natural key: a (year, round_no, session_type) triple is exactly one session.
     -- Ingest upserts on this so a re-run of the same weekend is a no-op.

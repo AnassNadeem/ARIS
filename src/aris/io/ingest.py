@@ -32,8 +32,10 @@ from aris.physics.stint import detect_stints
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _CACHE_DIR = _REPO_ROOT / "fastf1_cache"
 
-# The eight values the sessions.session_type CHECK constraint accepts.
-_VALID_SESSION_TYPES = frozenset({"FP1", "FP2", "FP3", "Q", "SQ", "SS", "R", "SR"})
+# The session_type CHECK constraint accepts these FastF1 abbreviations.
+# 'S' = Sprint race; 'SQ' = Sprint Qualifying / Shootout (modern); 'SS'/'SR'
+# retained for older aliases already in the schema.
+_VALID_SESSION_TYPES = frozenset({"FP1", "FP2", "FP3", "Q", "SQ", "SS", "S", "R", "SR"})
 
 
 # --- NaN-safe scalar coercions (pandas NaN/NaT -> SQL NULL, numpy -> native) ---
@@ -447,6 +449,22 @@ def ingest_session(
     sess = _load_session(
         year, event, session_type, with_telemetry=include_telemetry, with_weather=True
     )
+    if sess.laps is None:
+        raise RuntimeError(
+            f"FastF1 session {year} {event} {session_type} has no laps loaded "
+            "(session.laps is None) — refuse to ingest partial/corrupt state"
+        )
+    try:
+        n_raw = len(sess.laps)
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(
+            f"FastF1 session {year} {event} {session_type} laps unreadable: {exc}"
+        ) from exc
+    if n_raw == 0:
+        raise RuntimeError(
+            f"FastF1 session {year} {event} {session_type} returned 0 laps — "
+            "timing data not ready yet; retry later rather than writing empty state"
+        )
     round_no = int(sess.event["RoundNumber"])
     country = str(sess.event["Country"])
     raw_date = sess.date

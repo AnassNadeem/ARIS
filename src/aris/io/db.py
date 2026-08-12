@@ -243,8 +243,8 @@ _WEEKEND_SESSIONS_QUERY = text(
     WHERE year = :year AND round_no = :round_no
     ORDER BY CASE session_type
         WHEN 'FP1' THEN 1 WHEN 'FP2' THEN 2 WHEN 'FP3' THEN 3
-        WHEN 'Q' THEN 4 WHEN 'SQ' THEN 5 WHEN 'SS' THEN 6
-        WHEN 'R' THEN 7 WHEN 'SR' THEN 8 ELSE 9 END
+        WHEN 'SQ' THEN 4 WHEN 'SS' THEN 5 WHEN 'S' THEN 6 WHEN 'SR' THEN 6
+        WHEN 'Q' THEN 7 WHEN 'R' THEN 8 ELSE 9 END
     """
 )
 
