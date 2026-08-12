@@ -25,11 +25,17 @@ def _ollama_model() -> str:
 
 def _build_prompt(rec: Recommendation, state_context: dict[str, Any]) -> str:
     ctx = {**state_context, **rec.narration_context}
+    caveat_line = ""
+    if ctx.get("confidence_caveat"):
+        caveat_line = (
+            " If confidence_caveat is present, end the sentence by mentioning it "
+            "so the engineer hears the lower-confidence warning."
+        )
     return (
         "You are an F1 race engineer on the radio. Given ONLY the JSON data below, "
         "write exactly ONE sentence recommending the strategy. "
         "Include the lap-time delta in seconds. Do not invent numbers not in the data. "
-        "Be concise like a radio call.\n\n"
+        f"Be concise like a radio call.{caveat_line}\n\n"
         f"DATA:\n{json.dumps(ctx, indent=2)}\n\n"
         "RADIO CALL:"
     )
@@ -40,10 +46,14 @@ def _fallback_narration(rec: Recommendation) -> str:
     driver = rec.narration_context.get("driver", "driver")
     lap = rec.narration_context.get("lap", "?")
     sign = "+" if delta > 0 else ""
-    return (
+    text = (
         f"{driver}, recommend {rec.label.lower()} at lap {lap} — "
         f"expected {sign}{delta:.1f}s vs staying out."
     )
+    caveat = rec.narration_context.get("confidence_caveat")
+    if caveat:
+        text = f"{text} Note: {caveat}."
+    return text
 
 
 def narrate_recommendation(

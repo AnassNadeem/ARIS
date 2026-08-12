@@ -122,6 +122,9 @@ def recommend(
         mc = run_mc(state, action, n_draws=mc_draws)
         baseline = outcome.total_race_time_s - outcome.delta_vs_stay_out_s
         delta = mc.mean_delta_vs_stay_out_s + _undercut_bonus(state, action)
+        evidence = outcome.evidence
+        if state.confidence_caveat:
+            evidence = f"{evidence} | caveat: {state.confidence_caveat}"
         scored.append(
             Recommendation(
                 rank=0,
@@ -132,7 +135,7 @@ def recommend(
                 confidence_std_s=mc.std_time_s,
                 p10_delta_s=mc.p10_time_s - baseline,
                 p90_delta_s=mc.p90_time_s - baseline,
-                evidence=outcome.evidence,
+                evidence=evidence,
                 narration_context={
                     "driver": state.driver_code,
                     "lap": state.lap_number,
@@ -144,6 +147,8 @@ def recommend(
                     "strategy": _label_for(action),
                     "delta_s": round(delta, 2),
                     "confidence_std_s": round(mc.std_time_s, 2),
+                    "confidence_caveat": state.confidence_caveat,
+                    "recent_sc_pace": state.recent_sc_pace,
                 },
                 tactical=(
                     action.kind.value
@@ -154,7 +159,17 @@ def recommend(
         )
 
     scored.sort(key=lambda r: r.delta_vs_stay_out_s)
+
+    # Always surface stay-out so the engineer can reject a pit push — even when
+    # every pit option scores better on raw delta.
+    stay = next(
+        (r for r in scored if r.action.kind == ActionKind.STAY_OUT and not r.action.pit_laps),
+        None,
+    )
     top = scored[:top_k]
+    if stay is not None and stay not in top:
+        top = top[: max(0, top_k - 1)] + [stay]
+
     for i, rec in enumerate(top, start=1):
         rec.rank = i
 

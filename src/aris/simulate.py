@@ -70,12 +70,14 @@ def _predict_lap(
     lag2: float | None,
     roll3: float | None,
     noise: float = 0.0,
+    track=None,
 ) -> float:
     return predict_lap_time(
         compound=compound,
         tyre_life=tyre_life,
         fuel_kg=fuel_kg,
         pit_lap=pit_lap,
+        track=track,
         lag1_pace=lag1,
         lag2_pace=lag2,
         stint_roll3=roll3,
@@ -130,6 +132,7 @@ def _simulate_remainder(
         recent_times.insert(0, state.lag2_pace)
     pit_map = dict(pit_schedule)
     pit_loss = _pit_loss_s(state)
+    track = _track_for(state)
     noise_idx = 0
     first_lap = True
 
@@ -144,9 +147,13 @@ def _simulate_remainder(
         if lap in pit_map:
             pit_compound = pit_map[lap]
             evidence_parts.append(f"pit L{lap}->{pit_compound}")
+            # Green-pace prediction on old tyres + track pit_loss once.
+            # (Do not also set pit_lap=True — that would double-count pit_loss
+            # inside physics when track is passed.)
             pit_time = _predict_lap(
                 compound=compound, tyre_life=tyre_life, fuel_kg=fuel,
-                pit_lap=True, lag1=lag1, lag2=lag2, roll3=roll3, noise=noise,
+                pit_lap=False, lag1=lag1, lag2=lag2, roll3=roll3, noise=noise,
+                track=track,
             )
             total += pit_time + pit_loss
             recent_times.append(pit_time)
@@ -159,6 +166,7 @@ def _simulate_remainder(
         lap_time = _predict_lap(
             compound=compound, tyre_life=tyre_life, fuel_kg=fuel,
             pit_lap=False, lag1=lag1, lag2=lag2, roll3=roll3, noise=noise,
+            track=track,
         )
         if first_lap and line_delta_first_lap_s:
             lap_time += line_delta_first_lap_s

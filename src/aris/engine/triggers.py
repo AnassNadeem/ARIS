@@ -5,6 +5,7 @@ from __future__ import annotations
 from aris.decisions.queue import DecisionKind
 from aris.engine.clock import SectorEvent
 from aris.engine.session import RaceEngineSession
+from aris.io import db
 
 
 def check_triggers(session: RaceEngineSession, event: SectorEvent) -> DecisionKind | None:
@@ -13,6 +14,13 @@ def check_triggers(session: RaceEngineSession, event: SectorEvent) -> DecisionKi
         return None
 
     lap = event.index.lap_number
+    # Field clock can advance past a DNF'd focus driver's last lap — skip
+    # triggers rather than building a synthetic clamped state that would
+    # re-fire pit/tyre thresholds forever.
+    focus_laps = db.fetch_laps(session.session_id, session.driver_id)
+    if focus_laps.empty or lap > int(focus_laps["lap_number"].max()):
+        return None
+
     state = session.build_state(lap)
 
     if lap == 1 and event.is_new_lap and 1 not in session.triggered_laps:

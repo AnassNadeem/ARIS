@@ -62,12 +62,29 @@ class RaceEngineSession(BaseModel):
 
     def build_state(self, lap_number: int | None = None) -> RaceState:
         lap = lap_number or max(1, self.replay_index.lap_number)
-        state = build_race_state(
-            self.session_id,
-            self.driver_id,
-            lap,
-            field_gaps=self.gaps_for_driver(),
-        )
+        try:
+            state = build_race_state(
+                self.session_id,
+                self.driver_id,
+                lap,
+                field_gaps=self.gaps_for_driver(),
+            )
+        except ValueError:
+            # Focus driver retired / DNF / missing lap while the field clock
+            # continues — clamp to their last recorded lap so Watch/What-if
+            # panels keep working instead of crashing the Strategy UI.
+            from aris.io import db as _db
+
+            laps = _db.fetch_laps(self.session_id, self.driver_id)
+            if laps.empty:
+                raise
+            last = int(laps["lap_number"].max())
+            state = build_race_state(
+                self.session_id,
+                self.driver_id,
+                last,
+                field_gaps=self.gaps_for_driver(),
+            )
         if self.synthetic_compound:
             state = state.model_copy(update={"compound": self.synthetic_compound})
         if self.synthetic_tyre_life is not None:

@@ -15,6 +15,24 @@ from aris.tracks import load_track_config
 DEFAULT_TOTAL_LAPS = 57
 DEFAULT_TRACK_NAME = "Bahrain"
 
+# FastF1 TrackStatus codes that contaminate pace used by lag features / What-if.
+# 4 = Safety Car, 6 = VSC deployed, 7 = VSC ending. Multi-code strings like "24"
+# (yellow + SC) also match via substring.
+_SC_VSC_CODES = ("4", "6", "7")
+SC_PACE_CAVEAT = (
+    "based on Safety Car-affected recent pace — lower confidence"
+)
+
+
+def track_status_is_sc_vsc(status: str | None) -> bool:
+    """True when a FastF1 TrackStatus string indicates SC / VSC involvement."""
+    if status is None:
+        return False
+    s = str(status).strip()
+    if not s or s in ("1", "None", "nan"):
+        return False
+    return any(code in s for code in _SC_VSC_CODES)
+
 
 class RaceStateOverrides(BaseModel):
     compound: str | None = None
@@ -55,6 +73,10 @@ class RaceState(BaseModel):
     air_temp_c: float | None = None
     track_temp_c: float | None = None
     track_status: str | None = None
+    # True when the current lap or the 1–2 prior laps feeding lag1/lag2 pace
+    # ran under SC/VSC — recommendations should surface a confidence caveat.
+    recent_sc_pace: bool = False
+    confidence_caveat: str | None = None
 
     def with_overrides(self, overrides: RaceStateOverrides) -> RaceState:
         data = self.model_dump()
@@ -74,6 +96,22 @@ def _pace_lags(
     lag2 = times[-2] if len(times) >= 2 else lag1
     roll3 = sum(times[-3:]) / min(3, len(times[-3:]))
     return float(lag1), float(lag2), float(roll3)
+
+
+def _recent_sc_pace(laps: pd.DataFrame, lap_number: int, current_status: str | None) -> bool:
+    """SC/VSC on the current lap or the 1–2 prior laps that feed lag pace."""
+    if track_status_is_sc_vsc(current_status):
+        return True
+    if "track_status" not in laps.columns:
+        return False
+    prior = laps[laps["lap_number"] < lap_number].sort_values("lap_number")
+    if prior.empty:
+        return False
+    recent = prior.tail(2)
+    for status in recent["track_status"].tolist():
+        if track_status_is_sc_vsc(None if pd.isna(status) else str(status)):
+            return True
+    return False
 
 
 def build_race_state(
@@ -114,6 +152,7 @@ def build_race_state(
     lag1, lag2, roll3 = _pace_lags(laps, lap_number)
     weather = db.fetch_session_weather(session_id) or {}
     track_status = str(lap["track_status"]) if pd.notna(lap.get("track_status")) else None
+    sc_pace = _recent_sc_pace(laps, int(lap_number), track_status)
 
     gaps = field_gaps or {}
     gap_ahead = gaps.get("gap_ahead_s")
@@ -147,6 +186,8 @@ def build_race_state(
         air_temp_c=weather.get("air_temp_c"),
         track_temp_c=weather.get("track_temp_c"),
         track_status=track_status,
+        recent_sc_pace=sc_pace,
+        confidence_caveat=SC_PACE_CAVEAT if sc_pace else None,
     )
     if overrides:
         state = state.with_overrides(overrides)
