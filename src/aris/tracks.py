@@ -27,6 +27,8 @@ class TrackConfig:
     physics_profile: str
     lap_length_m: float | None = None
     corners: tuple[Corner, ...] | None = None
+    # Optional track-specific tyre deg slopes (s/lap of stint age). None → globals in tires.py.
+    compound_slopes: dict[str, float] | None = None
 
     def load_physics(self) -> Track:
         """Build a bicycle ``Track``. Prefer YAML corners when present."""
@@ -38,6 +40,7 @@ class TrackConfig:
                 straight_length_m=max(0.0, lap_length - arc_total),
                 name=self.name,
                 pit_loss_s=self.pit_loss_s,
+                compound_slopes=self.compound_slopes,
             )
         loader = _PHYSICS_LOADERS.get(self.physics_profile, bahrain_2024)
         track = loader()
@@ -46,6 +49,7 @@ class TrackConfig:
             straight_length_m=track.straight_length_m,
             name=self.name,
             pit_loss_s=self.pit_loss_s,
+            compound_slopes=self.compound_slopes,
         )
 
 
@@ -117,6 +121,18 @@ def _match_track_file(country: str) -> Path | None:
     return None
 
 
+def _parse_compound_slopes(raw: object) -> dict[str, float] | None:
+    """Optional YAML ``compound_slopes: {SOFT: 0.1, ...}`` → uppercase keys."""
+    if not raw or not isinstance(raw, dict):
+        return None
+    out: dict[str, float] = {}
+    for key, val in raw.items():
+        if val is None:
+            continue
+        out[str(key).strip().upper()] = float(val)
+    return out or None
+
+
 def _config_from_data(country: str, data: dict) -> TrackConfig:
     return TrackConfig(
         name=str(data.get("name", country)),
@@ -128,6 +144,7 @@ def _config_from_data(country: str, data: dict) -> TrackConfig:
             float(data["lap_length_m"]) if data.get("lap_length_m") is not None else None
         ),
         corners=_parse_corners(data.get("corners")),
+        compound_slopes=_parse_compound_slopes(data.get("compound_slopes")),
     )
 
 

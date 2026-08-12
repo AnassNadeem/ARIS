@@ -49,6 +49,8 @@ class Track:
     straight_length_m: float
     name: str = ""
     pit_loss_s: float = 0.0  # time lost vs a green lap when this lap is an in/out (pit) lap
+    # Optional per-compound deg slopes (s/lap). None → global DEFAULT_COMPOUND_SLOPE.
+    compound_slopes: dict[str, float] | None = None
 
 
 @dataclass(frozen=True)
@@ -123,7 +125,9 @@ def predict_lap_time(state: StintState) -> float:
 
     fuel_time = FUEL_PENALTY_S_PER_KG * state.fuel_kg
     pit_time = track.pit_loss_s if state.pit_lap else 0.0
-    tire_time = tire_pace_loss(state.compound, state.lap_in_stint)
+    tire_time = tire_pace_loss(
+        state.compound, state.lap_in_stint, slopes=track.compound_slopes
+    )
     return physics_time + fuel_time + pit_time + tire_time
 
 
