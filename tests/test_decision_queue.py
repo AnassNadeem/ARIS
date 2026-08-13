@@ -1,5 +1,8 @@
 """Tests for decision queue."""
 
+import json
+
+from aris.decisions.persist import JsonlDecisionLog
 from aris.decisions.queue import DecisionKind, DecisionQueue
 from aris.state import RaceState
 
@@ -17,7 +20,7 @@ def _state() -> RaceState:
 class TestDecisionQueue:
     def test_propose_and_resolve(self):
         q = DecisionQueue()
-        turn = q.propose(_state(), kind=DecisionKind.PIT, use_llm=False)
+        turn = q.propose(_state(), kind=DecisionKind.PIT, use_llm=False, mc_draws=0)
         assert turn.role == "aris"
         assert len(turn.options) >= 2
         record = q.resolve("yes", kind=DecisionKind.PIT, lap=10)
@@ -28,3 +31,23 @@ class TestDecisionQueue:
         q = DecisionQueue()
         q.push_engineer("Copy, boxing lap 12.")
         assert q.history[-1].role == "engineer"
+
+    def test_unbound_queue_does_not_require_log(self):
+        q = DecisionQueue()
+        assert not q.has_log()
+
+    def test_propose_resolve_persist_jsonl(self, tmp_path):
+        path = tmp_path / "events.jsonl"
+        q = DecisionQueue()
+        q.bind_log(JsonlDecisionLog(path, source="test"))
+        q.propose(_state(), kind=DecisionKind.PIT, use_llm=False, mc_draws=0)
+        q.resolve("yes", kind=DecisionKind.PIT, lap=10)
+        lines = path.read_text(encoding="utf-8").strip().splitlines()
+        assert len(lines) == 2
+        events = [json.loads(line) for line in lines]
+        assert events[0]["event"] == "propose"
+        assert events[0]["kind"] == "pit"
+        assert events[0]["source"] == "test"
+        assert events[1]["event"] == "resolve"
+        assert events[1]["accepted"] is True
+        assert events[1]["choice_id"] == "yes"

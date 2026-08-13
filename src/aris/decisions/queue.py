@@ -5,8 +5,9 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
+from aris.decisions.persist import JsonlDecisionLog, dump_recommendation
 from aris.narrate import narrate_recommendation
 from aris.recommend import Recommendation, recommend
 from aris.state import RaceState
@@ -49,6 +50,14 @@ class DecisionQueue(BaseModel):
     history: list[DecisionTurn] = Field(default_factory=list)
     pending: DecisionTurn | None = None
     decisions: list[DecisionRecord] = Field(default_factory=list)
+    _log: JsonlDecisionLog | None = PrivateAttr(default=None)
+
+    def bind_log(self, log: JsonlDecisionLog | None) -> None:
+        """Attach an append-only store. None disables persistence for this queue."""
+        self._log = log
+
+    def has_log(self) -> bool:
+        return self._log is not None
 
     def push_engineer(self, text: str) -> None:
         self.history.append(DecisionTurn(role="engineer", text=text))
@@ -59,8 +68,12 @@ class DecisionQueue(BaseModel):
         *,
         kind: DecisionKind,
         use_llm: bool = False,
+        mc_draws: int | None = None,
     ) -> DecisionTurn:
-        result = recommend(state, top_k=3)
+        kwargs: dict[str, Any] = {"top_k": 3}
+        if mc_draws is not None:
+            kwargs["mc_draws"] = mc_draws
+        result = recommend(state, **kwargs)
         top = result.recommendations[0] if result.recommendations else None
         if top is None:
             turn = DecisionTurn(
@@ -96,6 +109,15 @@ class DecisionQueue(BaseModel):
             )
         self.pending = turn
         self.history.append(turn)
+        self._persist(
+            "propose",
+            {
+                "kind": kind.value,
+                "lap": state.lap_number,
+                "recommendation": dump_recommendation(top),
+                "candidates": [dump_recommendation(r) for r in result.recommendations],
+            },
+        )
         return turn
 
     def resolve(
@@ -119,4 +141,20 @@ class DecisionQueue(BaseModel):
         )
         self.decisions.append(record)
         self.pending = None
+        self._persist(
+            "resolve",
+            {
+                "kind": kind.value,
+                "lap": lap,
+                "accepted": record.accepted,
+                "choice_id": choice_id,
+                "recommendation": dump_recommendation(record.recommendation),
+                "edited_fields": record.edited_fields,
+            },
+        )
         return record
+
+    def _persist(self, event: str, payload: dict[str, Any]) -> None:
+        if self._log is None:
+            return
+        self._log.append(event, payload)

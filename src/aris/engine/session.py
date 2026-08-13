@@ -7,6 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from aris.decisions.persist import JsonlDecisionLog, decision_log_enabled
 from aris.decisions.queue import DecisionQueue, DecisionRecord
 from aris.field.state import FieldState, ReplayIndex
 from aris.plan.prewrite import StratPlan
@@ -46,6 +47,27 @@ class RaceEngineSession(BaseModel):
     paused: bool = False
     field_state: FieldState | None = None
     triggered_laps: set[int] = Field(default_factory=set)
+
+    def model_post_init(self, __context: Any) -> None:
+        # Live + backtest sessions persist propose/resolve past process end.
+        # Bare DecisionQueue (unit tests) stays memory-only until bind_log.
+        if decision_log_enabled() and not self.decision_queue.has_log():
+            log = JsonlDecisionLog.for_session(
+                session_id=self.session_id,
+                driver_code=self.driver_code,
+                year=self.year,
+                round_no=self.round_no,
+                source="live",
+            )
+            log.meta = {
+                "session_id": self.session_id,
+                "driver_id": self.driver_id,
+                "driver_code": self.driver_code,
+                "year": self.year,
+                "round_no": self.round_no,
+                "country": self.country,
+            }
+            self.decision_queue.bind_log(log)
 
     def gaps_for_driver(self) -> dict[str, Any]:
         if self.field_state is None:
