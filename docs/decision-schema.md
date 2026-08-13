@@ -63,3 +63,28 @@ in memory; those are UI/session state, not part of `DecisionRecord`.
 | `DecisionTurn` | One chat turn (`aris` or `engineer`) with optional options / editable fields / attached recommendation |
 | `DecisionOption` | Clickable option (`id`, `label`, `recommended`) |
 | `DecisionQueue` | Holds `history`, `pending`, and append-only `decisions: list[DecisionRecord]` |
+
+## Persistence (Phase G)
+
+In-memory `DecisionRecord` is unchanged. Every `propose` and `resolve` **also**
+appends a JSONL event when the queue is bound to a `JsonlDecisionLog`
+(`RaceEngineSession` does this automatically).
+
+**Why JSONL, not a new DB table:** the locked Zandvoort demo Postgres/Neon
+schema is not migrated; `strategy_feedback` stays the optional post-race UI
+save. Files under `results/decisions/` survive process/session end and are
+gitignored. Disable with `ARIS_DECISION_LOG=0`.
+
+JSONL event fields (superset of `DecisionRecord`):
+
+| Field | Type | Notes |
+|---|---|---|
+| `event_id` | UUID string | Per write |
+| `event` | `propose` \| `resolve` | Both survive the session |
+| `ts` | ISO-8601 UTC | |
+| `source` | `live` \| `backtest` \| … | |
+| `session_id`, `driver_id`, `driver_code`, `year`, `round_no`, `country` | | From session bind meta |
+| `kind`, `lap` | | Same meaning as `DecisionRecord` |
+| `recommendation` | object \| null | Top rec (propose and resolve) |
+| `candidates` | list | Propose only: full top-k from `recommend()` |
+| `accepted`, `choice_id`, `edited_fields` | | Resolve only |
