@@ -41,11 +41,17 @@ Catch-up whole weekend:
 2. Strategy does **not** show Bahrain defaults (57 laps / 21 s pit).
 3. Ingest errors loudly if FastF1 empty — **retry later**; do not force.
 
+## Before the audience sees the screen
+
+- **`ARIS_FAST_CLOCK` must be unset.** Default is off: the sector clock waits 25 s / speed. `ARIS_FAST_CLOCK=1` is screenshot-harness only; if it is set, SectorClock warns at startup and the live cadence is skipped. Do not export this in Streamlit Cloud secrets or the demo shell.
+- Leave **Show technical detail** off. That toggle hides MAE / MC bands and the **Skip to chequered flag** control (same final field as a full tick-through; Watch proposals along the way are not replayed).
+
 ## Do not under time pressure
 
 - Retrain residual mid-weekend  
 - Rewrite tyre YAML mid-weekend  
 - Re-derive pit_loss from one sprint sample  
+- Turn on `ARIS_FAST_CLOCK` or Show technical detail “to go faster” in front of the audience
 
 ---
 
