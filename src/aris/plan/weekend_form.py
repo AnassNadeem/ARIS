@@ -109,3 +109,11 @@ def weekend_form(year: int, round_no: int) -> list[DriverForm]:
                 )
 
     return sorted(drivers.values(), key=lambda d: d.quali_time or 999.0)
+
+
+def weekend_session_types(year: int, round_no: int) -> list[str]:
+    """Session types ingested for a round (empty list if none)."""
+    sessions = db.fetch_weekend_sessions(year, round_no)
+    if sessions.empty:
+        return []
+    return [str(t) for t in sessions["session_type"].tolist()]
