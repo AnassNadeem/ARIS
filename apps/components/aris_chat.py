@@ -61,6 +61,12 @@ def render_ask_mode(session: RaceEngineSession) -> None:
     st.subheader("Ask ARIS")
     if "ask_history" not in st.session_state:
         st.session_state.ask_history = []
+    if not st.session_state.ask_history:
+        st.markdown(
+            '<div class="aris-empty">Ask about tyres, gaps, or whether to box. '
+            "Example: <em>should we pit this lap?</em></div>",
+            unsafe_allow_html=True,
+        )
     for role, text in st.session_state.ask_history:
         with st.chat_message(role):
             st.write(text)

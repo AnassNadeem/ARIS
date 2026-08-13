@@ -5,6 +5,7 @@ from __future__ import annotations
 import streamlit as st
 
 from aris.plan.prewrite import StratPlan, StratPlanSet
+from aris.ui_text import format_race_clock
 
 
 def render_strat_cards(plans: StratPlanSet) -> StratPlan | None:
@@ -21,10 +22,16 @@ def render_strat_cards(plans: StratPlanSet) -> StratPlan | None:
     cols = st.columns(3)
     for col, plan in zip(cols, plans.plans, strict=False):
         with col:
-            star = "⭐ " if plan.recommended else ""
-            st.markdown(f"**{star}{plan.name}**")
-            st.write(plan.description)
-            st.metric("Est. race time", f"{plan.expected_race_time_s:.0f}s")
+            star = "★ " if plan.recommended else ""
+            rec_cls = " recommended" if plan.recommended else ""
+            st.markdown(
+                f'<div class="aris-strat-card{rec_cls}">'
+                f'<div class="name">{star}{plan.name}</div>'
+                f'<div class="desc">{plan.description}</div>'
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+            st.metric("Est. race time", format_race_clock(plan.expected_race_time_s))
             pit_laps = st.text_input(
                 "Pit laps",
                 value=",".join(str(p) for p in plan.pit_laps),

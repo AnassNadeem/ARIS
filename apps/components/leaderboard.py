@@ -4,27 +4,28 @@ from __future__ import annotations
 
 import streamlit as st
 
+from apps.theme import empty_state
 from aris.field.sectors import SectorColor
 from aris.field.state import FieldState
 
-_COLOR_CSS = {
-    SectorColor.PURPLE: "background-color:#b400ff;color:white;",
-    SectorColor.GREEN: "background-color:#00ff00;color:black;",
-    SectorColor.YELLOW: "background-color:#ffff00;color:black;",
-    SectorColor.NONE: "",
+_COLOR_CLASS = {
+    SectorColor.PURPLE: "purple",
+    SectorColor.GREEN: "green",
+    SectorColor.YELLOW: "yellow",
+    SectorColor.NONE: "none",
 }
 
 
 def _fmt_sector(val: float | None, color: SectorColor) -> str:
+    cls = _COLOR_CLASS.get(color, "none")
     if val is None:
-        return "—"
-    style = _COLOR_CSS.get(color, "")
-    return f'<span style="padding:2px 6px;{style}">{val:.3f}</span>'
+        return f'<span class="aris-sec {cls}">—</span>'
+    return f'<span class="aris-sec {cls}">{val:.3f}</span>'
 
 
 def render_leaderboard(field: FieldState | None) -> None:
     if field is None or not field.driver_views:
-        st.info("Waiting for race data…")
+        empty_state("Waiting for race data…", "Start the session, then lock a strategy to run the tower.")
         return
 
     st.caption(
@@ -36,25 +37,28 @@ def render_leaderboard(field: FieldState | None) -> None:
     for view in field.driver_views[:20]:
         s = view.standing
         last = f"{s.last_lap_s:.3f}s" if s.last_lap_s else "—"
+        team = s.team or ""
         rows_html.append(
-            f"<tr>"
+            "<tr>"
             f"<td>{s.position}</td>"
             f"<td><b>{s.code}</b></td>"
-            f"<td>{s.team or ''}</td>"
+            f"<td>{team}</td>"
             f"<td>{s.gap_to_leader_s:.1f}s</td>"
             f"<td>{_fmt_sector(s.sector_1_s, view.s1_color)}</td>"
             f"<td>{_fmt_sector(s.sector_2_s, view.s2_color)}</td>"
             f"<td>{_fmt_sector(s.sector_3_s, view.s3_color)}</td>"
             f"<td>{last}</td>"
-            f"</tr>"
+            "</tr>"
         )
 
     html = (
-        "<table style='width:100%;font-size:0.85em;border-collapse:collapse'>"
+        "<div class='aris-tower-wrap'><table class='aris-tower'>"
         "<tr><th>Pos</th><th>Driver</th><th>Team</th><th>Gap</th>"
         "<th>S1</th><th>S2</th><th>S3</th><th>Last</th></tr>"
         + "".join(rows_html)
-        + "</table>"
+        + "</table></div>"
+        "<p class='aris-muted' style='font-size:0.75rem;margin:0.2rem 0 0.6rem 0'>"
+        "Purple = session best · green = personal best · yellow = slower</p>"
     )
     st.markdown(html, unsafe_allow_html=True)
 
