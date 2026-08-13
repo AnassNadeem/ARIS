@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import os
 import sys
 import time
@@ -21,8 +22,13 @@ except (FileNotFoundError, KeyError):
 
 from apps.components.aris_chat import render_ask_mode, render_chat  # noqa: E402
 from apps.components.leaderboard import render_leaderboard  # noqa: E402
+from apps.components.recommend_panel import (  # noqa: E402
+    render_recommendation_callout,
+    render_recommendation_list,
+)
 from apps.components.session_setup import render_setup  # noqa: E402
 from apps.components.strat_cards import render_strat_cards  # noqa: E402
+from apps.theme import empty_state, inject_theme, render_disclaimer, show_technical  # noqa: E402
 from aris.engine.clock import SectorClock  # noqa: E402
 from aris.engine.session import RaceEngineSession, SessionPhase  # noqa: E402
 from aris.engine.triggers import check_triggers  # noqa: E402
@@ -31,14 +37,17 @@ from aris.eval.postrace import compare_post_race, export_postrace, save_feedback
 from aris.io import db  # noqa: E402
 from aris.montecarlo import run_mc  # noqa: E402
 from aris.plan.prewrite import generate_strat_plans  # noqa: E402
-from aris.plan.weekend_form import weekend_form  # noqa: E402
+from aris.plan.weekend_form import weekend_form, weekend_session_types  # noqa: E402
 from aris.recommend import recommend  # noqa: E402
 from aris.simulate import ActionKind, StrategyAction, simulate  # noqa: E402
 from aris.tracks import load_track_config  # noqa: E402
+from aris.ui_text import weekend_form_empty_message  # noqa: E402
 
-st.set_page_config(page_title="ARIS Race Engineer", layout="wide")
-st.title("ARIS — Race Engineer")
-st.caption("Always-on strategy game. You are the race engineer — ARIS recommends, you decide.")
+inject_theme()
+
+st.markdown('<div class="aris-kicker">Race engineer</div>', unsafe_allow_html=True)
+st.title("Strategy")
+st.caption("You are the race engineer. ARIS recommends. You decide.")
 
 if "engine_session" not in st.session_state:
     st.session_state.engine_session = None
@@ -48,23 +57,23 @@ if "ui_mode" not in st.session_state:
     st.session_state.ui_mode = "Watch"
 
 with st.sidebar:
-    st.markdown("[← Lap explorer](streamlit_app)")
+    st.markdown("**Session**")
+    try:
+        setup = render_setup()
+    except RuntimeError as exc:
+        st.error(f"Database not configured: {exc}")
+        st.stop()
     ui_mode = st.radio("Mode", ["Watch", "Ask", "What-if", "Replay"], key="mode_radio")
     st.session_state.ui_mode = ui_mode
     use_llm = st.toggle("Use LLM narration", value=False)
-
-try:
-    setup = render_setup()
-except RuntimeError as exc:
-    st.error(f"Database not configured: {exc}")
-    st.stop()
+    start_clicked = st.button("Start / Reset session", type="primary")
 
 if setup is None:
     st.stop()
 
 track = load_track_config(setup["country"])
 
-if st.sidebar.button("Start / Reset session"):
+if start_clicked:
     session = RaceEngineSession(
         session_id=setup["session_id"],
         driver_id=setup["driver_id"],
@@ -96,17 +105,32 @@ session: RaceEngineSession | None = st.session_state.engine_session
 clock: SectorClock | None = st.session_state.clock
 
 if session is None:
-    st.info("Select team/driver and click **Start / Reset session** in the sidebar.")
+    empty_state(
+        "No session started",
+        "Pick season / race / team / driver in the sidebar, then click "
+        "<strong>Start / Reset session</strong>.",
+    )
+    render_disclaimer()
     st.stop()
 
-left, right = st.columns([0.35, 0.65])
+left, right = st.columns([0.38, 0.62])
 
 # --- PRE-RACE ---
 if session.phase == SessionPhase.PRE_RACE:
+    with left:
+        st.subheader("Before lights out")
+        st.write(
+            f"{setup['driver_code']} · {setup['country']} {setup['year']} · "
+            f"{track.total_laps} laps"
+        )
+        st.caption(
+            "Weekend form needs FP/Q (race-only ingest leaves that table waiting). "
+            "Pick a strategy card, then lock to start the replay."
+        )
     with right:
+        st.subheader("Weekend form")
         forms = weekend_form(setup["year"], setup["round_no"])
         if forms:
-            st.subheader("Weekend form")
             form_rows = [
                 {
                     "Driver": f.code,
@@ -119,6 +143,9 @@ if session.phase == SessionPhase.PRE_RACE:
                 for f in forms[:10]
             ]
             st.dataframe(form_rows, use_container_width=True)
+        else:
+            types = weekend_session_types(setup["year"], setup["round_no"])
+            empty_state("Weekend form", weekend_form_empty_message(types))
 
         plans = st.session_state.get("strat_plans")
         if plans:
@@ -130,13 +157,27 @@ if session.phase == SessionPhase.PRE_RACE:
                     session.active_strat = plans.plans[0]
                 session.phase = SessionPhase.LIVE
                 st.rerun()
+        else:
+            empty_state(
+                "Strategy cards",
+                "Plans did not generate. Click Start / Reset session again.",
+            )
 
 # --- LIVE RACE ---
 elif session.phase == SessionPhase.LIVE:
     with left:
-        st.subheader("Timing Tower")
+        st.subheader("Timing tower")
         speed = st.radio("Speed", ["Pause", "1x", "2x", "4x"], horizontal=True, index=1)
         speed_map = {"Pause": 0.0, "1x": 1.0, "2x": 2.0, "4x": 4.0}
+        # Replay convenience: same final RaceState/field as a full tick-through,
+        # but Watch never sees intermediate check_triggers/propose. Hidden
+        # behind technical detail so it cannot be clicked in a live demo.
+        if clock and show_technical() and st.button("Skip to chequered flag"):
+            clock.index = clock.index.__class__(session.total_laps, 3)
+            session.replay_index = clock.index
+            session.field_state = clock.current_field()
+            session.phase = SessionPhase.POST_RACE
+            st.rerun()
         if clock:
             clock.set_speed(speed_map[speed])
             if speed != "Pause" and clock.should_tick():
@@ -157,10 +198,29 @@ elif session.phase == SessionPhase.LIVE:
     with right:
         st.subheader(f"Engineer for {session.driver_code} ({session.team})")
         if session.active_strat:
-            st.caption(f"Active: {session.active_strat.name}")
+            st.caption(f"Locked plan: {session.active_strat.name}")
+
+        try:
+            live_state = session.build_state()
+        except (ValueError, RuntimeError):
+            live_state = None
+        if live_state and live_state.confidence_caveat:
+            st.markdown(
+                f'<div class="aris-caveat">Note: {live_state.confidence_caveat}</div>',
+                unsafe_allow_html=True,
+            )
 
         mode = st.session_state.ui_mode
+        pending = session.decision_queue.pending
         if mode == "Watch":
+            render_recommendation_callout(
+                pending.recommendation if pending else None,
+                title="ARIS is watching" if not pending else "ARIS recommends",
+                empty_body=(
+                    "The race is live. A recommendation appears here when a pit "
+                    "window, tyre threshold, or Safety Car hits — that call is the product."
+                ),
+            )
             render_chat(session, session.decision_queue)
             with st.expander("Manual Pit"):
                 pit_offset = st.number_input("Pit in N laps", 0, 10, 0)
@@ -177,19 +237,20 @@ elif session.phase == SessionPhase.LIVE:
         elif mode == "What-if":
             st.subheader("What-if")
             state = session.build_state()
-            pit_lap = st.slider("Pit lap", state.lap_number, state.total_laps, state.lap_number + 5)
+            pit_lap = st.slider(
+                "Pit lap", state.lap_number, state.total_laps, min(state.lap_number + 5, state.total_laps)
+            )
             compound = st.selectbox("Pit compound", ["SOFT", "MEDIUM", "HARD"], key="wi_compound")
             action = StrategyAction(kind=ActionKind.PIT_LAP, pit_lap=pit_lap, pit_compound=compound)
             outcome = simulate(state, action)
-            mc = run_mc(state, action, n_draws=50)
-            lo, hi = mc_delta_interval(mc)
-            st.metric("Delta vs stay out", f"{outcome.delta_vs_stay_out_s:+.2f}s")
-            st.write(f"MC P10/P90 delta: {lo:+.2f}s / {hi:+.2f}s")
-            rec = recommend(state, top_k=3, mc_draws=30)
-            for r in rec.recommendations:
-                with st.expander(f"#{r.rank} {r.label}"):
-                    st.write(r.evidence)
-                    st.write(f"Δ {r.delta_vs_stay_out_s:+.2f}s (σ {r.confidence_std_s:.2f})")
+            with st.spinner("Scoring pit options…"):
+                rec = recommend(state, top_k=3, mc_draws=30)
+            render_recommendation_list(rec)
+            st.metric("This what-if vs stay out", f"{outcome.delta_vs_stay_out_s:+.2f}s")
+            if show_technical():
+                mc = run_mc(state, action, n_draws=50)
+                lo, hi = mc_delta_interval(mc)
+                st.caption(f"MC P10/P90 delta: {lo:+.2f}s / {hi:+.2f}s — not calibrated coverage.")
         elif mode == "Replay":
             st.subheader("Replay scrubber")
             scrub_lap = st.slider("Lap", 1, session.total_laps, session.replay_index.lap_number)
@@ -198,9 +259,10 @@ elif session.phase == SessionPhase.LIVE:
                 clock.index = clock.index.__class__(scrub_lap, scrub_sector)
                 session.field_state = clock.current_field()
             hist_state = session.build_state(scrub_lap)
-            rec = recommend(hist_state, top_k=1, mc_draws=20)
-            label = rec.recommendations[0].label if rec.recommendations else "—"
-            st.write(f"ARIS at L{scrub_lap}: {label}")
+            with st.spinner("Scoring this lap…"):
+                rec = recommend(hist_state, top_k=1, mc_draws=20)
+            top = rec.recommendations[0] if rec.recommendations else None
+            render_recommendation_callout(top, title=f"ARIS at L{scrub_lap}")
 
     if speed != "Pause":
         time.sleep(0.3)
@@ -211,9 +273,13 @@ elif session.phase == SessionPhase.POST_RACE:
     with left:
         render_leaderboard(session.field_state)
     with right:
-        st.subheader("Post-race analysis")
+        st.subheader("Post-race")
         comparison = compare_post_race(session)
-        st.write(comparison.summary)
+        st.markdown(
+            f'<div class="aris-callout"><div class="eyebrow">Result</div>'
+            f'<div class="headline">{html.escape(str(comparison.summary))}</div></div>',
+            unsafe_allow_html=True,
+        )
         c1, c2, c3 = st.columns(3)
         c1.metric("Decisions", comparison.decision_count)
         c2.metric("Actual finish", comparison.actual_finish_pos or "—")
@@ -227,6 +293,11 @@ elif session.phase == SessionPhase.POST_RACE:
             st.success(f"Saved {n} feedback rows")
 
         st.subheader("Decision log")
-        for rec in session.decision_queue.decisions:
-            label = rec.recommendation.label if rec.recommendation else rec.kind.value
-            st.write(f"L{rec.lap}: {label} — {'accepted' if rec.accepted else 'rejected'}")
+        if not session.decision_queue.decisions:
+            empty_state("No decisions recorded", "Nothing was accepted or rejected this race.")
+        else:
+            for rec in session.decision_queue.decisions:
+                label = rec.recommendation.label if rec.recommendation else rec.kind.value
+                st.write(f"L{rec.lap}: {label} — {'accepted' if rec.accepted else 'rejected'}")
+
+render_disclaimer()
