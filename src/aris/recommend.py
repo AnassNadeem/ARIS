@@ -5,7 +5,13 @@ from __future__ import annotations
 from pydantic import BaseModel
 
 from aris.montecarlo import DEFAULT_DRAWS, run_mc
-from aris.simulate import ActionKind, StrategyAction, simulate
+from aris.simulate import (
+    ActionKind,
+    StrategyAction,
+    extrapolation_std_s,
+    extrapolation_weight,
+    simulate,
+)
 from aris.state import RaceState
 
 PIT_COMPOUNDS = ("SOFT", "MEDIUM", "HARD")
@@ -24,6 +30,8 @@ class Recommendation(BaseModel):
     evidence: str
     narration_context: dict
     tactical: str | None = None
+    extrapolation_beyond_laps: int = 0
+    extrapolation_weight: float = 1.0
 
 
 class RecommendationResult(BaseModel):
@@ -119,11 +127,39 @@ def recommend(
 
     for action in _candidate_actions(state):
         outcome = simulate(state, action)
-        mc = run_mc(state, action, n_draws=mc_draws)
         baseline = outcome.total_race_time_s - outcome.delta_vs_stay_out_s
-        delta = mc.mean_delta_vs_stay_out_s + _undercut_bonus(state, action)
+        bonus = _undercut_bonus(state, action)
+        beyond = outcome.extrapolation_beyond_laps
+        weight = extrapolation_weight(beyond)
+        extra_std = extrapolation_std_s(beyond)
+        # mc_draws<=0: rank on deterministic simulate() only. Live default is
+        # still DEFAULT_DRAWS (100). Backtest uses 0 because ranking identity
+        # (pit vs stay, lap, compound) is what we score, not MC bands.
+        raw_delta = outcome.delta_vs_stay_out_s
+        if mc_draws and mc_draws > 0:
+            mc = run_mc(state, action, n_draws=mc_draws)
+            raw_delta = mc.mean_delta_vs_stay_out_s
+            mean_time = mc.mean_time_s
+            std_time = float(mc.std_time_s) + extra_std
+            p10_delta = mc.p10_time_s - baseline
+            p90_delta = mc.p90_time_s - baseline
+        else:
+            mean_time = outcome.total_race_time_s
+            std_time = extra_std
+            p10_delta = raw_delta * weight
+            p90_delta = raw_delta * weight
+        # Discount ranking delta when the action's sim runs past observed
+        # stint lengths for that compound (G1.1 compounding / G1.2 SOFT n=23
+        # at tyre_life>=25). Stay-out delta is 0 so the weight is a no-op.
+        delta = raw_delta * weight + bonus
+        caveats = [
+            c
+            for c in (state.confidence_caveat, outcome.extrapolation_caveat)
+            if c
+        ]
+        combined_caveat = "; ".join(caveats) if caveats else None
         evidence = outcome.evidence
-        if state.confidence_caveat:
+        if state.confidence_caveat and state.confidence_caveat not in evidence:
             evidence = f"{evidence} | caveat: {state.confidence_caveat}"
         scored.append(
             Recommendation(
@@ -131,10 +167,10 @@ def recommend(
                 label=_label_for(action),
                 action=action,
                 delta_vs_stay_out_s=delta,
-                mean_race_time_s=mc.mean_time_s,
-                confidence_std_s=mc.std_time_s,
-                p10_delta_s=mc.p10_time_s - baseline,
-                p90_delta_s=mc.p90_time_s - baseline,
+                mean_race_time_s=mean_time,
+                confidence_std_s=std_time,
+                p10_delta_s=p10_delta,
+                p90_delta_s=p90_delta,
                 evidence=evidence,
                 narration_context={
                     "driver": state.driver_code,
@@ -146,15 +182,22 @@ def recommend(
                     "gap_ahead_s": state.gap_ahead_s,
                     "strategy": _label_for(action),
                     "delta_s": round(delta, 2),
-                    "confidence_std_s": round(mc.std_time_s, 2),
-                    "confidence_caveat": state.confidence_caveat,
+                    "raw_delta_s": round(raw_delta, 2),
+                    "confidence_std_s": round(std_time, 2),
+                    "confidence_caveat": combined_caveat,
                     "recent_sc_pace": state.recent_sc_pace,
+                    "extrapolation_beyond_laps": beyond,
+                    "extrapolation_weight": round(weight, 3),
+                    "extrapolation_compound": outcome.extrapolation_compound,
+                    "extrapolation_caveat": outcome.extrapolation_caveat,
                 },
                 tactical=(
                     action.kind.value
                     if action.kind in (ActionKind.LIFT, ActionKind.BRAKE)
                     else None
                 ),
+                extrapolation_beyond_laps=beyond,
+                extrapolation_weight=weight,
             )
         )
 
