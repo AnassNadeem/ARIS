@@ -51,7 +51,7 @@ def _simulate_with_draw(
         pit_noise = rng.normal(0.0, 0.5)
         if noise:
             noise[0] += pit_noise
-    total, _, _ = _simulate_remainder(state, pit_schedule=schedule, pace_noise=noise)
+    total = _simulate_remainder(state, pit_schedule=schedule, pace_noise=noise).total
     return total
 
 
