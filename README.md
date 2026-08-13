@@ -75,6 +75,17 @@ A **hybrid AI race strategist**. Six components, layered:
 It runs **always-on** against a race replay (FastF1 historical, treated
 as live), updating recommendations on a tiered cadence:
 1–2 s monitor · sector-level micro · lap-level macro · event-driven recompute.
+That replay **is** `engine/clock.py` + `engine/session.py` — the original
+`replay.py` was never added, on purpose. Walk-forward backtest
+(`scripts/backtest.py`) drives those same objects unattended; see
+[`docs/replay-architecture.md`](./docs/replay-architecture.md).
+
+ARIS models the full range of race-engineer decisions throughout a race
+(pit timing, compound choice, pace targets, SC/VSC reactions) in service of
+the best realistic outcome for the driver — not a narrow pit/no-pit binary.
+Given real data constraints, the explicit goal is the best achievable
+decision support within those constraints, not a claim of perfect or
+superhuman strategy.
 
 ## What ARIS is NOT
 
