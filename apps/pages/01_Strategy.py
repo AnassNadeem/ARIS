@@ -71,7 +71,10 @@ with st.sidebar:
 if setup is None:
     st.stop()
 
-track = load_track_config(setup["country"])
+track = load_track_config(
+    setup["country"], year=setup.get("year"), round_no=setup.get("round_no")
+)
+# True-compound overlay is off unless ARIS_TRUE_COMPOUND_SLOPES is set.
 
 if start_clicked:
     session = RaceEngineSession(
