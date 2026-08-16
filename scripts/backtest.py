@@ -52,10 +52,17 @@ def main() -> int:
         action="store_true",
         help="Aggregate existing 2024_full.json + 2025_full.json (no new walk)",
     )
+    parser.add_argument(
+        "--out-dir",
+        type=Path,
+        default=None,
+        help="Directory for per-race JSON, summaries, and --combine inputs",
+    )
     args = parser.parse_args()
+    out_dir = args.out_dir if args.out_dir is not None else _OUT_DIR
 
     if args.combine:
-        return combine_years()
+        return combine_years(out_dir)
 
     calendar = resolve_calendar(args.year)
     if args.limit > 0:
@@ -71,7 +78,7 @@ def main() -> int:
         f"mc_draws={args.mc_draws} ===",
         flush=True,
     )
-    _OUT_DIR.mkdir(parents=True, exist_ok=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     races = []
     t0 = time.perf_counter()
@@ -98,7 +105,7 @@ def main() -> int:
             flush=True,
         )
         gp_slug = str(meta["gp"]).replace(" ", "_")
-        race_path = _OUT_DIR / f"{meta['year']}_r{meta['round_no']}_{gp_slug}.json"
+        race_path = out_dir / f"{meta['year']}_r{meta['round_no']}_{gp_slug}.json"
         race_path.write_text(
             json.dumps(dataclass_to_jsonable(result), indent=2, default=str),
             encoding="utf-8",
@@ -181,9 +188,9 @@ def main() -> int:
         ],
     }
 
-    summary_path = _OUT_DIR / f"{args.year}_summary.json"
+    summary_path = out_dir / f"{args.year}_summary.json"
     summary_path.write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")
-    full_path = _OUT_DIR / f"{args.year}_full.json"
+    full_path = out_dir / f"{args.year}_full.json"
     full_path.write_text(
         json.dumps([dataclass_to_jsonable(r) for r in races], indent=2, default=str),
         encoding="utf-8",
@@ -235,7 +242,7 @@ def _stay_from_dicts(decisions: list[dict]) -> tuple[float | None, int, int]:
     return n / len(scored), n, len(scored)
 
 
-def combine_years() -> int:
+def combine_years(out_dir: Path | None = None) -> int:
     """Combine 2024 + 2025 walk artefacts. Same match-rate / pos-delta / rolling."""
     from aris.eval.backtest import (  # local import keeps --help cheap
         DecisionScore,
@@ -244,8 +251,10 @@ def combine_years() -> int:
         rolling_calendar,
     )
 
-    p24 = _OUT_DIR / "2024_full.json"
-    p25 = _OUT_DIR / "2025_full.json"
+    if out_dir is None:
+        out_dir = _OUT_DIR
+    p24 = out_dir / "2024_full.json"
+    p25 = out_dir / "2025_full.json"
     if not p24.exists() or not p25.exists():
         print(f"need {p24} and {p25}", flush=True)
         return 1
@@ -368,7 +377,7 @@ def combine_years() -> int:
         "by_year": {"2024": y24, "2025": y25},
         "rolling": rolling,
     }
-    out = _OUT_DIR / "2024_2025_combined_summary.json"
+    out = out_dir / "2024_2025_combined_summary.json"
     out.write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")
     print("\n=== Combined 2024+2025 ===", flush=True)
     print(

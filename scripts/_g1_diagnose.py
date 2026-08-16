@@ -49,7 +49,7 @@ from aris.simulate import (  # noqa: E402
 from aris.state import build_race_state  # noqa: E402
 from aris.tracks import load_track_config  # noqa: E402
 
-fastf1.Cache.enable_cache(str(_ROOT / "fastf1_cache"))
+fastf1.Cache.enable_cache(str(_ROOT / "fastf1_cache"), use_requests_cache=False)
 _OUT = _ROOT / "results" / "g1"
 _HORIZONS = (1, 5, 10, 20)
 _SKIP_INTO_STINT = 3  # start a few green laps in, so lag1/lag2 are real
@@ -133,7 +133,7 @@ def _components(
 def _load_race_laps(year: int, gp: str):
     session = fastf1.get_session(year, gp, "R")
     session.load(laps=True, telemetry=False, weather=False, messages=False)
-    cfg = load_track_config(gp)
+    cfg = load_track_config(gp, year=year)
     track = cfg.load_physics()
     enriched = detect_stints(session.laps)
     return enriched, track, cfg
@@ -820,21 +820,29 @@ def g13_audit(model: ResidualModel) -> dict[str, Any]:
 
 
 def main() -> int:
-    _OUT.mkdir(parents=True, exist_ok=True)
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--out-dir", type=Path, default=_OUT)
+    parser.add_argument("--only", choices=("all", "g11"), default="all")
+    args = parser.parse_args()
+    out = args.out_dir
+    out.mkdir(parents=True, exist_ok=True)
     model = _load_model()
     g11 = g11_rollout(model)
-    (_OUT / "g11_rollout.json").write_text(
+    (out / "g11_rollout.json").write_text(
         json.dumps(g11, indent=2, default=str), encoding="utf-8"
     )
-    g12 = g12_tyre_age(model)
-    (_OUT / "g12_tyre_age.json").write_text(
-        json.dumps(g12, indent=2, default=str), encoding="utf-8"
-    )
-    g13 = g13_audit(model)
-    (_OUT / "g13_audits.json").write_text(
-        json.dumps(g13, indent=2, default=str), encoding="utf-8"
-    )
-    print(f"\nWrote {_OUT}", flush=True)
+    if args.only == "all":
+        g12 = g12_tyre_age(model)
+        (out / "g12_tyre_age.json").write_text(
+            json.dumps(g12, indent=2, default=str), encoding="utf-8"
+        )
+        g13 = g13_audit(model)
+        (out / "g13_audits.json").write_text(
+            json.dumps(g13, indent=2, default=str), encoding="utf-8"
+        )
+    print(f"\nWrote {out}", flush=True)
     return 0
 
 
