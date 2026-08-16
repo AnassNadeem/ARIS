@@ -1,0 +1,2571 @@
+{
+  "method": "G4 pooled GBT: E3.2 prep (fuel-corrected race LapTimeS, clean-lap + not-first-of-stint), target = time minus early-stint baseline; one XGBoost across mapped C-codes with compound_id + era categorical and tyre_life, weather, gap-to-nearest, n_corners, stint_position. Slopes are finite differences at tyre_life 2\u219212.",
+  "fit_utc": "2026-08-14T12:46:26+00:00",
+  "hyperparams": {
+    "max_depth": 4,
+    "eta": 0.05,
+    "num_boost_round": 120,
+    "cv_mae_mean": 4.233326876763284,
+    "cv_mae_std": 2.4000949126454527
+  },
+  "feature_importances_gain": {
+    "compound_id": 0.18350691811771258,
+    "tyre_life": 0.16754985028410704,
+    "era": 0.10799591427387883,
+    "stint_position": 0.10711828644330522,
+    "n_corners": 0.10545706804444521,
+    "humidity_pct": 0.09619060535062707,
+    "gap_to_nearest_s": 0.08905817666218778,
+    "air_temp_c": 0.0794888985497875,
+    "era_2022": 0.06525312878328932,
+    "track_temp_c": 0.06363428227394877,
+    "compound_C5": 0.034802697435166466,
+    "compound_C2": 0.033391066387873564,
+    "compound_C1": 0.03212586557930634,
+    "compound_C6": 0.030492279583485372,
+    "compound_C4": 0.027536521962897322,
+    "compound_C3": 0.025158487168983498,
+    "era_2026": 0.02237486155996579,
+    "era_2023-2025": 0.020367923930623727
+  },
+  "life_window": [
+    2,
+    12
+  ],
+  "eras": {
+    "2019-2021": {
+      "slopes": {
+        "C1": 0.1286,
+        "C2": 0.1538,
+        "C3": 0.1658,
+        "C4": 0.1707,
+        "C5": 0.2867,
+        "C6": 0.3028
+      },
+      "n_laps": 1571,
+      "monotonic_ok": true,
+      "reason": "ok C1=0.1286 < C2=0.1538 < C3=0.1658 < C4=0.1707 < C5=0.2867 < C6=0.3028",
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 24.8,
+        "track_temp_c": 36.1,
+        "humidity_pct": 51.0,
+        "gap_to_nearest_s": 1.941000000000031,
+        "n_corners": 16.0,
+        "stint_position": 2.0
+      }
+    },
+    "2022": {
+      "slopes": {
+        "C1": 0.1286,
+        "C2": 0.1538,
+        "C3": 0.1658,
+        "C4": 0.1707,
+        "C5": 0.2867,
+        "C6": 0.3028
+      },
+      "n_laps": 14434,
+      "monotonic_ok": true,
+      "reason": "ok C1=0.1286 < C2=0.1538 < C3=0.1658 < C4=0.1707 < C5=0.2867 < C6=0.3028",
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 24.8,
+        "track_temp_c": 36.1,
+        "humidity_pct": 51.0,
+        "gap_to_nearest_s": 1.941000000000031,
+        "n_corners": 16.0,
+        "stint_position": 2.0
+      }
+    },
+    "2023-2025": {
+      "slopes": {
+        "C1": 0.1286,
+        "C2": 0.1538,
+        "C3": 0.1658,
+        "C4": 0.1707,
+        "C5": 0.2867,
+        "C6": 0.3028
+      },
+      "n_laps": 87820,
+      "monotonic_ok": true,
+      "reason": "ok C1=0.1286 < C2=0.1538 < C3=0.1658 < C4=0.1707 < C5=0.2867 < C6=0.3028",
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 24.8,
+        "track_temp_c": 36.1,
+        "humidity_pct": 51.0,
+        "gap_to_nearest_s": 1.941000000000031,
+        "n_corners": 16.0,
+        "stint_position": 2.0
+      }
+    },
+    "2026": {
+      "slopes": {
+        "C1": 0.1286,
+        "C2": 0.1538,
+        "C3": 0.1658,
+        "C4": 0.1707,
+        "C5": 0.2867,
+        "C6": 0.3028
+      },
+      "n_laps": 14209,
+      "monotonic_ok": true,
+      "reason": "ok C1=0.1286 < C2=0.1538 < C3=0.1658 < C4=0.1707 < C5=0.2867 < C6=0.3028",
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 24.8,
+        "track_temp_c": 36.1,
+        "humidity_pct": 51.0,
+        "gap_to_nearest_s": 1.941000000000031,
+        "n_corners": 16.0,
+        "stint_position": 2.0
+      }
+    }
+  },
+  "events": {
+    "2021|Netherlands|13": {
+      "year": 2021,
+      "event": "Netherlands",
+      "round": 13,
+      "era": "2019-2021",
+      "nomination": {
+        "HARD": "C1",
+        "MEDIUM": "C2",
+        "SOFT": "C3"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 21.8,
+        "track_temp_c": 36.4,
+        "humidity_pct": 53.8,
+        "gap_to_nearest_s": 2.390500000000003,
+        "n_corners": 14.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1325,
+        "MEDIUM": 0.2049,
+        "SOFT": 0.2169
+      },
+      "n_laps": 1571
+    },
+    "2022|Australia|3": {
+      "year": 2022,
+      "event": "Australia",
+      "round": 3,
+      "era": "2022",
+      "nomination": {
+        "HARD": "C2",
+        "MEDIUM": "C3",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 26.9,
+        "track_temp_c": 35.5,
+        "humidity_pct": 43.0,
+        "gap_to_nearest_s": 1.807000000000244,
+        "n_corners": 14.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1545,
+        "MEDIUM": 0.1665,
+        "SOFT": 0.2874
+      },
+      "n_laps": 1079
+    },
+    "2022|Azerbaijan|8": {
+      "year": 2022,
+      "event": "Azerbaijan",
+      "round": 8,
+      "era": "2022",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 25.2,
+        "track_temp_c": 45.7,
+        "humidity_pct": 61.0,
+        "gap_to_nearest_s": 2.8450000000000273,
+        "n_corners": 20.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.0925,
+        "MEDIUM": 0.0974,
+        "SOFT": 0.1864
+      },
+      "n_laps": 968
+    },
+    "2022|Bahrain|1": {
+      "year": 2022,
+      "event": "Bahrain",
+      "round": 1,
+      "era": "2022",
+      "nomination": {
+        "HARD": "C1",
+        "MEDIUM": "C2",
+        "SOFT": "C3"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 22.8,
+        "track_temp_c": 27.1,
+        "humidity_pct": 36.0,
+        "gap_to_nearest_s": 2.519999999999982,
+        "n_corners": 15.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1168,
+        "MEDIUM": 0.1891,
+        "SOFT": 0.2011
+      },
+      "n_laps": 1174
+    },
+    "2022|Britain|10": {
+      "year": 2022,
+      "event": "Britain",
+      "round": 10,
+      "era": "2022",
+      "nomination": {
+        "HARD": "C1",
+        "MEDIUM": "C2",
+        "SOFT": "C3"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 18.6,
+        "track_temp_c": 31.5,
+        "humidity_pct": 55.0,
+        "gap_to_nearest_s": 3.4524999999998727,
+        "n_corners": 18.0,
+        "stint_position": 3.0
+      },
+      "slopes": {
+        "HARD": 0.1694,
+        "MEDIUM": 0.2623,
+        "SOFT": 0.2743
+      },
+      "n_laps": 984
+    },
+    "2022|Canada|9": {
+      "year": 2022,
+      "event": "Canada",
+      "round": 9,
+      "era": "2022",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 21.9,
+        "track_temp_c": 41.8,
+        "humidity_pct": 28.0,
+        "gap_to_nearest_s": 1.65099999999984,
+        "n_corners": 14.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.2196,
+        "MEDIUM": 0.2245,
+        "SOFT": 0.3442
+      },
+      "n_laps": 1445
+    },
+    "2022|Emilia Romagna|4": {
+      "year": 2022,
+      "event": "Emilia Romagna",
+      "round": 4,
+      "era": "2022",
+      "nomination": {
+        "HARD": "C2",
+        "MEDIUM": "C3",
+        "SOFT": "C4"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 13.7,
+        "track_temp_c": 16.7,
+        "humidity_pct": 81.0,
+        "gap_to_nearest_s": 3.471500000000219,
+        "n_corners": 19.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1297,
+        "MEDIUM": 0.1558,
+        "SOFT": 0.1165
+      },
+      "n_laps": 1156
+    },
+    "2022|France|12": {
+      "year": 2022,
+      "event": "France",
+      "round": 12,
+      "era": "2022",
+      "nomination": {
+        "HARD": "C2",
+        "MEDIUM": "C3",
+        "SOFT": "C4"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 30.3,
+        "track_temp_c": 55.1,
+        "humidity_pct": 47.0,
+        "gap_to_nearest_s": 2.2919999999999163,
+        "n_corners": 15.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1174,
+        "MEDIUM": 0.1294,
+        "SOFT": 0.1343
+      },
+      "n_laps": 1062
+    },
+    "2022|Italy|16": {
+      "year": 2022,
+      "event": "Italy",
+      "round": 16,
+      "era": "2022",
+      "nomination": {
+        "HARD": "C2",
+        "MEDIUM": "C3",
+        "SOFT": "C4"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 28.1,
+        "track_temp_c": 43.2,
+        "humidity_pct": 32.0,
+        "gap_to_nearest_s": 1.7964999999999236,
+        "n_corners": 11.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.125,
+        "MEDIUM": 0.1371,
+        "SOFT": 0.1419
+      },
+      "n_laps": 1048
+    },
+    "2022|Miami|5": {
+      "year": 2022,
+      "event": "Miami",
+      "round": 5,
+      "era": "2022",
+      "nomination": {
+        "HARD": "C2",
+        "MEDIUM": "C3",
+        "SOFT": "C4"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 30.2,
+        "track_temp_c": 42.7,
+        "humidity_pct": 63.0,
+        "gap_to_nearest_s": 1.8624999999998408,
+        "n_corners": 19.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.3661,
+        "MEDIUM": 0.3781,
+        "SOFT": 0.3829
+      },
+      "n_laps": 982
+    },
+    "2022|Monaco|7": {
+      "year": 2022,
+      "event": "Monaco",
+      "round": 7,
+      "era": "2022",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 22.5,
+        "track_temp_c": 29.35,
+        "humidity_pct": 66.0,
+        "gap_to_nearest_s": 1.9580000000005384,
+        "n_corners": 19.0,
+        "stint_position": 3.0
+      },
+      "slopes": {
+        "HARD": 0.1571,
+        "MEDIUM": 0.162,
+        "SOFT": 0.278
+      },
+      "n_laps": 918
+    },
+    "2022|Netherlands|15": {
+      "year": 2022,
+      "event": "Netherlands",
+      "round": 15,
+      "era": "2022",
+      "nomination": {
+        "HARD": "C1",
+        "MEDIUM": "C2",
+        "SOFT": "C3"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 22.7,
+        "track_temp_c": 33.3,
+        "humidity_pct": 76.0,
+        "gap_to_nearest_s": 1.927999999999884,
+        "n_corners": 14.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1055,
+        "MEDIUM": 0.1308,
+        "SOFT": 0.1348
+      },
+      "n_laps": 1342
+    },
+    "2022|Saudi Arabia|2": {
+      "year": 2022,
+      "event": "Saudi Arabia",
+      "round": 2,
+      "era": "2022",
+      "nomination": {
+        "HARD": "C2",
+        "MEDIUM": "C3",
+        "SOFT": "C4"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 25.4,
+        "track_temp_c": 27.7,
+        "humidity_pct": 57.0,
+        "gap_to_nearest_s": 2.548000000000002,
+        "n_corners": 27.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1464,
+        "MEDIUM": 0.1584,
+        "SOFT": 0.1633
+      },
+      "n_laps": 888
+    },
+    "2022|Spain|6": {
+      "year": 2022,
+      "event": "Spain",
+      "round": 6,
+      "era": "2022",
+      "nomination": {
+        "HARD": "C1",
+        "MEDIUM": "C2",
+        "SOFT": "C3"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 36.7,
+        "track_temp_c": 49.0,
+        "humidity_pct": 7.0,
+        "gap_to_nearest_s": 3.258000000000038,
+        "n_corners": 14.0,
+        "stint_position": 3.0
+      },
+      "slopes": {
+        "HARD": -0.3673,
+        "MEDIUM": -0.2949,
+        "SOFT": -0.2829
+      },
+      "n_laps": 1388
+    },
+    "2023|Abu Dhabi|22": {
+      "year": 2023,
+      "event": "Abu Dhabi",
+      "round": 22,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 26.6,
+        "track_temp_c": 32.1,
+        "humidity_pct": 52.0,
+        "gap_to_nearest_s": 1.5410000000001673,
+        "n_corners": 16.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1624,
+        "MEDIUM": 0.1673,
+        "SOFT": 0.2834
+      },
+      "n_laps": 1233
+    },
+    "2023|Australia|3": {
+      "year": 2023,
+      "event": "Australia",
+      "round": 3,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C2",
+        "MEDIUM": "C3",
+        "SOFT": "C4"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 17.8,
+        "track_temp_c": 30.8,
+        "humidity_pct": 54.0,
+        "gap_to_nearest_s": 1.655999999999949,
+        "n_corners": 14.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.0493,
+        "MEDIUM": 0.0718,
+        "SOFT": 0.0767
+      },
+      "n_laps": 854
+    },
+    "2023|Austria|9": {
+      "year": 2023,
+      "event": "Austria",
+      "round": 9,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 22.7,
+        "track_temp_c": 32.2,
+        "humidity_pct": 52.0,
+        "gap_to_nearest_s": 2.0960000000004584,
+        "n_corners": 10.0,
+        "stint_position": 3.0
+      },
+      "slopes": {
+        "HARD": 0.1907,
+        "MEDIUM": 0.1956,
+        "SOFT": 0.3044
+      },
+      "n_laps": 1637
+    },
+    "2023|Azerbaijan|4": {
+      "year": 2023,
+      "event": "Azerbaijan",
+      "round": 4,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 25.0,
+        "track_temp_c": 40.5,
+        "humidity_pct": 49.0,
+        "gap_to_nearest_s": 3.5685000000000855,
+        "n_corners": 20.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.3018,
+        "MEDIUM": 0.3066,
+        "SOFT": 0.3675
+      },
+      "n_laps": 1146
+    },
+    "2023|Bahrain|1": {
+      "year": 2023,
+      "event": "Bahrain",
+      "round": 1,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C1",
+        "MEDIUM": "C2",
+        "SOFT": "C3"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 26.5,
+        "track_temp_c": 29.5,
+        "humidity_pct": 21.0,
+        "gap_to_nearest_s": 2.160999999999831,
+        "n_corners": 15.0,
+        "stint_position": 3.0
+      },
+      "slopes": {
+        "HARD": 0.1266,
+        "MEDIUM": 0.1989,
+        "SOFT": 0.2109
+      },
+      "n_laps": 1223
+    },
+    "2023|Belgium|12": {
+      "year": 2023,
+      "event": "Belgium",
+      "round": 12,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C2",
+        "MEDIUM": "C3",
+        "SOFT": "C4"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 18.1,
+        "track_temp_c": 29.1,
+        "humidity_pct": 61.0,
+        "gap_to_nearest_s": 1.5184999999999036,
+        "n_corners": 19.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1409,
+        "MEDIUM": 0.1529,
+        "SOFT": 0.1577
+      },
+      "n_laps": 666
+    },
+    "2023|Britain|10": {
+      "year": 2023,
+      "event": "Britain",
+      "round": 10,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C1",
+        "MEDIUM": "C2",
+        "SOFT": "C3"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 21.4,
+        "track_temp_c": 29.9,
+        "humidity_pct": 55.0,
+        "gap_to_nearest_s": 1.623000000000161,
+        "n_corners": 18.0,
+        "stint_position": 1.0
+      },
+      "slopes": {
+        "HARD": 0.1589,
+        "MEDIUM": 0.1802,
+        "SOFT": 0.1802
+      },
+      "n_laps": 1122
+    },
+    "2023|Canada|8": {
+      "year": 2023,
+      "event": "Canada",
+      "round": 8,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 19.2,
+        "track_temp_c": 31.3,
+        "humidity_pct": 62.0,
+        "gap_to_nearest_s": 1.9440000000000737,
+        "n_corners": 14.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1531,
+        "MEDIUM": 0.1579,
+        "SOFT": 0.274
+      },
+      "n_laps": 1480
+    },
+    "2023|Hungary|11": {
+      "year": 2023,
+      "event": "Hungary",
+      "round": 11,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 29.1,
+        "track_temp_c": 47.4,
+        "humidity_pct": 33.0,
+        "gap_to_nearest_s": 2.4615000000001146,
+        "n_corners": 16.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1318,
+        "MEDIUM": 0.1366,
+        "SOFT": 0.2492
+      },
+      "n_laps": 1490
+    },
+    "2023|Italy|14": {
+      "year": 2023,
+      "event": "Italy",
+      "round": 14,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 29.9,
+        "track_temp_c": 42.8,
+        "humidity_pct": 41.0,
+        "gap_to_nearest_s": 1.188000000000102,
+        "n_corners": 11.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.284,
+        "MEDIUM": 0.2888,
+        "SOFT": 0.392
+      },
+      "n_laps": 1042
+    },
+    "2023|Japan|16": {
+      "year": 2023,
+      "event": "Japan",
+      "round": 16,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C1",
+        "MEDIUM": "C2",
+        "SOFT": "C3"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 27.3,
+        "track_temp_c": 38.2,
+        "humidity_pct": 43.0,
+        "gap_to_nearest_s": 3.721000000000004,
+        "n_corners": 18.0,
+        "stint_position": 3.0
+      },
+      "slopes": {
+        "HARD": 0.2223,
+        "MEDIUM": 0.3152,
+        "SOFT": 0.3272
+      },
+      "n_laps": 889
+    },
+    "2023|Las Vegas|21": {
+      "year": 2023,
+      "event": "Las Vegas",
+      "round": 21,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 18.0,
+        "track_temp_c": 17.7,
+        "humidity_pct": 48.0,
+        "gap_to_nearest_s": 4.164999999999964,
+        "n_corners": 17.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1807,
+        "MEDIUM": 0.1818,
+        "SOFT": 0.2661
+      },
+      "n_laps": 1108
+    },
+    "2023|Mexico City|19": {
+      "year": 2023,
+      "event": "Mexico City",
+      "round": 19,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 25.8,
+        "track_temp_c": 44.0,
+        "humidity_pct": 22.0,
+        "gap_to_nearest_s": 1.5289999999999964,
+        "n_corners": 17.0,
+        "stint_position": 3.0
+      },
+      "slopes": {
+        "HARD": 0.1015,
+        "MEDIUM": 0.1063,
+        "SOFT": 0.2261
+      },
+      "n_laps": 1386
+    },
+    "2023|Miami|5": {
+      "year": 2023,
+      "event": "Miami",
+      "round": 5,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C2",
+        "MEDIUM": "C3",
+        "SOFT": "C4"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 27.2,
+        "track_temp_c": 35.1,
+        "humidity_pct": 59.0,
+        "gap_to_nearest_s": 1.5930000000000746,
+        "n_corners": 19.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1469,
+        "MEDIUM": 0.1589,
+        "SOFT": 0.1637
+      },
+      "n_laps": 1312
+    },
+    "2023|Monaco|6": {
+      "year": 2023,
+      "event": "Monaco",
+      "round": 6,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 25.4,
+        "track_temp_c": 39.8,
+        "humidity_pct": 42.0,
+        "gap_to_nearest_s": 1.7849999999998545,
+        "n_corners": 19.0,
+        "stint_position": 1.0
+      },
+      "slopes": {
+        "HARD": 0.2103,
+        "MEDIUM": 0.2151,
+        "SOFT": 0.3075
+      },
+      "n_laps": 1343
+    },
+    "2023|Netherlands|13": {
+      "year": 2023,
+      "event": "Netherlands",
+      "round": 13,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C1",
+        "MEDIUM": "C2",
+        "SOFT": "C3"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 17.3,
+        "track_temp_c": 27.7,
+        "humidity_pct": 69.0,
+        "gap_to_nearest_s": 1.619000000000142,
+        "n_corners": 14.0,
+        "stint_position": 3.0
+      },
+      "slopes": {
+        "HARD": 0.0196,
+        "MEDIUM": 0.0343,
+        "SOFT": 0.0569
+      },
+      "n_laps": 1167
+    },
+    "2023|Qatar|17": {
+      "year": 2023,
+      "event": "Qatar",
+      "round": 17,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C1",
+        "MEDIUM": "C2",
+        "SOFT": "C3"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 31.4,
+        "track_temp_c": 36.8,
+        "humidity_pct": 74.0,
+        "gap_to_nearest_s": 2.4229999999997744,
+        "n_corners": 16.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1088,
+        "MEDIUM": 0.1812,
+        "SOFT": 0.1932
+      },
+      "n_laps": 1308
+    },
+    "2023|Sao Paulo|20": {
+      "year": 2023,
+      "event": "Sao Paulo",
+      "round": 20,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C2",
+        "MEDIUM": "C3",
+        "SOFT": "C4"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 21.0,
+        "track_temp_c": 45.0,
+        "humidity_pct": 55.0,
+        "gap_to_nearest_s": 1.1310000000000002,
+        "n_corners": 15.0,
+        "stint_position": 3.0
+      },
+      "slopes": {
+        "HARD": 0.0752,
+        "MEDIUM": 0.0872,
+        "SOFT": 0.0921
+      },
+      "n_laps": 1855
+    },
+    "2023|Saudi Arabia|2": {
+      "year": 2023,
+      "event": "Saudi Arabia",
+      "round": 2,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C2",
+        "MEDIUM": "C3",
+        "SOFT": "C4"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 26.2,
+        "track_temp_c": 31.0,
+        "humidity_pct": 55.0,
+        "gap_to_nearest_s": 2.423999999999978,
+        "n_corners": 27.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1411,
+        "MEDIUM": 0.1531,
+        "SOFT": 0.1579
+      },
+      "n_laps": 1177
+    },
+    "2023|Singapore|15": {
+      "year": 2023,
+      "event": "Singapore",
+      "round": 15,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 30.0,
+        "track_temp_c": 36.1,
+        "humidity_pct": 73.0,
+        "gap_to_nearest_s": 1.373000000000502,
+        "n_corners": 19.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1384,
+        "MEDIUM": 0.1432,
+        "SOFT": 0.2729
+      },
+      "n_laps": 1129
+    },
+    "2023|Spain|7": {
+      "year": 2023,
+      "event": "Spain",
+      "round": 7,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C1",
+        "MEDIUM": "C2",
+        "SOFT": "C3"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 22.1,
+        "track_temp_c": 30.8,
+        "humidity_pct": 65.0,
+        "gap_to_nearest_s": 2.018000000000029,
+        "n_corners": 14.0,
+        "stint_position": 3.0
+      },
+      "slopes": {
+        "HARD": 0.1011,
+        "MEDIUM": 0.1735,
+        "SOFT": 0.1855
+      },
+      "n_laps": 1554
+    },
+    "2023|United States|18": {
+      "year": 2023,
+      "event": "United States",
+      "round": 18,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C2",
+        "MEDIUM": "C3",
+        "SOFT": "C4"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 30.8,
+        "track_temp_c": 40.8,
+        "humidity_pct": 38.0,
+        "gap_to_nearest_s": 1.8640000000000327,
+        "n_corners": 20.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1544,
+        "MEDIUM": 0.1664,
+        "SOFT": 0.1713
+      },
+      "n_laps": 1528
+    },
+    "2024|Abu Dhabi|24": {
+      "year": 2024,
+      "event": "Abu Dhabi",
+      "round": 24,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 26.3,
+        "track_temp_c": 30.9,
+        "humidity_pct": 58.0,
+        "gap_to_nearest_s": 3.0470000000000255,
+        "n_corners": 16.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1853,
+        "MEDIUM": 0.1902,
+        "SOFT": 0.299
+      },
+      "n_laps": 1178
+    },
+    "2024|Australia|3": {
+      "year": 2024,
+      "event": "Australia",
+      "round": 3,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 20.9,
+        "track_temp_c": 38.2,
+        "humidity_pct": 44.0,
+        "gap_to_nearest_s": 2.438999999999851,
+        "n_corners": 14.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.219,
+        "MEDIUM": 0.2239,
+        "SOFT": 0.3327
+      },
+      "n_laps": 1217
+    },
+    "2024|Austria|11": {
+      "year": 2024,
+      "event": "Austria",
+      "round": 11,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 29.5,
+        "track_temp_c": 44.8,
+        "humidity_pct": 35.0,
+        "gap_to_nearest_s": 1.4885000000000446,
+        "n_corners": 10.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1089,
+        "MEDIUM": 0.1137,
+        "SOFT": 0.2335
+      },
+      "n_laps": 2062
+    },
+    "2024|Azerbaijan|17": {
+      "year": 2024,
+      "event": "Azerbaijan",
+      "round": 17,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 26.7,
+        "track_temp_c": 43.1,
+        "humidity_pct": 37.0,
+        "gap_to_nearest_s": 1.6340000000000146,
+        "n_corners": 20.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1072,
+        "MEDIUM": 0.1121,
+        "SOFT": 0.2083
+      },
+      "n_laps": 1057
+    },
+    "2024|Bahrain|1": {
+      "year": 2024,
+      "event": "Bahrain",
+      "round": 1,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C1",
+        "MEDIUM": "C2",
+        "SOFT": "C3"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 17.9,
+        "track_temp_c": 22.6,
+        "humidity_pct": 50.0,
+        "gap_to_nearest_s": 2.0885000000000105,
+        "n_corners": 15.0,
+        "stint_position": 3.0
+      },
+      "slopes": {
+        "HARD": 0.0734,
+        "MEDIUM": 0.1457,
+        "SOFT": 0.1577
+      },
+      "n_laps": 1356
+    },
+    "2024|Belgium|14": {
+      "year": 2024,
+      "event": "Belgium",
+      "round": 14,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C2",
+        "MEDIUM": "C3",
+        "SOFT": "C4"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 21.6,
+        "track_temp_c": 42.7,
+        "humidity_pct": 49.0,
+        "gap_to_nearest_s": 1.51299999999992,
+        "n_corners": 19.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.2775,
+        "MEDIUM": 0.2895,
+        "SOFT": 0.2944
+      },
+      "n_laps": 995
+    },
+    "2024|Britain|12": {
+      "year": 2024,
+      "event": "Britain",
+      "round": 12,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C1",
+        "MEDIUM": "C2",
+        "SOFT": "C3"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 16.4,
+        "track_temp_c": 25.2,
+        "humidity_pct": 65.0,
+        "gap_to_nearest_s": 1.6119999999999663,
+        "n_corners": 18.0,
+        "stint_position": 1.0
+      },
+      "slopes": {
+        "HARD": 0.132,
+        "MEDIUM": 0.1534,
+        "SOFT": 0.1534
+      },
+      "n_laps": 952
+    },
+    "2024|Canada|9": {
+      "year": 2024,
+      "event": "Canada",
+      "round": 9,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 18.9,
+        "track_temp_c": 26.4,
+        "humidity_pct": 70.0,
+        "gap_to_nearest_s": 1.2960000000002765,
+        "n_corners": 14.0,
+        "stint_position": 3.0
+      },
+      "slopes": {
+        "HARD": 0.067,
+        "MEDIUM": 0.0718,
+        "SOFT": 0.1879
+      },
+      "n_laps": 402
+    },
+    "2024|China|5": {
+      "year": 2024,
+      "event": "China",
+      "round": 5,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C2",
+        "MEDIUM": "C3",
+        "SOFT": "C4"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 19.0,
+        "track_temp_c": 28.8,
+        "humidity_pct": 67.0,
+        "gap_to_nearest_s": 1.110000000000127,
+        "n_corners": 16.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1411,
+        "MEDIUM": 0.1531,
+        "SOFT": 0.1579
+      },
+      "n_laps": 1388
+    },
+    "2024|Emilia Romagna|7": {
+      "year": 2024,
+      "event": "Emilia Romagna",
+      "round": 7,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 25.3,
+        "track_temp_c": 40.5,
+        "humidity_pct": 45.0,
+        "gap_to_nearest_s": 2.1485000000000696,
+        "n_corners": 19.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.2282,
+        "MEDIUM": 0.2331,
+        "SOFT": 0.329
+      },
+      "n_laps": 1580
+    },
+    "2024|Hungary|13": {
+      "year": 2024,
+      "event": "Hungary",
+      "round": 13,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 29.3,
+        "track_temp_c": 44.9,
+        "humidity_pct": 45.0,
+        "gap_to_nearest_s": 2.062999999999647,
+        "n_corners": 16.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1235,
+        "MEDIUM": 0.1283,
+        "SOFT": 0.2243
+      },
+      "n_laps": 1487
+    },
+    "2024|Italy|16": {
+      "year": 2024,
+      "event": "Italy",
+      "round": 16,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 32.8,
+        "track_temp_c": 45.7,
+        "humidity_pct": 32.0,
+        "gap_to_nearest_s": 1.95900000000006,
+        "n_corners": 11.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1089,
+        "MEDIUM": 0.1137,
+        "SOFT": 0.2335
+      },
+      "n_laps": 1197
+    },
+    "2024|Japan|4": {
+      "year": 2024,
+      "event": "Japan",
+      "round": 4,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C1",
+        "MEDIUM": "C2",
+        "SOFT": "C3"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 21.2,
+        "track_temp_c": 35.3,
+        "humidity_pct": 47.0,
+        "gap_to_nearest_s": 3.2210000000004584,
+        "n_corners": 18.0,
+        "stint_position": 3.0
+      },
+      "slopes": {
+        "HARD": 0.0913,
+        "MEDIUM": 0.1637,
+        "SOFT": 0.1757
+      },
+      "n_laps": 779
+    },
+    "2024|Las Vegas|22": {
+      "year": 2024,
+      "event": "Las Vegas",
+      "round": 22,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 17.4,
+        "track_temp_c": 17.0,
+        "humidity_pct": 45.0,
+        "gap_to_nearest_s": 1.3959999999999582,
+        "n_corners": 17.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.0571,
+        "MEDIUM": 0.0582,
+        "SOFT": 0.178
+      },
+      "n_laps": 1104
+    },
+    "2024|Mexico City|20": {
+      "year": 2024,
+      "event": "Mexico City",
+      "round": 20,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 20.2,
+        "track_temp_c": 35.6,
+        "humidity_pct": 50.0,
+        "gap_to_nearest_s": 1.9184999999998809,
+        "n_corners": 17.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1507,
+        "MEDIUM": 0.1555,
+        "SOFT": 0.2716
+      },
+      "n_laps": 1078
+    },
+    "2024|Miami|6": {
+      "year": 2024,
+      "event": "Miami",
+      "round": 6,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C2",
+        "MEDIUM": "C3",
+        "SOFT": "C4"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 28.7,
+        "track_temp_c": 45.5,
+        "humidity_pct": 59.0,
+        "gap_to_nearest_s": 1.183999999999969,
+        "n_corners": 19.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.081,
+        "MEDIUM": 0.093,
+        "SOFT": 0.0978
+      },
+      "n_laps": 1495
+    },
+    "2024|Monaco|8": {
+      "year": 2024,
+      "event": "Monaco",
+      "round": 8,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 21.8,
+        "track_temp_c": 42.4,
+        "humidity_pct": 63.0,
+        "gap_to_nearest_s": 3.088999999999942,
+        "n_corners": 19.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.2145,
+        "MEDIUM": 0.2194,
+        "SOFT": 0.3153
+      },
+      "n_laps": 1666
+    },
+    "2024|Netherlands|15": {
+      "year": 2024,
+      "event": "Netherlands",
+      "round": 15,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C1",
+        "MEDIUM": "C2",
+        "SOFT": "C3"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 19.4,
+        "track_temp_c": 31.7,
+        "humidity_pct": 59.0,
+        "gap_to_nearest_s": 2.0115000000000696,
+        "n_corners": 14.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.0916,
+        "MEDIUM": 0.164,
+        "SOFT": 0.176
+      },
+      "n_laps": 1780
+    },
+    "2024|Qatar|23": {
+      "year": 2024,
+      "event": "Qatar",
+      "round": 23,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C1",
+        "MEDIUM": "C2",
+        "SOFT": "C3"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 19.8,
+        "track_temp_c": 24.5,
+        "humidity_pct": 55.0,
+        "gap_to_nearest_s": 1.3835000000000264,
+        "n_corners": 16.0,
+        "stint_position": 1.0
+      },
+      "slopes": {
+        "HARD": 0.1323,
+        "MEDIUM": 0.1536,
+        "SOFT": 0.1536
+      },
+      "n_laps": 1382
+    },
+    "2024|Sao Paulo|21": {
+      "year": 2024,
+      "event": "Sao Paulo",
+      "round": 21,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 28.3,
+        "track_temp_c": 50.4,
+        "humidity_pct": 49.0,
+        "gap_to_nearest_s": 1.0769999999999982,
+        "n_corners": 15.0,
+        "stint_position": 1.0
+      },
+      "slopes": {
+        "HARD": 0.1037,
+        "MEDIUM": 0.1085,
+        "SOFT": 0.2009
+      },
+      "n_laps": 738
+    },
+    "2024|Saudi Arabia|2": {
+      "year": 2024,
+      "event": "Saudi Arabia",
+      "round": 2,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C2",
+        "MEDIUM": "C3",
+        "SOFT": "C4"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 25.5,
+        "track_temp_c": 30.8,
+        "humidity_pct": 62.0,
+        "gap_to_nearest_s": 3.5370000000000346,
+        "n_corners": 27.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.2398,
+        "MEDIUM": 0.2518,
+        "SOFT": 0.2567
+      },
+      "n_laps": 1157
+    },
+    "2024|Singapore|18": {
+      "year": 2024,
+      "event": "Singapore",
+      "round": 18,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 30.8,
+        "track_temp_c": 35.5,
+        "humidity_pct": 74.0,
+        "gap_to_nearest_s": 2.0280000000002474,
+        "n_corners": 19.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1632,
+        "MEDIUM": 0.1681,
+        "SOFT": 0.2906
+      },
+      "n_laps": 1335
+    },
+    "2024|Spain|10": {
+      "year": 2024,
+      "event": "Spain",
+      "round": 10,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C1",
+        "MEDIUM": "C2",
+        "SOFT": "C3"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 24.2,
+        "track_temp_c": 41.8,
+        "humidity_pct": 62.0,
+        "gap_to_nearest_s": 2.326000000000022,
+        "n_corners": 14.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1473,
+        "MEDIUM": 0.2197,
+        "SOFT": 0.2317
+      },
+      "n_laps": 1596
+    },
+    "2024|United States|19": {
+      "year": 2024,
+      "event": "United States",
+      "round": 19,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C2",
+        "MEDIUM": "C3",
+        "SOFT": "C4"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 28.2,
+        "track_temp_c": 46.5,
+        "humidity_pct": 36.0,
+        "gap_to_nearest_s": 2.471000000000004,
+        "n_corners": 20.0,
+        "stint_position": 1.0
+      },
+      "slopes": {
+        "HARD": 0.1024,
+        "MEDIUM": 0.1024,
+        "SOFT": 0.1072
+      },
+      "n_laps": 1509
+    },
+    "2025|Abu Dhabi|24": {
+      "year": 2025,
+      "event": "Abu Dhabi",
+      "round": 24,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 26.2,
+        "track_temp_c": 29.9,
+        "humidity_pct": 63.0,
+        "gap_to_nearest_s": 1.6620000000000346,
+        "n_corners": 16.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1624,
+        "MEDIUM": 0.1673,
+        "SOFT": 0.2834
+      },
+      "n_laps": 1457
+    },
+    "2025|Australia|1": {
+      "year": 2025,
+      "event": "Australia",
+      "round": 1,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 23.3,
+        "track_temp_c": 40.2,
+        "humidity_pct": 66.0,
+        "gap_to_nearest_s": 7.747000000000071,
+        "n_corners": 14.0,
+        "stint_position": 3.0
+      },
+      "slopes": {
+        "HARD": 0.4303,
+        "MEDIUM": 0.4352,
+        "SOFT": 0.4683
+      },
+      "n_laps": 410
+    },
+    "2025|Austria|11": {
+      "year": 2025,
+      "event": "Austria",
+      "round": 11,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 30.6,
+        "track_temp_c": 48.4,
+        "humidity_pct": 32.0,
+        "gap_to_nearest_s": 2.6809999999995853,
+        "n_corners": 10.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1139,
+        "MEDIUM": 0.1187,
+        "SOFT": 0.2313
+      },
+      "n_laps": 1439
+    },
+    "2025|Azerbaijan|17": {
+      "year": 2025,
+      "event": "Azerbaijan",
+      "round": 17,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C4",
+        "MEDIUM": "C5",
+        "SOFT": "C6"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 20.5,
+        "track_temp_c": 25.1,
+        "humidity_pct": 60.0,
+        "gap_to_nearest_s": 2.17699999999968,
+        "n_corners": 20.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1439,
+        "MEDIUM": 0.2458,
+        "SOFT": 0.1973
+      },
+      "n_laps": 921
+    },
+    "2025|Bahrain|4": {
+      "year": 2025,
+      "event": "Bahrain",
+      "round": 4,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C1",
+        "MEDIUM": "C2",
+        "SOFT": "C3"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 26.9,
+        "track_temp_c": 31.2,
+        "humidity_pct": 46.0,
+        "gap_to_nearest_s": 1.5960000000000036,
+        "n_corners": 15.0,
+        "stint_position": 3.0
+      },
+      "slopes": {
+        "HARD": 0.1292,
+        "MEDIUM": 0.1545,
+        "SOFT": 0.1665
+      },
+      "n_laps": 1295
+    },
+    "2025|Belgium|13": {
+      "year": 2025,
+      "event": "Belgium",
+      "round": 13,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C1",
+        "MEDIUM": "C3",
+        "SOFT": "C4"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 18.0,
+        "track_temp_c": 26.3,
+        "humidity_pct": 78.0,
+        "gap_to_nearest_s": 1.0420000000001437,
+        "n_corners": 19.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.0905,
+        "MEDIUM": 0.1199,
+        "SOFT": 0.1327
+      },
+      "n_laps": 1043
+    },
+    "2025|Britain|12": {
+      "year": 2025,
+      "event": "Britain",
+      "round": 12,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C2",
+        "MEDIUM": "C3",
+        "SOFT": "C4"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 23.9,
+        "track_temp_c": 38.4,
+        "humidity_pct": 36.0,
+        "gap_to_nearest_s": 8.586500000000001,
+        "n_corners": 18.0,
+        "stint_position": 3.0
+      },
+      "slopes": {
+        "HARD": 0.4336,
+        "MEDIUM": 0.4456,
+        "SOFT": 0.4505
+      },
+      "n_laps": 452
+    },
+    "2025|Canada|10": {
+      "year": 2025,
+      "event": "Canada",
+      "round": 10,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C4",
+        "MEDIUM": "C5",
+        "SOFT": "C6"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 24.0,
+        "track_temp_c": 49.7,
+        "humidity_pct": 29.0,
+        "gap_to_nearest_s": 1.569000000000301,
+        "n_corners": 14.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.0993,
+        "MEDIUM": 0.2191,
+        "SOFT": 0.2314
+      },
+      "n_laps": 1567
+    },
+    "2025|China|2": {
+      "year": 2025,
+      "event": "China",
+      "round": 2,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C2",
+        "MEDIUM": "C3",
+        "SOFT": "C4"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 26.6,
+        "track_temp_c": 35.0,
+        "humidity_pct": 20.0,
+        "gap_to_nearest_s": 1.6469999999999343,
+        "n_corners": 16.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": -0.1757,
+        "MEDIUM": -0.1637,
+        "SOFT": -0.1588
+      },
+      "n_laps": 1571
+    },
+    "2025|Emilia Romagna|7": {
+      "year": 2025,
+      "event": "Emilia Romagna",
+      "round": 7,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C4",
+        "MEDIUM": "C5",
+        "SOFT": "C6"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 24.0,
+        "track_temp_c": 40.9,
+        "humidity_pct": 38.0,
+        "gap_to_nearest_s": 1.4259999999999309,
+        "n_corners": 19.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.2102,
+        "MEDIUM": 0.3134,
+        "SOFT": 0.3446
+      },
+      "n_laps": 1228
+    },
+    "2025|Hungary|14": {
+      "year": 2025,
+      "event": "Hungary",
+      "round": 14,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 22.1,
+        "track_temp_c": 31.6,
+        "humidity_pct": 57.0,
+        "gap_to_nearest_s": 1.6089999999999236,
+        "n_corners": 16.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1626,
+        "MEDIUM": 0.1675,
+        "SOFT": 0.2835
+      },
+      "n_laps": 1634
+    },
+    "2025|Italy|16": {
+      "year": 2025,
+      "event": "Italy",
+      "round": 16,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 27.0,
+        "track_temp_c": 41.4,
+        "humidity_pct": 41.0,
+        "gap_to_nearest_s": 1.893000000000029,
+        "n_corners": 11.0,
+        "stint_position": 1.0
+      },
+      "slopes": {
+        "HARD": 0.2369,
+        "MEDIUM": 0.2418,
+        "SOFT": 0.3341
+      },
+      "n_laps": 1216
+    },
+    "2025|Japan|3": {
+      "year": 2025,
+      "event": "Japan",
+      "round": 3,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C1",
+        "MEDIUM": "C2",
+        "SOFT": "C3"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 14.4,
+        "track_temp_c": 19.7,
+        "humidity_pct": 77.0,
+        "gap_to_nearest_s": 1.3559999999999943,
+        "n_corners": 18.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.0081,
+        "MEDIUM": 0.0131,
+        "SOFT": 0.0391
+      },
+      "n_laps": 1073
+    },
+    "2025|Las Vegas|22": {
+      "year": 2025,
+      "event": "Las Vegas",
+      "round": 22,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 16.4,
+        "track_temp_c": 17.2,
+        "humidity_pct": 39.0,
+        "gap_to_nearest_s": 1.5729999999999793,
+        "n_corners": 17.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.0571,
+        "MEDIUM": 0.0582,
+        "SOFT": 0.178
+      },
+      "n_laps": 898
+    },
+    "2025|Mexico City|20": {
+      "year": 2025,
+      "event": "Mexico City",
+      "round": 20,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C2",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 26.6,
+        "track_temp_c": 49.1,
+        "humidity_pct": 24.0,
+        "gap_to_nearest_s": 2.108999999999924,
+        "n_corners": 17.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.0945,
+        "MEDIUM": 0.1113,
+        "SOFT": 0.2238
+      },
+      "n_laps": 1521
+    },
+    "2025|Miami|6": {
+      "year": 2025,
+      "event": "Miami",
+      "round": 6,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 26.5,
+        "track_temp_c": 36.4,
+        "humidity_pct": 61.0,
+        "gap_to_nearest_s": 3.0190000000000623,
+        "n_corners": 19.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.2208,
+        "MEDIUM": 0.2256,
+        "SOFT": 0.3344
+      },
+      "n_laps": 804
+    },
+    "2025|Monaco|8": {
+      "year": 2025,
+      "event": "Monaco",
+      "round": 8,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C4",
+        "MEDIUM": "C5",
+        "SOFT": "C6"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 22.5,
+        "track_temp_c": 42.7,
+        "humidity_pct": 51.0,
+        "gap_to_nearest_s": 1.4600000000000364,
+        "n_corners": 19.0,
+        "stint_position": 3.0
+      },
+      "slopes": {
+        "HARD": 0.3008,
+        "MEDIUM": 0.404,
+        "SOFT": 0.4353
+      },
+      "n_laps": 1557
+    },
+    "2025|Netherlands|15": {
+      "year": 2025,
+      "event": "Netherlands",
+      "round": 15,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C2",
+        "MEDIUM": "C3",
+        "SOFT": "C4"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 19.8,
+        "track_temp_c": 27.9,
+        "humidity_pct": 70.0,
+        "gap_to_nearest_s": 1.1469999999999343,
+        "n_corners": 14.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1411,
+        "MEDIUM": 0.1531,
+        "SOFT": 0.1579
+      },
+      "n_laps": 1247
+    },
+    "2025|Qatar|23": {
+      "year": 2025,
+      "event": "Qatar",
+      "round": 23,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C1",
+        "MEDIUM": "C2",
+        "SOFT": "C3"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 22.6,
+        "track_temp_c": 28.2,
+        "humidity_pct": 69.0,
+        "gap_to_nearest_s": 1.178000000000111,
+        "n_corners": 16.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1254,
+        "MEDIUM": 0.1506,
+        "SOFT": 0.1626
+      },
+      "n_laps": 1629
+    },
+    "2025|Sao Paulo|21": {
+      "year": 2025,
+      "event": "Sao Paulo",
+      "round": 21,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C2",
+        "MEDIUM": "C3",
+        "SOFT": "C4"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 17.6,
+        "track_temp_c": 31.0,
+        "humidity_pct": 69.0,
+        "gap_to_nearest_s": 1.5529999999998836,
+        "n_corners": 15.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1409,
+        "MEDIUM": 0.1529,
+        "SOFT": 0.1577
+      },
+      "n_laps": 1789
+    },
+    "2025|Saudi Arabia|5": {
+      "year": 2025,
+      "event": "Saudi Arabia",
+      "round": 5,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 29.9,
+        "track_temp_c": 37.3,
+        "humidity_pct": 53.0,
+        "gap_to_nearest_s": 2.8320000000003347,
+        "n_corners": 27.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1477,
+        "MEDIUM": 0.1526,
+        "SOFT": 0.0747
+      },
+      "n_laps": 972
+    },
+    "2025|Singapore|18": {
+      "year": 2025,
+      "event": "Singapore",
+      "round": 18,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 29.2,
+        "track_temp_c": 33.8,
+        "humidity_pct": 72.0,
+        "gap_to_nearest_s": 1.5570000000000164,
+        "n_corners": 19.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1403,
+        "MEDIUM": 0.1452,
+        "SOFT": 0.2749
+      },
+      "n_laps": 1259
+    },
+    "2025|Spain|9": {
+      "year": 2025,
+      "event": "Spain",
+      "round": 9,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C1",
+        "MEDIUM": "C2",
+        "SOFT": "C3"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 29.1,
+        "track_temp_c": 47.5,
+        "humidity_pct": 56.0,
+        "gap_to_nearest_s": 2.3589999999999236,
+        "n_corners": 14.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.0274,
+        "MEDIUM": 0.0998,
+        "SOFT": 0.1118
+      },
+      "n_laps": 1333
+    },
+    "2025|United States|19": {
+      "year": 2025,
+      "event": "United States",
+      "round": 19,
+      "era": "2023-2025",
+      "nomination": {
+        "HARD": "C1",
+        "MEDIUM": "C3",
+        "SOFT": "C4"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 29.0,
+        "track_temp_c": 45.6,
+        "humidity_pct": 21.0,
+        "gap_to_nearest_s": 1.7329999999999472,
+        "n_corners": 20.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": -0.0314,
+        "MEDIUM": -0.0302,
+        "SOFT": -0.0254
+      },
+      "n_laps": 1366
+    },
+    "2026|Australia|1": {
+      "year": 2026,
+      "event": "Australia",
+      "round": 1,
+      "era": "2026",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 24.5,
+        "track_temp_c": 35.8,
+        "humidity_pct": 53.4,
+        "gap_to_nearest_s": 2.858000000000174,
+        "n_corners": 14.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1907,
+        "MEDIUM": 0.1956,
+        "SOFT": 0.3044
+      },
+      "n_laps": 1163
+    },
+    "2026|Austria|8": {
+      "year": 2026,
+      "event": "Austria",
+      "round": 8,
+      "era": "2026",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 34.5,
+        "track_temp_c": 51.0,
+        "humidity_pct": 30.3,
+        "gap_to_nearest_s": 2.5799999999999272,
+        "n_corners": 10.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1139,
+        "MEDIUM": 0.1187,
+        "SOFT": 0.2313
+      },
+      "n_laps": 1528
+    },
+    "2026|Belgium|10": {
+      "year": 2026,
+      "event": "Belgium",
+      "round": 10,
+      "era": "2026",
+      "nomination": {
+        "HARD": "C2",
+        "MEDIUM": "C3",
+        "SOFT": "C4"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 18.9,
+        "track_temp_c": 32.2,
+        "humidity_pct": 45.0,
+        "gap_to_nearest_s": 2.511999999999944,
+        "n_corners": 19.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1659,
+        "MEDIUM": 0.1779,
+        "SOFT": 0.1827
+      },
+      "n_laps": 824
+    },
+    "2026|Britain|9": {
+      "year": 2026,
+      "event": "Britain",
+      "round": 9,
+      "era": "2026",
+      "nomination": {
+        "HARD": "C1",
+        "MEDIUM": "C2",
+        "SOFT": "C3"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 24.5,
+        "track_temp_c": 40.3,
+        "humidity_pct": 48.8,
+        "gap_to_nearest_s": 1.9079999999999016,
+        "n_corners": 18.0,
+        "stint_position": 1.0
+      },
+      "slopes": {
+        "HARD": 0.2114,
+        "MEDIUM": 0.2328,
+        "SOFT": 0.2328
+      },
+      "n_laps": 1527
+    },
+    "2026|Canada|5": {
+      "year": 2026,
+      "event": "Canada",
+      "round": 5,
+      "era": "2026",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 13.6,
+        "track_temp_c": 18.9,
+        "humidity_pct": 65.8,
+        "gap_to_nearest_s": 2.257000000000062,
+        "n_corners": 14.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": -0.0245,
+        "MEDIUM": -0.0368,
+        "SOFT": 0.0891
+      },
+      "n_laps": 1711
+    },
+    "2026|China|2": {
+      "year": 2026,
+      "event": "China",
+      "round": 2,
+      "era": "2026",
+      "nomination": {
+        "HARD": "C2",
+        "MEDIUM": "C3",
+        "SOFT": "C4"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 15.2,
+        "track_temp_c": 21.2,
+        "humidity_pct": 55.6,
+        "gap_to_nearest_s": 2.4200000000000728,
+        "n_corners": 16.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.0611,
+        "MEDIUM": 0.0731,
+        "SOFT": 0.0608
+      },
+      "n_laps": 1328
+    },
+    "2026|Hungary|11": {
+      "year": 2026,
+      "event": "Hungary",
+      "round": 11,
+      "era": "2026",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 31.0,
+        "track_temp_c": 49.6,
+        "humidity_pct": 25.9,
+        "gap_to_nearest_s": 2.188000000000102,
+        "n_corners": 16.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1139,
+        "MEDIUM": 0.1187,
+        "SOFT": 0.2313
+      },
+      "n_laps": 1609
+    },
+    "2026|Japan|3": {
+      "year": 2026,
+      "event": "Japan",
+      "round": 3,
+      "era": "2026",
+      "nomination": {
+        "HARD": "C1",
+        "MEDIUM": "C2",
+        "SOFT": "C3"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 18.0,
+        "track_temp_c": 31.4,
+        "humidity_pct": 50.7,
+        "gap_to_nearest_s": 1.2460000000000946,
+        "n_corners": 18.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1156,
+        "MEDIUM": 0.1409,
+        "SOFT": 0.1529
+      },
+      "n_laps": 1249
+    },
+    "2026|Miami|4": {
+      "year": 2026,
+      "event": "Miami",
+      "round": 4,
+      "era": "2026",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 30.1,
+        "track_temp_c": 44.1,
+        "humidity_pct": 52.8,
+        "gap_to_nearest_s": 2.406999999999698,
+        "n_corners": 19.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.1159,
+        "MEDIUM": 0.1207,
+        "SOFT": 0.2167
+      },
+      "n_laps": 1621
+    },
+    "2026|Monaco|6": {
+      "year": 2026,
+      "event": "Monaco",
+      "round": 6,
+      "era": "2026",
+      "nomination": {
+        "HARD": "C3",
+        "MEDIUM": "C4",
+        "SOFT": "C5"
+      },
+      "context": {
+        "tyre_life": 12.0,
+        "air_temp_c": 24.0,
+        "track_temp_c": 42.7,
+        "humidity_pct": 59.9,
+        "gap_to_nearest_s": 2.751000000000204,
+        "n_corners": 19.0,
+        "stint_position": 2.0
+      },
+      "slopes": {
+        "HARD": 0.3241,
+        "MEDIUM": 0.3289,
+        "SOFT": 0.4249
+      },
+      "n_laps": 1649
+    }
+  }
+}

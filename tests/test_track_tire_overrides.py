@@ -68,3 +68,37 @@ def test_other_tracks_keep_global_defaults():
     track = cfg.load_physics()
     loss = tire_pace_loss("MEDIUM", 4, slopes=track.compound_slopes)
     assert loss == pytest.approx(DEFAULT_COMPOUND_SLOPE["MEDIUM"] * 3)
+
+
+def test_n_corners_netherlands_from_yaml():
+    from aris.tracks import n_corners_for_event
+
+    n = n_corners_for_event("Netherlands")
+    assert n is not None and n >= 10
+
+
+def test_n_corners_bahrain_from_physics_profile():
+    from aris.tracks import n_corners_for_event
+
+    assert n_corners_for_event("Bahrain") == 15
+
+
+def test_n_corners_spanish_grand_prix_alias():
+    from aris.tracks import n_corners_for_event
+
+    assert n_corners_for_event("Spanish Grand Prix") == n_corners_for_event("Spain")
+    assert n_corners_for_event("Spain") == 14
+
+
+def test_n_corners_unmatched_is_none():
+    from aris.tracks import n_corners_for_event
+
+    assert n_corners_for_event("Atlantis Grand Prix") is None
+
+
+def test_n_corners_mugello_empty_list_is_none():
+    from aris.tracks import n_corners_for_event
+
+    # YAML has corners: [] — not a fabricated Bahrain fallback.
+    assert n_corners_for_event("Tuscany") is None
+    assert n_corners_for_event("Mugello") is None
