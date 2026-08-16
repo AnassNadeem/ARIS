@@ -12,11 +12,14 @@ Disable with ``ARIS_DECISION_LOG=0``. Override the directory with
 from __future__ import annotations
 
 import json
+import logging
 import os
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _DEFAULT_DIR = _REPO_ROOT / "results" / "decisions"
@@ -62,9 +65,19 @@ class JsonlDecisionLog:
             **self.meta,
             **payload,
         }
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self.path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(record, default=str) + "\n")
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            with self.path.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(record, default=str) + "\n")
+                fh.flush()
+        except OSError as exc:
+            logger.exception(
+                "decision log write failed path=%s event=%s", self.path, event
+            )
+            raise RuntimeError(
+                f"ARIS decision log write failed for {event!r} at {self.path}: {exc}. "
+                "Fix permissions on results/decisions/ or set ARIS_DECISION_LOG=0."
+            ) from exc
 
 
 def dump_recommendation(rec: Any) -> dict[str, Any] | None:

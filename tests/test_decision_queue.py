@@ -51,3 +51,17 @@ class TestDecisionQueue:
         assert events[1]["event"] == "resolve"
         assert events[1]["accepted"] is True
         assert events[1]["choice_id"] == "yes"
+
+    def test_unwritable_log_fails_loudly(self, tmp_path):
+        """Write failures must raise, not drop the event silently."""
+        blocked = tmp_path / "not_a_directory"
+        blocked.write_text("x", encoding="utf-8")
+        q = DecisionQueue()
+        q.bind_log(JsonlDecisionLog(blocked / "events.jsonl", source="test"))
+        try:
+            q.propose(_state(), kind=DecisionKind.PIT, use_llm=False, mc_draws=0)
+        except RuntimeError as exc:
+            assert "decision log write failed" in str(exc)
+            assert "propose" in str(exc)
+        else:
+            raise AssertionError("expected RuntimeError on unwritable decision log")
