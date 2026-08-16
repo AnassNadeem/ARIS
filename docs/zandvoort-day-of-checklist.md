@@ -9,9 +9,12 @@ cd C:\Users\anass\OneDrive\Desktop\ARIS
 $env:ARIS_DB_URL = "postgresql+psycopg://aris:aris_local_dev_pw@127.0.0.1:5432/aris"
 $env:PYTHONPATH = "src"
 # Docker Postgres up; venv active
+Remove-Item Env:ARIS_FAST_CLOCK -ErrorAction SilentlyContinue
+Remove-Item Env:ARIS_TRUE_COMPOUND_SLOPES -ErrorAction SilentlyContinue
+Remove-Item Env:ARIS_DECISION_LOG -ErrorAction SilentlyContinue
 ```
 
-**Tyre YAML:** observe/log only. Do **not** `--write` mid-weekend unless Anas explicitly approves (`--write --allow-live-write` required Fri–Sun 21–23 Aug).
+**Tyre YAML:** observe/log only. Do **not** `--write` mid-weekend unless Anas explicitly approves (`--write --allow-live-write` required Fri–Sun 21–23 Aug). Live-write gate and `ARIS_TRUE_COMPOUND_SLOPES` are independent — turning an overlay on does **not** bypass the YAML write refuse.
 
 ---
 
@@ -44,6 +47,8 @@ Catch-up whole weekend:
 ## Before the audience sees the screen
 
 - **`ARIS_FAST_CLOCK` must be unset.** Default is off: the sector clock waits 25 s / speed. `ARIS_FAST_CLOCK=1` is screenshot-harness only; if it is set, SectorClock warns at startup and the live cadence is skipped. Do not export this in Streamlit Cloud secrets or the demo shell.
+- **`ARIS_TRUE_COMPOUND_SLOPES` must be unset.** Default is G1.5 globals (SOFT 0.08 / MEDIUM 0.05 / HARD 0.03) + G1.4 physics-delta. `1` / `isotonic` / `pooled` are research overlays from G2–G4, not the demo path.
+- **`ARIS_DECISION_LOG` leave default (unset, which is on).** Watch propose/resolve append JSONL under `results/decisions/`. Set `ARIS_DECISION_LOG=0` only if that directory is unwritable — a write failure is loud (`RuntimeError`), not a silent drop. Override the directory with `ARIS_DECISION_LOG_DIR` if needed.
 - Leave **Show technical detail** off. That toggle hides MAE / MC bands and the **Skip to chequered flag** control (same final field as a full tick-through; Watch proposals along the way are not replayed).
 
 ## Do not under time pressure
@@ -51,7 +56,7 @@ Catch-up whole weekend:
 - Retrain residual mid-weekend  
 - Rewrite tyre YAML mid-weekend  
 - Re-derive pit_loss from one sprint sample  
-- Turn on `ARIS_FAST_CLOCK` or Show technical detail “to go faster” in front of the audience
+- Turn on `ARIS_FAST_CLOCK`, `ARIS_TRUE_COMPOUND_SLOPES`, or Show technical detail “to go faster” in front of the audience
 
 ---
 
