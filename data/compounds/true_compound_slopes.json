@@ -1,0 +1,80 @@
+{
+  "method": "E3.2 re-keyed: fuel-corrected race DegSlope, clean-lap filter, stint split on FastF1 Stint/pit-out, session IV pool, keyed by CompoundIdentity within era (not SOFT/MEDIUM/HARD).",
+  "fit_utc": "2026-08-13T21:18:58+00:00",
+  "eras": {
+    "2019-2021": {
+      "slopes": {
+        "C1": 0.0976,
+        "C2": 0.0353,
+        "C3": 0.1029
+      },
+      "n_stints": 79,
+      "n_by_code": {
+        "C1": 17,
+        "C2": 29,
+        "C3": 33
+      },
+      "monotonic_ok": false,
+      "reason": "ordering failed C1=0.0976 not < C2=0.0353 (need degradation increasing C1..C5/C6); full=[('C1', 0.0976), ('C2', 0.0353), ('C3', 0.1029)]"
+    },
+    "2022": {
+      "slopes": {
+        "C1": 0.0849,
+        "C2": 0.0381,
+        "C3": -0.0423,
+        "C4": -0.0039,
+        "C5": 0.1368
+      },
+      "n_stints": 890,
+      "n_by_code": {
+        "C1": 47,
+        "C2": 237,
+        "C3": 433,
+        "C4": 139,
+        "C5": 34
+      },
+      "monotonic_ok": false,
+      "reason": "ordering failed C1=0.0849 not < C2=0.0381 (need degradation increasing C1..C5/C6); full=[('C1', 0.0849), ('C2', 0.0381), ('C3', -0.0423), ('C4', -0.0039), ('C5', 0.1368)]"
+    },
+    "2023-2025": {
+      "slopes": {
+        "C1": 0.0369,
+        "C2": 0.0359,
+        "C3": 0.0461,
+        "C4": 0.0283,
+        "C5": -0.1892,
+        "C6": -0.012
+      },
+      "n_stints": 4597,
+      "n_by_code": {
+        "C1": 383,
+        "C2": 783,
+        "C3": 1748,
+        "C4": 1328,
+        "C5": 322,
+        "C6": 33
+      },
+      "monotonic_ok": false,
+      "reason": "ordering failed C1=0.0369 not < C2=0.0359 (need degradation increasing C1..C5/C6); full=[('C1', 0.0369), ('C2', 0.0359), ('C3', 0.0461), ('C4', 0.0283), ('C5', -0.1892), ('C6', -0.012)]"
+    },
+    "2026": {
+      "slopes": {
+        "C1": 0.0353,
+        "C2": -0.0082,
+        "C3": 0.0195,
+        "C4": -0.0008,
+        "C5": 0.0101
+      },
+      "n_stints": 740,
+      "n_by_code": {
+        "C1": 62,
+        "C2": 120,
+        "C3": 221,
+        "C4": 221,
+        "C5": 116
+      },
+      "monotonic_ok": false,
+      "reason": "ordering failed C1=0.0353 not < C2=-0.0082 (need degradation increasing C1..C5/C6); full=[('C1', 0.0353), ('C2', -0.0082), ('C3', 0.0195), ('C4', -0.0008), ('C5', 0.0101)]"
+    }
+  }
+}
