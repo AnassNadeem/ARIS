@@ -28,6 +28,10 @@ results/*
 !results/wk2-window-sweep.csv
 !results/heldout-laptime-mae.csv
 
+# Built Ask ARIS FAISS index (rebuild: python scripts/build_ask_index.py)
+data/ask/index/*
+!data/ask/index/.gitkeep
+
 # Parquet & pickles outside the data dir
 *.parquet
 *.pkl

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import streamlit as st
 
-from aris.ask.keyword_qa import answer_question
+from aris.ask.grounded import answer_question
+from aris.ask.memory import ConversationMemory
 from aris.decisions.queue import DecisionKind, DecisionQueue
 from aris.engine.session import RaceEngineSession
 
@@ -72,7 +73,8 @@ def render_ask_mode(session: RaceEngineSession) -> None:
             st.write(text)
     question = st.chat_input("Ask about tyres, gaps, strategy…")
     if question:
-        answer = answer_question(session, question, use_llm=False)
+        memory = ConversationMemory.from_turns(st.session_state.ask_history)
+        answer = answer_question(session, question, use_llm=False, memory=memory)
         st.session_state.ask_history.append(("user", question))
         st.session_state.ask_history.append(("assistant", answer))
         st.rerun()
