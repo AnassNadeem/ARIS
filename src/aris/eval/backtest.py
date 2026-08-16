@@ -585,7 +585,7 @@ def score_race(meta: dict[str, Any], *, mc_draws: int = 0) -> RaceBacktest:
         )
     driver_id = int(drv["driver_id"])
     driver_code = str(drv["code"])
-    track = load_track_config(country)
+    track = load_track_config(country, year=year, round_no=round_no)
     session = RaceEngineSession(
         session_id=session_id,
         driver_id=driver_id,

@@ -113,11 +113,15 @@ def extrapolation_caveat_text(
 
 
 def _pit_loss_s(state: RaceState) -> float:
-    return load_track_config(state.country).pit_loss_s
+    return load_track_config(
+        state.country, year=state.year, round_no=state.round_no
+    ).pit_loss_s
 
 
 def _track_for(state: RaceState):
-    return load_track_config(state.country).load_physics()
+    return load_track_config(
+        state.country, year=state.year, round_no=state.round_no
+    ).load_physics()
 
 
 def _update_lags(times: list[float]) -> tuple[float | None, float | None, float | None]:

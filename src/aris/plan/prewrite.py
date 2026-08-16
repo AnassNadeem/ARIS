@@ -94,7 +94,7 @@ def generate_strat_plans(
     form: DriverForm | None = None,
     weather: dict | None = None,
 ) -> StratPlanSet:
-    track = load_track_config(country)
+    track = load_track_config(country, year=year, round_no=round_no)
     total = track.total_laps
     if weather is None:
         try:

@@ -133,7 +133,9 @@ def build_race_state(
             {"did": driver_id},
         ).one()
 
-    track_cfg = load_track_config(str(sess.country))
+    track_cfg = load_track_config(
+        str(sess.country), year=int(sess.year), round_no=int(sess.round_no)
+    )
     if total_laps is None:
         total_laps = track_cfg.total_laps
 

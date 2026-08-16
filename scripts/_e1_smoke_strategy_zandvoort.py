@@ -77,7 +77,9 @@ def main() -> int:
         traceback.print_exc()
         return 1
 
-    track = load_track_config(setup["country"])
+    track = load_track_config(
+        setup["country"], year=setup["year"], round_no=setup["round_no"]
+    )
     print(
         f"[track] total_laps={track.total_laps} pit_loss={track.pit_loss_s} "
         f"slopes={track.compound_slopes}",

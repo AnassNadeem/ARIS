@@ -113,13 +113,13 @@ def build_from_fastf1(year: int, gp: str) -> pd.DataFrame:
     # Location before country so shared-country circuits (Italy/USA/Germany)
     # and 2026 Madrid vs Barcelona resolve correctly.
     if _match_track_file(gp) is not None:
-        cfg = load_track_config(gp)
+        cfg = load_track_config(gp, year=year)
     elif _match_track_file(event_name) is not None:
-        cfg = load_track_config(event_name)
+        cfg = load_track_config(event_name, year=year)
     elif _match_track_file(location) is not None:
-        cfg = load_track_config(location)
+        cfg = load_track_config(location, year=year)
     else:
-        cfg = load_track_config(country)
+        cfg = load_track_config(country, year=year)
 
     track = cfg.load_physics()
     total = int(session.total_laps) if session.total_laps else cfg.total_laps

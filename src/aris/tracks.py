@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from pathlib import Path
 
@@ -148,8 +148,8 @@ def _config_from_data(country: str, data: dict) -> TrackConfig:
     )
 
 
-@lru_cache(maxsize=32)
-def load_track_config(country: str) -> TrackConfig:
+@lru_cache(maxsize=64)
+def _load_yaml_track_config(country: str) -> TrackConfig:
     path = _match_track_file(country)
     if path is None:
         return TrackConfig(
@@ -163,5 +163,63 @@ def load_track_config(country: str) -> TrackConfig:
     return _config_from_data(country, data)
 
 
+def load_track_config(
+    country: str,
+    year: int | None = None,
+    round_no: int | None = None,
+    *,
+    use_true_compound: str | bool | None = None,
+) -> TrackConfig:
+    """Load circuit YAML. Shipped tyre slopes are G1.5 globals, permanently.
+
+    Default (no overlay): YAML ``compound_slopes`` when present, else the
+    G1.5 globals SOFT 0.08 / MEDIUM 0.05 / HARD 0.03 s/lap, used with the
+    G1.4 physics-delta rollout in ``simulate()``. That combination is the
+    **permanent shipped default** as of Phase G.5, after the full G1–G4
+    tyre-degradation investigation — not a placeholder pending a better
+    fit. See ``docs/tyre-degradation-research.md``.
+
+    C-code overlays (G2 unconstrained, G3 isotonic, G4 pooled GBT) stay
+    off unless ``use_true_compound`` is passed or
+    ``ARIS_TRUE_COMPOUND_SLOPES`` is an explicit opt-in (``1`` /
+    ``isotonic`` / ``pooled``). Passing ``year`` alone does **not** apply
+    the overlay — that was G2's shipped-path regression.
+    """
+    cfg = _load_yaml_track_config(country)
+    if year is None:
+        return cfg
+    from aris.physics.compounds import (
+        event_relative_slopes,
+        parse_true_compound_mode,
+    )
+
+    mode = parse_true_compound_mode(use_true_compound)
+    if mode == "off":
+        return cfg
+    overlay, _meta = event_relative_slopes(
+        int(year), country, round_no=round_no, mode=mode
+    )
+    if overlay:
+        cfg = replace(cfg, compound_slopes=overlay)
+    return cfg
+
+
+def n_corners_for_event(event: str) -> int | None:
+    """Corner count from this circuit's YAML, or None if not genuinely available.
+
+    Empty YAML ``corners: []`` and unmatched events return None — do not
+    silently substitute Bahrain's 15-corner profile for another circuit.
+    Bahrain itself uses ``physics_profile: bahrain_2024`` (15 corners).
+    """
+    if _match_track_file(event) is None:
+        return None
+    cfg = _load_yaml_track_config(event)
+    if cfg.corners:
+        return len(cfg.corners)
+    if cfg.physics_profile == "bahrain_2024" and _normalize_token(cfg.country) == "bahrain":
+        return len(bahrain_2024().corners)
+    return None
+
+
 def clear_track_config_cache() -> None:
-    load_track_config.cache_clear()
+    _load_yaml_track_config.cache_clear()

@@ -93,7 +93,9 @@ class TestPhysicsDeltaRollout:
         )
         outcome = simulate(state, StrategyAction(kind=ActionKind.STAY_OUT))
         assert outcome.laps_simulated == 2
-        track = load_track_config(state.country).load_physics()
+        track = load_track_config(
+            state.country, year=state.year, round_no=state.round_no
+        ).load_physics()
         fuel0 = estimate_fuel_kg(56, total_laps=57)
         fuel1 = estimate_fuel_kg(57, total_laps=57)
         pred0 = predict_lap_time(
