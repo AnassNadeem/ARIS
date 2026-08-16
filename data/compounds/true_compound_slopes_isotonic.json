@@ -1,0 +1,325 @@
+{
+  "method": "E3.2 re-keyed + G3.4 isotonic: fuel-corrected race DegSlope, clean-lap filter, stint split on FastF1 Stint/pit-out, session IV pool, keyed by CompoundIdentity within era, then PAVA so C1 <= C2 <= ... C6 (weighted by n_stints).",
+  "fit_utc": "2026-08-13T23:08:30+00:00",
+  "eras": {
+    "2019-2021": {
+      "slopes": {
+        "C1": 0.0583,
+        "C2": 0.0583,
+        "C3": 0.1029
+      },
+      "unconstrained_slopes": {
+        "C1": 0.0976,
+        "C2": 0.0353,
+        "C3": 0.1029
+      },
+      "isotonic_notes": [
+        {
+          "pair": "C1<=C2",
+          "unconstrained": {
+            "C1": 0.0976,
+            "C2": 0.0353
+          },
+          "constrained": {
+            "C1": 0.0583,
+            "C2": 0.0583
+          },
+          "inverted": true,
+          "pooled_equal": true,
+          "kind": "inverted_compressed_to_equal"
+        },
+        {
+          "pair": "C2<=C3",
+          "unconstrained": {
+            "C2": 0.0353,
+            "C3": 0.1029
+          },
+          "constrained": {
+            "C2": 0.0583,
+            "C3": 0.1029
+          },
+          "inverted": false,
+          "pooled_equal": false,
+          "kind": "unchanged"
+        }
+      ],
+      "n_stints": 79,
+      "n_by_code": {
+        "C1": 17,
+        "C2": 29,
+        "C3": 33
+      },
+      "monotonic_ok": true,
+      "reason": "ok C1=0.0583 <= C2=0.0583 <= C3=0.1029"
+    },
+    "2022": {
+      "slopes": {
+        "C1": -0.0074,
+        "C2": -0.0074,
+        "C3": -0.0074,
+        "C4": -0.0039,
+        "C5": 0.1368
+      },
+      "unconstrained_slopes": {
+        "C1": 0.0849,
+        "C2": 0.0381,
+        "C3": -0.0423,
+        "C4": -0.0039,
+        "C5": 0.1368
+      },
+      "isotonic_notes": [
+        {
+          "pair": "C1<=C2",
+          "unconstrained": {
+            "C1": 0.0849,
+            "C2": 0.0381
+          },
+          "constrained": {
+            "C1": -0.0074,
+            "C2": -0.0074
+          },
+          "inverted": true,
+          "pooled_equal": true,
+          "kind": "inverted_compressed_to_equal"
+        },
+        {
+          "pair": "C2<=C3",
+          "unconstrained": {
+            "C2": 0.0381,
+            "C3": -0.0423
+          },
+          "constrained": {
+            "C2": -0.0074,
+            "C3": -0.0074
+          },
+          "inverted": true,
+          "pooled_equal": true,
+          "kind": "inverted_compressed_to_equal"
+        },
+        {
+          "pair": "C3<=C4",
+          "unconstrained": {
+            "C3": -0.0423,
+            "C4": -0.0039
+          },
+          "constrained": {
+            "C3": -0.0074,
+            "C4": -0.0039
+          },
+          "inverted": false,
+          "pooled_equal": false,
+          "kind": "unchanged"
+        },
+        {
+          "pair": "C4<=C5",
+          "unconstrained": {
+            "C4": -0.0039,
+            "C5": 0.1368
+          },
+          "constrained": {
+            "C4": -0.0039,
+            "C5": 0.1368
+          },
+          "inverted": false,
+          "pooled_equal": false,
+          "kind": "unchanged"
+        }
+      ],
+      "n_stints": 890,
+      "n_by_code": {
+        "C1": 47,
+        "C2": 237,
+        "C3": 433,
+        "C4": 139,
+        "C5": 34
+      },
+      "monotonic_ok": true,
+      "reason": "ok C1=-0.0074 <= C2=-0.0074 <= C3=-0.0074 <= C4=-0.0039 <= C5=0.1368"
+    },
+    "2023-2025": {
+      "slopes": {
+        "C1": 0.0216,
+        "C2": 0.0216,
+        "C3": 0.0216,
+        "C4": 0.0216,
+        "C5": 0.0216,
+        "C6": 0.0216
+      },
+      "unconstrained_slopes": {
+        "C1": 0.0369,
+        "C2": 0.0359,
+        "C3": 0.0461,
+        "C4": 0.0283,
+        "C5": -0.1892,
+        "C6": -0.012
+      },
+      "isotonic_notes": [
+        {
+          "pair": "C1<=C2",
+          "unconstrained": {
+            "C1": 0.0369,
+            "C2": 0.0359
+          },
+          "constrained": {
+            "C1": 0.0216,
+            "C2": 0.0216
+          },
+          "inverted": true,
+          "pooled_equal": true,
+          "kind": "inverted_compressed_to_equal"
+        },
+        {
+          "pair": "C2<=C3",
+          "unconstrained": {
+            "C2": 0.0359,
+            "C3": 0.0461
+          },
+          "constrained": {
+            "C2": 0.0216,
+            "C3": 0.0216
+          },
+          "inverted": false,
+          "pooled_equal": true,
+          "kind": "compressed_to_equal"
+        },
+        {
+          "pair": "C3<=C4",
+          "unconstrained": {
+            "C3": 0.0461,
+            "C4": 0.0283
+          },
+          "constrained": {
+            "C3": 0.0216,
+            "C4": 0.0216
+          },
+          "inverted": true,
+          "pooled_equal": true,
+          "kind": "inverted_compressed_to_equal"
+        },
+        {
+          "pair": "C4<=C5",
+          "unconstrained": {
+            "C4": 0.0283,
+            "C5": -0.1892
+          },
+          "constrained": {
+            "C4": 0.0216,
+            "C5": 0.0216
+          },
+          "inverted": true,
+          "pooled_equal": true,
+          "kind": "inverted_compressed_to_equal"
+        },
+        {
+          "pair": "C5<=C6",
+          "unconstrained": {
+            "C5": -0.1892,
+            "C6": -0.012
+          },
+          "constrained": {
+            "C5": 0.0216,
+            "C6": 0.0216
+          },
+          "inverted": false,
+          "pooled_equal": true,
+          "kind": "compressed_to_equal"
+        }
+      ],
+      "n_stints": 4597,
+      "n_by_code": {
+        "C1": 383,
+        "C2": 783,
+        "C3": 1748,
+        "C4": 1328,
+        "C5": 322,
+        "C6": 33
+      },
+      "monotonic_ok": true,
+      "reason": "ok C1=0.0216 <= C2=0.0216 <= C3=0.0216 <= C4=0.0216 <= C5=0.0216 <= C6=0.0216"
+    },
+    "2026": {
+      "slopes": {
+        "C1": 0.0066,
+        "C2": 0.0066,
+        "C3": 0.0093,
+        "C4": 0.0093,
+        "C5": 0.0101
+      },
+      "unconstrained_slopes": {
+        "C1": 0.0353,
+        "C2": -0.0082,
+        "C3": 0.0195,
+        "C4": -0.0008,
+        "C5": 0.0101
+      },
+      "isotonic_notes": [
+        {
+          "pair": "C1<=C2",
+          "unconstrained": {
+            "C1": 0.0353,
+            "C2": -0.0082
+          },
+          "constrained": {
+            "C1": 0.0066,
+            "C2": 0.0066
+          },
+          "inverted": true,
+          "pooled_equal": true,
+          "kind": "inverted_compressed_to_equal"
+        },
+        {
+          "pair": "C2<=C3",
+          "unconstrained": {
+            "C2": -0.0082,
+            "C3": 0.0195
+          },
+          "constrained": {
+            "C2": 0.0066,
+            "C3": 0.0093
+          },
+          "inverted": false,
+          "pooled_equal": false,
+          "kind": "unchanged"
+        },
+        {
+          "pair": "C3<=C4",
+          "unconstrained": {
+            "C3": 0.0195,
+            "C4": -0.0008
+          },
+          "constrained": {
+            "C3": 0.0093,
+            "C4": 0.0093
+          },
+          "inverted": true,
+          "pooled_equal": true,
+          "kind": "inverted_compressed_to_equal"
+        },
+        {
+          "pair": "C4<=C5",
+          "unconstrained": {
+            "C4": -0.0008,
+            "C5": 0.0101
+          },
+          "constrained": {
+            "C4": 0.0093,
+            "C5": 0.0101
+          },
+          "inverted": false,
+          "pooled_equal": false,
+          "kind": "unchanged"
+        }
+      ],
+      "n_stints": 740,
+      "n_by_code": {
+        "C1": 62,
+        "C2": 120,
+        "C3": 221,
+        "C4": 221,
+        "C5": 116
+      },
+      "monotonic_ok": true,
+      "reason": "ok C1=0.0066 <= C2=0.0066 <= C3=0.0093 <= C4=0.0093 <= C5=0.0101"
+    }
+  }
+}
