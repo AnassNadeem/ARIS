@@ -50,6 +50,7 @@ baseline but still does **not** beat it. Tags past `v0.2-pipeline` have not been
 | **Live demo** | [aris-f1.streamlit.app](https://aris-f1.streamlit.app) |
 | **Last tag** | [`v0.2-pipeline`](https://github.com/AnassNadeem/ARIS/releases/tag/v0.2-pipeline) — Postgres ingest + live lap explorer; baseline floor **0.460 s MAE** on green-flag laps across 8 races / 6383 laps |
 | **Held-out predictor MAE** | **MA(2) 0.469 · physics-only 15.211 · physics+residual 0.787 · blended 0.549 s** on 5×2024 races (`results/heldout-laptime-mae.csv`) — blended is closest but still does **not** beat baseline |
+| **Shipped tyre model** | **G1.5 locked** (Phase G.5): global compound slopes SOFT **0.08** / MEDIUM **0.05** / HARD **0.03** s/lap plus G1.4 physics-delta rollout. Fitted C-code overlays (G2/G3/G4) remain opt-in only. This is the evidenced choice after the full G1–G4 investigation, not a placeholder pending a better lap-time fit. See [`docs/tyre-degradation-research.md`](./docs/tyre-degradation-research.md). |
 | **Cadence** | 6 hrs/day × 6 days/week (Sundays off) |
 
 This repo is **under active construction**. Phases ship sequentially as
@@ -209,6 +210,16 @@ The FastF1 cache lands in `fastf1_cache/` (gitignored — regenerable); subseque
 
 ARIS v1 adds a **Race Strategy** page: pick a replay lap, optionally override
 compound/fuel, and get top-3 pit/stay-out recommendations with a narrated radio call.
+
+**Shipped tyre model (G1.5, locked).** `simulate()` / `recommend()` / the
+Strategy UI use global compound slopes (SOFT 0.08 / MEDIUM 0.05 / HARD 0.03)
+and a physics-delta rollout: the residual is applied once on the first
+remaining lap, then only tyre slope + fuel. Four evidenced attempts to
+replace those globals with a fitted C-code overlay (unconstrained, isotonic,
+context-aware GBT) did not beat this path on the walk-forward gate. The
+overlays stay behind `ARIS_TRUE_COMPOUND_SLOPES`; unset is G1.5. That is a
+considered lock, not a provisional fallback — full account in
+[`docs/tyre-degradation-research.md`](./docs/tyre-degradation-research.md).
 
 **Prerequisites:** Postgres with 2024 season ingested, FastF1 cache warmed, and
 (optionally) the trained residual model in `models/residual_xgb.json`.
