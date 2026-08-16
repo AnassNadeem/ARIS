@@ -132,6 +132,50 @@ def test_estimate_position_can_gain_or_lose():
     assert estimate_position(field, "HAM", 5030.0) == 3
 
 
+def test_bias_cancel_identity_zero_when_sims_equal():
+    """R2.3: ARIS_sim == team_sim must yield position-delta 0 on the time-rank field."""
+    from aris.eval.postrace import bias_cancelled_delta
+
+    field = {
+        "VER": 5000.0,
+        "NOR": 5010.0,
+        "LEC": 5020.0,
+        "PIA": 5030.0,
+        "SAI": 5040.0,
+        "HAM": 5050.0,
+    }
+    aris_pos, actual_rank, delta = bias_cancelled_delta(
+        field,
+        "SAI",
+        actual_time_s=5040.0,
+        aris_sim_s=6120.0,
+        team_sim_s=6120.0,
+    )
+    assert actual_rank == 5
+    assert aris_pos == 5
+    assert delta == 0.0
+
+
+def test_bias_cancel_negative_delta_when_aris_sim_faster():
+    from aris.eval.postrace import bias_cancelled_delta
+
+    field = {
+        "VER": 5000.0,
+        "NOR": 5010.0,
+        "LEC": 5020.0,
+        "PIA": 5030.0,
+        "SAI": 5040.0,
+    }
+    _aris_pos, _actual_rank, delta = bias_cancelled_delta(
+        field,
+        "SAI",
+        actual_time_s=5040.0,
+        aris_sim_s=100.0,
+        team_sim_s=130.0,
+    )
+    assert delta == -2.0
+
+
 def test_aris_and_actual_schedules_are_not_forced_equal():
     """The original bug: both ARIS and actual times were the real result."""
     aris = PitSchedule(pit_laps=[18], pit_compounds=["HARD"], start_compound="MEDIUM")

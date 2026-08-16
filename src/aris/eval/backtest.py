@@ -24,7 +24,7 @@ from aris.engine.triggers import check_triggers
 from aris.eval.laptime import HELD_OUT_RACES
 from aris.eval.postrace import (
     actual_schedule,
-    estimate_position,
+    bias_cancelled_delta,
     schedule_from_plan,
     simulate_schedule,
 )
@@ -112,12 +112,13 @@ class OutcomeScore:
     driver_code: str
     actual_finish_pos: int
     aris_finish_pos: int | None
-    position_delta: float | None  # aris_pos - actual_pos; negative = ARIS better
+    position_delta: float | None  # aris_time_rank - actual_time_rank; negative = ARIS better
     actual_time_s: float
     aris_sim_s: float | None
     team_sim_s: float | None
     aris_plan_pits: list[int] = field(default_factory=list)
     actual_pits: list[int] = field(default_factory=list)
+    actual_time_rank: int | None = None
 
 
 @dataclass
@@ -549,11 +550,14 @@ def _score_outcome(
         )
         aris_pits = []
     team_sim = simulate_schedule(start_state, team_sched)
-    adjusted = actual_time + (aris_sim - team_sim)
-    aris_pos = estimate_position(
-        field_race_times(session.session_id), driver_code, adjusted
+    field = field_race_times(session.session_id)
+    aris_pos, actual_rank, pos_delta = bias_cancelled_delta(
+        field,
+        driver_code,
+        actual_time_s=actual_time,
+        aris_sim_s=float(aris_sim),
+        team_sim_s=float(team_sim),
     )
-    pos_delta = (aris_pos - finish_pos) if aris_pos is not None else None
     return OutcomeScore(
         gp=gp,
         year=year,
@@ -567,6 +571,7 @@ def _score_outcome(
         team_sim_s=float(team_sim),
         aris_plan_pits=aris_pits,
         actual_pits=list(team_sched.pit_laps),
+        actual_time_rank=actual_rank,
     )
 
 

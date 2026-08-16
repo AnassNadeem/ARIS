@@ -167,6 +167,29 @@ def estimate_position(
     return None
 
 
+def bias_cancelled_delta(
+    field_times: dict[str, float],
+    driver_code: str,
+    *,
+    actual_time_s: float,
+    aris_sim_s: float,
+    team_sim_s: float,
+) -> tuple[int | None, int | None, float | None]:
+    """Identity-safe position-delta on a single time-rank field.
+
+    ``adjusted = actual + (ARIS_sim - team_sim)``. Both ARIS and the
+    baseline are ranks of that field, so ARIS_sim == team_sim ⇒ delta 0.
+    Do not subtract official classification: DNF/partial sums do not
+    share an ordering with FIA finish_pos (R2.3: 46/48 identity misses).
+    """
+    adjusted = actual_time_s + (aris_sim_s - team_sim_s)
+    aris_pos = estimate_position(field_times, driver_code, adjusted)
+    actual_rank = estimate_position(field_times, driver_code, actual_time_s)
+    if aris_pos is None or actual_rank is None:
+        return aris_pos, actual_rank, None
+    return aris_pos, actual_rank, float(aris_pos - actual_rank)
+
+
 def compare_post_race(
     session: RaceEngineSession,
     *,
