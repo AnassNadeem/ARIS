@@ -23,20 +23,29 @@ no notebook to open: the pipeline is the page.
 
 [![ARIS Phase 2 dashboard — Bahrain 2024 race, Max Verstappen: lap-time trace, per-sector breakdown, and the MA(2) baseline floor](assets/screenshots/wk4-streamlit-hero.png)](https://aris-f1.streamlit.app)
 
-**Where it stands today:** Phase 2 (`v0.2-pipeline`) is tagged and live — FastF1 →
-Postgres ingest with an idempotent, all-or-nothing-per-session pipeline, a
-moving-average lap-time baseline per tyre stint, and a public Streamlit lap
-explorer. The baseline is computed twice — once in pandas, once as a
-Postgres window query — and the two match to **machine epsilon** across eight
-reference races (canary that the ingest is lossless). That baseline —
-**0.460 s MAE on green-flag laps** — is the floor any predictor has to beat.
+**Where it stands today** (every figure is aimed vs actual; full account in
+[`docs/model-status.md`](./docs/model-status.md)):
 
-Beyond the tag, `main` also carries a **v1 strategy demo** (physics + tyre
-slopes + XGBoost residual, pit counterfactuals, MC bands, Strategy page with
-field/decision queue). After Phase C (tune + inverse-variance blend with MA(2)),
-held-out MAE on five 2024 races is **MA(2) 0.469 · physics-only 15.211 ·
-physics+residual 0.787 · blended 0.549 s**. The blend is the closest stack to
-baseline but still does **not** beat it. Tags past `v0.2-pipeline` have not been cut.
+| Question | Aimed | Actual |
+|---|---|---|
+| 2024 calendar one-step blend MAE | ≤ **0.783** (1.5× MA(2) **0.522**) | **0.583 s** — closest stack, does **not** beat MA(2) |
+| Mid-race match-rate vs stay-out | > **0.276** (24/87) | **0.322** (28/87) |
+| Lights-out position-delta | ≤ 0 | **−1.73** all 48 / **−1.49** clean (n=35) |
+| Tyre slopes from lap time | physical C1<…<C5 | G2/G3/G4 miss the gate — **G1.5 locked** |
+| Physics `team_sim − actual` intercept | a stable intercept | mean **+989 s**, std **544** — **closed**, do not subtract |
+
+Phase 2 (`v0.2-pipeline`) is tagged and live: FastF1 → Postgres ingest, a
+pandas-vs-SQL MA(2) canary at **machine epsilon**, and the public Streamlit
+lap explorer. That ingest floor — **0.460 s MAE on green-flag laps** across
+eight reference races — is still the lossless-ingest check, not the predictor
+headline. The five-race Phase C row (blend **0.549 s** vs MA(2) **0.469**) is
+superseded by the E3 calendar figure above. Tags past `v0.2-pipeline` have
+not been cut.
+
+**Wet / rain-affected races are out of scope.** There is no wet-strategy
+logic. Walk-forward excludes rainfall / wet-compound / red-flag inflections
+as `divergence_insufficient_info` — combined **0.356** (48/135), about
+one-third. That is a missing model, not an evaluation convenience.
 
 ---
 
@@ -45,12 +54,16 @@ baseline but still does **not** beat it. Tags past `v0.2-pipeline` have not been
 | | |
 |---|---|
 | **Started** | 2026-05-04 |
-| **Ship target** | 2026-08-31 (`v1.0-shipped`) |
-| **Current phase** | Phase C (close predictor gap + richer actions) complete on `main`; strategy demo present but untagged past `v0.2` |
+| **Ship target** | 2026-08-31 (`v1.0-shipped`); Dutch GP demo **21–23 August 2026** |
+| **Current phase** | Public-facing refresh, T−4 to Zandvoort. Predictor / match-rate / ranking numbers in [`docs/model-status.md`](./docs/model-status.md). Strategy demo on `main`, untagged past `v0.2` |
 | **Live demo** | [aris-f1.streamlit.app](https://aris-f1.streamlit.app) |
-| **Last tag** | [`v0.2-pipeline`](https://github.com/AnassNadeem/ARIS/releases/tag/v0.2-pipeline) — Postgres ingest + live lap explorer; baseline floor **0.460 s MAE** on green-flag laps across 8 races / 6383 laps |
-| **Held-out predictor MAE** | **MA(2) 0.469 · physics-only 15.211 · physics+residual 0.787 · blended 0.549 s** on 5×2024 races (`results/heldout-laptime-mae.csv`) — blended is closest but still does **not** beat baseline |
-| **Shipped tyre model** | **G1.5 locked** (Phase G.5): global compound slopes SOFT **0.08** / MEDIUM **0.05** / HARD **0.03** s/lap plus G1.4 physics-delta rollout. Fitted C-code overlays (G2/G3/G4) remain opt-in only. This is the evidenced choice after the full G1–G4 investigation, not a placeholder pending a better lap-time fit. See [`docs/tyre-degradation-research.md`](./docs/tyre-degradation-research.md). |
+| **Last tag** | [`v0.2-pipeline`](https://github.com/AnassNadeem/ARIS/releases/tag/v0.2-pipeline) — Postgres ingest + live lap explorer; ingest canary **0.460 s MAE** on green-flag laps across 8 races / 6383 laps |
+| **Held-out predictor MAE** | E3 2024 calendar blend **0.583 s** vs aimed ≤ **0.783** (1.5× MA(2) **0.522**). Does **not** beat MA(2). China is the 1.5× miss (**0.596** vs aimed **0.563**) |
+| **Mid-race match-rate** | **0.322** (28/87) vs stay-out **0.276** (24/87) |
+| **Lights-out position-delta** | **−1.73** all 48 / **−1.49** clean (n=35) / **−2.38** disrupted (n=13). Identity-safe ranking, not FIA points |
+| **Shipped tyre model** | **G1.5 locked** (Phase G.5): global compound slopes SOFT **0.08** / MEDIUM **0.05** / HARD **0.03** s/lap plus G1.4 physics-delta rollout. Fitted C-code overlays (G2/G3/G4) remain opt-in only. See [`docs/tyre-degradation-research.md`](./docs/tyre-degradation-research.md). |
+| **Physics offset** | **Closed.** `team_sim − actual` mean **+989 s**, std **544**; per configured lap **+17.3 s**. Do not subtract. See [`docs/physics-calibration-research.md`](./docs/physics-calibration-research.md). |
+| **Wet races** | **Out of scope.** No wet-strategy logic. Combined walk-forward **0.356** (48/135) inflections excluded as rainfall / wet compound / red-flag — a model gap, not an eval choice |
 | **Cadence** | 6 hrs/day × 6 days/week (Sundays off) |
 
 This repo is **under active construction**. Phases ship sequentially as
@@ -130,7 +143,7 @@ Status key: ✅ tagged · ◐ code on `main`, tag not cut · ○ not done.
 | 0 | 0 | Loadout — Python, Docker, Ollama, NVIDIA + CUDA, repo skeleton | (prep, untagged) | ✅ |
 | 1 | 1–2 | Python foundations + first FastF1 plot | `v0.1-foundation` | ✅ |
 | 2 | 3–4 | Postgres ingest + Streamlit lap explorer, deployed | `v0.2-pipeline` | ✅ |
-| 3 | 5–7 | Lap-time predictor (physics + residual ML); honest held-out MAE published | `v0.3-predictor` | ◐ code yes; Phase C blended **0.549 s** (above MA(2) 0.469 s); tag not cut |
+| 3 | 5–7 | Lap-time predictor (physics + residual ML); honest held-out MAE published | `v0.3-predictor` | ◐ code yes; E3 calendar blend **0.583 s** vs aimed ≤ **0.783** (MA(2) **0.522**); tag not cut |
 | 4 | 8–9 | Counterfactual simulator (pit + lift/brake actions) | `v0.4-counterfactual` | ◐ pit + lift/brake on `main`; tag not cut |
 | 5 | 10–11 | Always-on Strategy loop + MC bands; MATLAB port begins | `v0.5-always-on` | ◐ engine + Strategy UI + MC; MATLAB not started; tag not cut |
 | 6 | 12–13 | LLM narration + grounded Ask; MATLAB validation finish | `v0.6-narrated` | ◐ narration + keyword Ask; true RAG / MATLAB open; tag not cut |
@@ -221,6 +234,15 @@ overlays stay behind `ARIS_TRUE_COMPOUND_SLOPES`; unset is G1.5. That is a
 considered lock, not a provisional fallback — full account in
 [`docs/tyre-degradation-research.md`](./docs/tyre-degradation-research.md).
 
+**Wet races are out of scope.** The candidate menu is dry (SOFT / MEDIUM /
+HARD). Combined walk-forward **0.356** (48/135) inflections are excluded as
+rainfall / wet compound / red-flag. That gap is why, not a scoring trick.
+
+**Ask ARIS** on the public demo retrieves from a committed **snapshot** of
+14 real G1.5 decision records plus classified results and cited concepts —
+not the local JSONL log or the on-disk FAISS index. The panel is labeled
+**snapshot, not live**.
+
 **Prerequisites:** Postgres with 2024 season ingested, FastF1 cache warmed, and
 (optionally) the trained residual model in `models/residual_xgb.json`.
 
@@ -248,24 +270,20 @@ python -m aris.eval.laptime
 in the Strategy page. If Ollama is down, ARIS falls back to a template radio call.
 
 **Honest predictor note:** the physics + tyre + XGBoost stack is wired end-to-end.
-On five 2024 held-out races disjoint from the 2018–2023 training corpus
-(China, Monaco, Spain, Belgium, Abu Dhabi; clean green-flag scored laps),
-side-by-side MAE is **MA(2) 0.469 · physics-only 15.211 · physics+residual
-0.787 · blended (physics+residual ⊕ MA(2)) 0.549 s**
-(`results/heldout-laptime-mae.csv`). Methodology: leakage-safe features,
-LORO-CV-then-fit-all residual (Phase C retuned depth/η on LORO only), then
-inverse-variance blend with MA(2) using causal rolling error variances.
-**The blend does not beat MA(2)** — recent-pace features were already in the
-residual (and dominate gain), so the gap is not a missing-lag bug; pure MA(2)
-remains a lower-variance smoother on mid/late-stint laps, and the blend can
-only partially borrow that strength without matching it.
+The figure to quote is the **E3 2024 calendar** (24 races, overlay unset):
+**MA(2) 0.522 · physics-only 17.378 · physics+residual 0.948 · blended
+0.583 s**, aimed ≤ **0.783** (1.5× MA(2)). **The blend does not beat MA(2).**
+China is the 1.5× miss (blend **0.596** vs aimed **0.563**). The older
+five-race Phase C row (MA(2) **0.469** · blend **0.549 s** on China, Monaco,
+Spain, Belgium, Abu Dhabi) remains in `results/heldout-laptime-mae.csv` as
+the short held-out; it is not the headline.
 
 Raw next-lap MAE is not the only metric that matters for ARIS. MA(2) has no
 action-conditional or counterfactual capability: it cannot answer “what if we
-pit / lift / brake here?” The strategy stack exists to score those
-interventions; Phase D’s backtest will measure decision quality directly. That
-is additional context, not an excuse — the numbers above are still the best
-honest held-out point-forecast we can publish today.
+pit / lift / brake here?” Mid-race match-rate vs stay-out is **0.322**
+(28/87) vs aimed > **0.276**. Lights-out position-delta is **−1.73** all 48 /
+**−1.49** clean — identity-safe ranking, not FIA points. Those are additional
+context, not an excuse: the calendar blend still does not beat MA(2).
 
 ---
 

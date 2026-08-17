@@ -22,6 +22,20 @@ DEFAULT_INDEX_DIR = _REPO_ROOT / "data" / "ask" / "index"
 DEFAULT_DECISION_DIR = _REPO_ROOT / "results" / "decisions"
 FIXTURE_DECISIONS_PATH = FIXTURES_DIR / "decisions.jsonl"
 SHIPPED_TRUE_COMPOUND_MODE = "off"
+# Committed seed for fresh clones / Streamlit Cloud. 14 genuine G1.5 proposes
+# dumped from results/decisions (gitignored). Not a live log.
+ASK_SNAPSHOT_N_DECISIONS = 14
+ASK_SNAPSHOT_NOTICE = (
+    "Snapshot, not live. Grounded retrieval on this deployment uses a committed "
+    f"seed of {ASK_SNAPSHOT_N_DECISIONS} real G1.5 decision records, classified "
+    "session_results, and cited strategy concepts. The full JSONL decision log "
+    "and the on-disk FAISS index are local-only and are not shipped here."
+)
+ASK_LOCAL_VS_PUBLIC_NOTICE = (
+    "Local decision logs / FAISS index are present on this machine. "
+    "The public deployment does not ship them — it uses a committed snapshot "
+    f"of {ASK_SNAPSHOT_N_DECISIONS} real G1.5 records. Snapshot, not live."
+)
 # G2 appended overlay-walk proposes onto the same JSONL files as G1.5.
 # Cutoff is G3.2's documented split (scripts/_g3_audit_decisions.py).
 # Untagged records after this instant are overlay-window, not shipped G1.5.
@@ -106,6 +120,29 @@ def is_shipped_model_config(mode: str) -> bool:
 
 def _include_overlay_decisions() -> bool:
     return os.getenv("ARIS_ASK_INCLUDE_OVERLAY_DECISIONS", "") == "1"
+
+
+def live_decision_jsonl_present() -> bool:
+    """True when the gitignored ``results/decisions/`` tree has JSONL.
+
+    ``ARIS_ASK_DECISION_DIRS`` is an exclusive override (tests use the
+    14-event fixture), so a set override is not the live corpus.
+    """
+    if os.getenv("ARIS_ASK_DECISION_DIRS"):
+        return False
+    return DEFAULT_DECISION_DIR.is_dir() and any(DEFAULT_DECISION_DIR.glob("*.jsonl"))
+
+
+def on_disk_faiss_present() -> bool:
+    """True when the gitignored ``data/ask/index/meta.json`` exists."""
+    return (DEFAULT_INDEX_DIR / "meta.json").exists()
+
+
+def ask_panel_notice() -> str:
+    """Visible corpus label for the Ask panel. Always names the snapshot."""
+    if live_decision_jsonl_present() or on_disk_faiss_present():
+        return ASK_LOCAL_VS_PUBLIC_NOTICE
+    return ASK_SNAPSHOT_NOTICE
 
 
 def load_decision_documents(

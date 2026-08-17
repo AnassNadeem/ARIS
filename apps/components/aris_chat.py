@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import html
+
 import streamlit as st
 
 from aris.ask.grounded import answer_question
 from aris.ask.memory import ConversationMemory
+from aris.ask.sources import ask_panel_notice
 from aris.decisions.queue import DecisionKind, DecisionQueue
 from aris.engine.session import RaceEngineSession
 
@@ -60,6 +63,10 @@ def render_chat(session: RaceEngineSession, queue: DecisionQueue) -> None:
 
 def render_ask_mode(session: RaceEngineSession) -> None:
     st.subheader("Ask ARIS")
+    st.markdown(
+        f'<div class="aris-caveat">{html.escape(ask_panel_notice())}</div>',
+        unsafe_allow_html=True,
+    )
     if "ask_history" not in st.session_state:
         st.session_state.ask_history = []
     if not st.session_state.ask_history:

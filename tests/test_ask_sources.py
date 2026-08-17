@@ -1,6 +1,10 @@
 """H.2 — three retrieval sources exist and are non-empty real data."""
 
+from aris.ask.grounded import _default_index
 from aris.ask.sources import (
+    ASK_SNAPSHOT_N_DECISIONS,
+    ASK_SNAPSHOT_NOTICE,
+    ask_panel_notice,
     load_concept_documents,
     load_decision_documents,
     load_race_documents,
@@ -11,7 +15,9 @@ def test_decision_source_is_real_jsonl():
     docs = load_decision_documents()
     # Aimed: the 14 fixture propose events, even if ARIS_ASK_DECISION_DIRS
     # is set to the live corpus in the shell (tests/conftest.py).
-    assert len(docs) == 14, f"aimed 14 fixture decision docs, actual {len(docs)}"
+    assert len(docs) == ASK_SNAPSHOT_N_DECISIONS, (
+        f"aimed {ASK_SNAPSHOT_N_DECISIONS} fixture decision docs, actual {len(docs)}"
+    )
     sai = [d for d in docs if d.facts.get("driver_code") == "SAI" and d.facts.get("lap") == 21]
     assert sai, "aimed a real SAI lap-21 propose from 2024_r15 JSONL, actual none"
     delta = sai[0].facts["delta_vs_stay_out_s"]
@@ -19,6 +25,31 @@ def test_decision_source_is_real_jsonl():
     assert delta == -72.72805747985858, f"aimed -72.72805747985858, actual {delta}"
     assert sai[0].source == "decision"
     assert all(d.facts.get("true_compound_slopes") == "off" for d in docs)
+
+
+def test_ask_panel_notice_is_snapshot_without_local_index(monkeypatch, tmp_path):
+    monkeypatch.setattr("aris.ask.sources.DEFAULT_INDEX_DIR", tmp_path)
+    monkeypatch.setattr("aris.ask.sources.DEFAULT_DECISION_DIR", tmp_path / "missing")
+    monkeypatch.delenv("ARIS_ASK_DECISION_DIRS", raising=False)
+    notice = ask_panel_notice()
+    assert notice == ASK_SNAPSHOT_NOTICE, (
+        f"aimed snapshot notice, actual {notice!r}"
+    )
+    assert "Snapshot, not live" in notice
+
+
+def test_default_index_builds_from_fixtures_when_faiss_missing(monkeypatch, tmp_path):
+    monkeypatch.setattr("aris.ask.grounded.DEFAULT_INDEX_DIR", tmp_path)
+    _default_index.cache_clear()
+    try:
+        idx = _default_index()
+    finally:
+        _default_index.cache_clear()
+    decisions = [d for d in idx.documents if d.source == "decision"]
+    assert len(decisions) == ASK_SNAPSHOT_N_DECISIONS, (
+        f"aimed {ASK_SNAPSHOT_N_DECISIONS} fixture decisions, actual {len(decisions)}"
+    )
+    assert (tmp_path / "meta.json").exists() is False
 
 
 def test_race_source_is_session_results_not_narrative():

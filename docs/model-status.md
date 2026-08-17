@@ -5,7 +5,9 @@ Final Pre-Event Consolidation (2026-08-17), four days before the
 21–23 August 2026 Dutch GP.
 This page supersedes scattered phase docs as the one place to point
 someone asking **how good is this, really**. Those phase docs remain
-the evidence trail.
+the evidence trail. Public-facing numbers in `README.md` match this
+page. Wet races are out of scope (see below) — same class of named
+limit as G1.5 and the physics-offset close.
 
 Every number is aimed vs actual. Overlay env
 `ARIS_TRUE_COMPOUND_SLOPES` is **unset**. G1.5 is locked.
@@ -32,6 +34,7 @@ sensor. The Zandvoort demo identity is unchanged.
 | Same, disrupted (red or SC run ≥ 5) | report, don't hide | **−2.38** (n=13) | more negative, not a cherry-pick |
 | Absolute `team_sim − actual` | a stable intercept | mean **+989 s**, std **544** | **closed** — do not subtract |
 | Tyre slopes from lap time | physical C1<…<C5 | G2/G3/G4 all miss the gate | **G1.5 locked** |
+| Wet / rain-affected races | a wet strategy | **none** — **0.356** (48/135) inflections excluded | **out of scope**, not an eval choice |
 | Zandvoort recommend identity | Pit 33 HARD / Pit 30 HARD / Stay out | same, every phase since E4.1 | demo path **untouched** |
 
 ---
@@ -122,6 +125,8 @@ did not fire the stop gate).
 Walker ticks the live engine on classified P5, 2024+2025. Scored
 inflections exclude rainfall / wet compound / red-flag as
 `divergence_insufficient_info` — not forced into match/mismatch.
+That exclusion is **0.356** (48/135) of all inflections. It is the
+wet-strategy gap below, not a way to dress the 87-event match-rate.
 
 Always-stay-out matches every non-pit inflection and misses every pit.
 
@@ -237,6 +242,36 @@ present) or for the identity-safe ranking.
 
 ---
 
+## Wet / rain-affected races — out of scope
+
+Named as plainly as the tyre lock and the physics-offset close: **there
+is no wet-strategy logic.** `recommend()`'s candidate menu is dry
+(stay / pit SOFT-MEDIUM-HARD / two-stop sketches / lift-brake). There
+is no wet pit-loss, no intermediate cliff, and no “box for slicks as
+the track dries” search. FastF1 C-code mapping leaves INTERMEDIATE/WET
+as relative labels. Shipping the G1.5 dry slope table into a wet race
+would be a new error, not a fix.
+
+Walk-forward therefore excludes rainfall / wet-compound / red-flag
+inflections as `divergence_insufficient_info` instead of scoring them
+as match or mismatch.
+
+| Slice | Aimed (the ~1/3 characterization) | Actual | Result |
+|---|---|---|---|
+| 2024 (Phase G / G1.5) | ~1/3 of inflections | **0.344** (21/61) | same 21 as Phase G |
+| 2025 (G1.5) | report | **0.365** (27/74) | 47 scored remain |
+| Combined 2024+2025 | ~1/3 | **0.356** (48/135) | 87 scored remain |
+
+The 87-event match-rate (**0.322** vs stay-out **0.276**) is computed
+on what is left after that cut. The cut reflects a missing model, not
+an evaluation convenience. Spain 2024’s race was dry but FastF1’s
+`rainfall` bit can fire on any session moisture; Monaco 2024 was
+`rainfall=False` and still unscored (red-flag / status-5). Both sit in
+the 48. See `docs/strategy-backtest.md` and
+`docs/research-backlog.md` (wet-race strategy).
+
+---
+
 ## What the Zandvoort demo actually shows
 
 Locked since E4.1, re-confirmed every phase including this one:
@@ -276,6 +311,8 @@ G1.5 stays shipped through the event.
   HARD slope and of SC pit-loss charged as green.
 - That a physics intercept is "coming."
 - That a fifth lap-time tyre fit is worth the week before the event.
+- That ARIS has a wet / rain strategy. Combined **0.356** (48/135)
+  inflections are excluded because that model does not exist.
 
 Further reading: `docs/tyre-degradation-research.md`,
 `docs/physics-calibration-research.md`, `docs/how-recommend-works.md`,

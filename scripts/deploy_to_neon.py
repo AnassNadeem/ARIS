@@ -1,9 +1,9 @@
 """One-shot Neon deploy helper.
 
 Reads `.env.cloud` at the repo root, points ARIS at the Neon Postgres URL it
-contains, applies `db/schema.sql` plus `db/migrations/002_weekend_data.sql`,
-ingests the 2024 season, and prints final row counts. Idempotent — re-running
-is safe.
+contains, applies `db/schema.sql` plus migrations `002_weekend_data.sql` and
+`003_sprint_session_type.sql`, ingests the 2024 season, and prints final row
+counts. Idempotent — re-running is safe.
 
 Usage (from the repo root, with .env.cloud already filled in):
 
@@ -30,6 +30,7 @@ from dotenv import dotenv_values  # noqa: E402
 _SCHEMA_FILES = (
     ROOT / "db" / "schema.sql",
     ROOT / "db" / "migrations" / "002_weekend_data.sql",
+    ROOT / "db" / "migrations" / "003_sprint_session_type.sql",
 )
 
 

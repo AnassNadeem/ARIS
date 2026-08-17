@@ -118,3 +118,10 @@ class TestSkipToFlagGated:
         idx = src.index(needle)
         window = src[max(0, idx - 80) : idx]
         assert "show_technical()" in window
+
+
+class TestAskSnapshotLabel:
+    def test_ask_panel_renders_snapshot_notice(self):
+        src = Path("apps/components/aris_chat.py").read_text(encoding="utf-8")
+        assert "ask_panel_notice()" in src
+        assert "aris-caveat" in src
