@@ -20,9 +20,11 @@ sys.path.insert(0, str(_ROOT / "src"))
 sys.path.insert(0, str(_ROOT))
 
 from aris.eval.backtest import (  # noqa: E402
+    OutcomeScore,
     dataclass_to_jsonable,
     last_year_baseline_rate,
     match_rate,
+    position_delta_split,
     resolve_calendar,
     rolling_calendar,
     score_race,
@@ -134,6 +136,7 @@ def main() -> int:
 
     finite_delta = [x for x in per_race_delta if x == x]
     mean_pos_delta = sum(finite_delta) / len(finite_delta) if finite_delta else None
+    split = position_delta_split([r.outcome for r in races if r.outcome is not None])
 
     summary = {
         "year": args.year,
@@ -170,6 +173,12 @@ def main() -> int:
             and overall_match > proposed_target
         ),
         "mean_position_delta": mean_pos_delta,
+        "mean_position_delta_clean": split["clean"]["mean"],
+        "mean_position_delta_disrupted": split["disrupted"]["mean"],
+        "n_position_delta_clean": split["clean"]["n"],
+        "n_position_delta_disrupted": split["disrupted"]["n"],
+        "position_delta_excluded_races": split["excluded_races"],
+        "position_delta_split_flag": split["flag"],
         "rolling": rolling_rows,
         "races": [
             {
@@ -180,6 +189,9 @@ def main() -> int:
                 "n_propose": r.n_propose,
                 "match_rate": match_rate(r.decisions)[0],
                 "position_delta": r.outcome.position_delta if r.outcome else None,
+                "major_disruption": (
+                    r.outcome.major_disruption if r.outcome else None
+                ),
                 "actual_finish_pos": r.outcome.actual_finish_pos if r.outcome else None,
                 "aris_finish_pos": r.outcome.aris_finish_pos if r.outcome else None,
                 "error": r.error,
@@ -209,7 +221,24 @@ def main() -> int:
     )
     print(f"meets_target={summary['meets_target']}", flush=True)
     print(
-        f"mean position-delta (ARIS pos - actual)={summary['mean_position_delta']}",
+        f"mean position-delta all (ARIS pos - actual)={summary['mean_position_delta']} "
+        f"(n={len(finite_delta)})",
+        flush=True,
+    )
+    print(
+        f"mean position-delta clean (not major disruption)="
+        f"{summary['mean_position_delta_clean']} "
+        f"(n={summary['n_position_delta_clean']})",
+        flush=True,
+    )
+    print(
+        f"mean position-delta disrupted (red or SC run>=5)="
+        f"{summary['mean_position_delta_disrupted']} "
+        f"(n={summary['n_position_delta_disrupted']})",
+        flush=True,
+    )
+    print(
+        f"excluded (disrupted) races={summary['position_delta_excluded_races']}",
         flush=True,
     )
     print(f"wrote {summary_path} and {full_path}", flush=True)
@@ -350,6 +379,34 @@ def combine_years(out_dir: Path | None = None) -> int:
     mean_pos = sum(finite) / len(finite) if finite else None
     baselines = [x for x in (stay_rate, ly_rate) if x is not None]
     target = max(baselines) if baselines else None
+
+    def _outcomes(races: list[dict]) -> list[OutcomeScore]:
+        rows: list[OutcomeScore] = []
+        for r in races:
+            od = r.get("outcome") or {}
+            if not od:
+                continue
+            if "major_disruption" not in od:
+                continue
+            rows.append(
+                OutcomeScore(
+                    gp=str(od.get("gp") or r["gp"]),
+                    year=int(od.get("year") or r["year"]),
+                    round_no=int(od.get("round_no") or r["round_no"]),
+                    driver_code=str(od.get("driver_code") or r["driver_code"]),
+                    actual_finish_pos=int(od.get("actual_finish_pos") or 5),
+                    aris_finish_pos=od.get("aris_finish_pos"),
+                    position_delta=od.get("position_delta"),
+                    actual_time_s=float(od.get("actual_time_s") or 0.0),
+                    aris_sim_s=od.get("aris_sim_s"),
+                    team_sim_s=od.get("team_sim_s"),
+                    major_disruption=bool(od.get("major_disruption")),
+                )
+            )
+        return rows
+
+    tagged = _outcomes(r24 + r25)
+    split = position_delta_split(tagged) if tagged else None
     summary = {
         "years": [2024, 2025],
         "n_races": len(r24) + len(r25),
@@ -371,6 +428,16 @@ def combine_years(out_dir: Path | None = None) -> int:
             overall is not None and target is not None and overall > target
         ),
         "mean_position_delta": mean_pos,
+        "mean_position_delta_clean": None if split is None else split["clean"]["mean"],
+        "mean_position_delta_disrupted": (
+            None if split is None else split["disrupted"]["mean"]
+        ),
+        "n_position_delta_clean": None if split is None else split["clean"]["n"],
+        "n_position_delta_disrupted": None if split is None else split["disrupted"]["n"],
+        "position_delta_excluded_races": (
+            None if split is None else split["excluded_races"]
+        ),
+        "position_delta_split_flag": None if split is None else split["flag"],
         "n_aris_hindsight": y24["n_aris_hindsight"] + y25["n_aris_hindsight"],
         "n_team_hindsight": y24["n_team_hindsight"] + y25["n_team_hindsight"],
         "n_insufficient_info": y24["n_insufficient_info"] + y25["n_insufficient_info"],
@@ -396,7 +463,19 @@ def combine_years(out_dir: Path | None = None) -> int:
         flush=True,
     )
     print(f"meets_target={summary['meets_target']}", flush=True)
-    print(f"mean position-delta={mean_pos}", flush=True)
+    print(f"mean position-delta all={mean_pos}", flush=True)
+    if split is not None:
+        print(
+            f"mean position-delta clean={split['clean']['mean']} "
+            f"(n={split['clean']['n']})",
+            flush=True,
+        )
+        print(
+            f"mean position-delta disrupted={split['disrupted']['mean']} "
+            f"(n={split['disrupted']['n']})",
+            flush=True,
+        )
+        print(f"excluded (disrupted) races={split['excluded_races']}", flush=True)
     print(f"wrote {out}", flush=True)
     return 0
 

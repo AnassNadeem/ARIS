@@ -153,3 +153,100 @@ def test_last_year_baseline_window():
     assert last_year_matches_pit([(16, "HARD"), (40, "SOFT")], 18) is True
     assert last_year_matches_pit([(16, "HARD")], 30) is False
     assert last_year_matches_pit(None, 18) is None
+
+
+def _laps(*rows: dict) -> pd.DataFrame:
+    return pd.DataFrame(list(rows))
+
+
+def test_major_disruption_red_or_sc_run_ge_5_not_vsc():
+    """R21.3 flag: red lap or SC run >= 5. VSC and short SC are not major."""
+    from aris.eval.backtest import is_major_disruption, longest_sc_run, n_red_laps
+
+    green = _laps(
+        {"lap_number": 1, "track_status": "1", "pit_in": False},
+        {"lap_number": 2, "track_status": "1", "pit_in": False},
+    )
+    assert is_major_disruption(green) is False
+
+    red = _laps(
+        {"lap_number": 1, "track_status": "1", "pit_in": False},
+        {"lap_number": 2, "track_status": "5", "pit_in": False},
+        {"lap_number": 3, "track_status": "1", "pit_in": False},
+    )
+    assert n_red_laps(red) == 1
+    assert is_major_disruption(red) is True
+
+    sc4 = _laps(
+        *[{"lap_number": i, "track_status": "4" if 2 <= i <= 5 else "1", "pit_in": False}
+          for i in range(1, 8)]
+    )
+    assert longest_sc_run(sc4) == 4
+    assert is_major_disruption(sc4) is False
+
+    sc5 = _laps(
+        *[{"lap_number": i, "track_status": "4" if 2 <= i <= 6 else "1", "pit_in": False}
+          for i in range(1, 8)]
+    )
+    assert longest_sc_run(sc5) == 5
+    assert is_major_disruption(sc5) is True
+
+    vsc_only = _laps(
+        *[{"lap_number": i, "track_status": "6" if 2 <= i <= 8 else "1", "pit_in": False}
+          for i in range(1, 10)]
+    )
+    assert longest_sc_run(vsc_only) == 0
+    assert is_major_disruption(vsc_only) is False
+
+
+def test_team_pit_laps_under_sc_vsc():
+    from aris.eval.backtest import team_pit_laps_under_sc_vsc
+
+    laps = _laps(
+        {"lap_number": 10, "track_status": "1", "pit_in": True},
+        {"lap_number": 20, "track_status": "4", "pit_in": True},
+        {"lap_number": 30, "track_status": "6", "pit_in": True},
+        {"lap_number": 40, "track_status": "1", "pit_in": False},
+    )
+    assert team_pit_laps_under_sc_vsc(laps) == [20, 30]
+
+
+def test_position_delta_split_reports_both_and_excluded_list():
+    """R22.2: both clean and disrupted means, excluded list visible."""
+    from aris.eval.backtest import OutcomeScore, position_delta_split
+
+    def _o(year, gp, delta, major, round_no=1, driver="X") -> OutcomeScore:
+        return OutcomeScore(
+            gp=gp,
+            year=year,
+            round_no=round_no,
+            driver_code=driver,
+            actual_finish_pos=5,
+            aris_finish_pos=5,
+            position_delta=delta,
+            actual_time_s=5000.0,
+            aris_sim_s=6000.0,
+            team_sim_s=6010.0,
+            major_disruption=major,
+        )
+
+    outcomes = [
+        _o(2024, "Austria", -6.0, False, round_no=11, driver="VER"),
+        _o(2024, "Spain", 0.0, False, round_no=10, driver="LEC"),
+        _o(2025, "Canada", -6.0, True, round_no=10, driver="LEC"),
+        _o(2024, "Monaco", -1.0, True, round_no=8, driver="RUS"),
+    ]
+    split = position_delta_split(outcomes)
+    # all: (-6 + 0 + -6 + -1) / 4 = -3.25
+    assert split["all"]["n"] == 4
+    assert split["all"]["mean"] == -3.25
+    # clean: (-6 + 0) / 2 = -3.0
+    assert split["clean"]["n"] == 2
+    assert split["clean"]["mean"] == -3.0
+    # disrupted: (-6 + -1) / 2 = -3.5
+    assert split["disrupted"]["n"] == 2
+    assert split["disrupted"]["mean"] == -3.5
+    excluded = {(e["year"], e["gp"], e["driver_code"]) for e in split["excluded_races"]}
+    assert excluded == {(2025, "Canada", "LEC"), (2024, "Monaco", "RUS")}
+    austria = [e for e in split["excluded_races"] if e["gp"] == "Austria"]
+    assert austria == []

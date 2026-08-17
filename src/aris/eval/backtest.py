@@ -119,6 +119,10 @@ class OutcomeScore:
     aris_plan_pits: list[int] = field(default_factory=list)
     actual_pits: list[int] = field(default_factory=list)
     actual_time_rank: int | None = None
+    # R21.3 / R22.2: any red-flag lap or longest SC run >= 5.
+    # Tagged so lights-out position-delta can be reported clean vs disrupted
+    # without silently dropping the disrupted races.
+    major_disruption: bool = False
 
 
 @dataclass
@@ -133,6 +137,106 @@ class RaceBacktest:
     outcome: OutcomeScore | None
     decisions: list[DecisionScore]
     error: str | None = None
+
+
+def longest_sc_run(laps: pd.DataFrame) -> int:
+    """Longest consecutive run of FastF1 SC code ``4``. R21.3 definition."""
+    if laps.empty or "track_status" not in laps.columns:
+        return 0
+    ordered = laps.sort_values("lap_number")
+    ts = ordered["track_status"].astype("string").fillna("")
+    longest = 0
+    run = 0
+    for s in ts:
+        if "4" in str(s):
+            run += 1
+            longest = max(longest, run)
+        else:
+            run = 0
+    return int(longest)
+
+
+def n_red_laps(laps: pd.DataFrame) -> int:
+    """Count of laps whose track_status contains FastF1 red code ``5``."""
+    if laps.empty or "track_status" not in laps.columns:
+        return 0
+    ts = laps["track_status"].astype("string").fillna("")
+    return int(sum("5" in str(s) for s in ts))
+
+
+def is_major_disruption(laps: pd.DataFrame) -> bool:
+    """R21.3 major-disruption flag: any red lap **or** longest SC run >= 5.
+
+    Do not widen this to VSC or short SC bursts. Walk-forward rainfall /
+    red-flag inflections use a different (per-decision) insufficient-info
+    path; this flag is the race-level lights-out counterpart.
+    """
+    return n_red_laps(laps) > 0 or longest_sc_run(laps) >= 5
+
+
+def team_pit_laps_under_sc_vsc(laps: pd.DataFrame) -> list[int]:
+    """Team ``pit_in`` laps whose track_status is SC or VSC (codes 4/6/7)."""
+    if laps.empty or "pit_in" not in laps.columns:
+        return []
+    ordered = laps.sort_values("lap_number")
+    out: list[int] = []
+    for _, row in ordered.iterrows():
+        if not bool(row.get("pit_in")):
+            continue
+        if track_status_is_sc_vsc(row.get("track_status")):
+            out.append(int(row["lap_number"]))
+    return out
+
+
+def _delta_stats(vals: list[float]) -> dict[str, float | int | None]:
+    if not vals:
+        return {
+            "n": 0,
+            "mean": None,
+            "median": None,
+            "n_better": 0,
+            "n_same": 0,
+            "n_worse": 0,
+        }
+    return {
+        "n": len(vals),
+        "mean": sum(vals) / len(vals),
+        "median": sorted(vals)[len(vals) // 2] if len(vals) % 2 else (
+            sorted(vals)[len(vals) // 2 - 1] + sorted(vals)[len(vals) // 2]
+        ) / 2,
+        "n_better": sum(1 for x in vals if x < 0),
+        "n_same": sum(1 for x in vals if x == 0),
+        "n_worse": sum(1 for x in vals if x > 0),
+    }
+
+
+def position_delta_split(outcomes: list[OutcomeScore]) -> dict[str, Any]:
+    """Lights-out position-delta, clean vs disrupted, both numbers visible.
+
+    Same discipline as walk-forward ``divergence_insufficient_info``: do
+    not force disrupted races into the clean headline, and do not drop
+    them silently. The excluded list is the disrupted set.
+    """
+    scored = [o for o in outcomes if o.position_delta is not None]
+    clean = [o for o in scored if not o.major_disruption]
+    disrupted = [o for o in scored if o.major_disruption]
+    excluded = [
+        {
+            "year": o.year,
+            "gp": o.gp,
+            "round_no": o.round_no,
+            "driver_code": o.driver_code,
+            "position_delta": o.position_delta,
+        }
+        for o in disrupted
+    ]
+    return {
+        "all": _delta_stats([float(o.position_delta) for o in scored]),
+        "clean": _delta_stats([float(o.position_delta) for o in clean]),
+        "disrupted": _delta_stats([float(o.position_delta) for o in disrupted]),
+        "excluded_races": excluded,
+        "flag": "R21.3 major_disruption (red lap or SC run >= 5)",
+    }
 
 
 def rolling_mean(values: list[float], window: int = ROLLING_WINDOW) -> list[float]:
@@ -572,6 +676,7 @@ def _score_outcome(
         aris_plan_pits=aris_pits,
         actual_pits=list(team_sched.pit_laps),
         actual_time_rank=actual_rank,
+        major_disruption=is_major_disruption(focus_laps),
     )
 
 
@@ -678,6 +783,7 @@ def score_race(meta: dict[str, Any], *, mc_draws: int = 0) -> RaceBacktest:
             actual_finish_pos=finish_pos, aris_finish_pos=None, position_delta=None,
             actual_time_s=actual_time, aris_sim_s=None, team_sim_s=None,
             actual_pits=list(team_sched.pit_laps),
+            major_disruption=is_major_disruption(focus_laps),
         )
         error = str(exc)
 
