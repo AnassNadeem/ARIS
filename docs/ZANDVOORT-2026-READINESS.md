@@ -1,9 +1,12 @@
 # Zandvoort 2026 readiness — definitive lock-in
 
-**Event:** 2026 Dutch Grand Prix (Circuit Zandvoort), Fri 21 – Sun 23 August 2026  
-**Format:** Sprint weekend (`FP1 → SQ → S → Q → R`)  
-**Document role:** Supersedes “ready to demo tonight” framing from E1–E3 summaries.  
-**Executed:** Phase E.4 (2026-08-13), against the **true final E3 model** (stint split + residual damp + MSE blend).
+**Event:** 2026 Dutch Grand Prix (Circuit Zandvoort), Fri 21 – Sun 23 August 2026
+**Today:** 2026-08-17, **T−4 days**
+**Format:** Sprint weekend (`FP1 → SQ → S → Q → R`)
+**Document role:** Definitive go / no-go for the event tree. Accuracy
+numbers live in [`docs/model-status.md`](./model-status.md); this page
+is what you run on Friday. Last substantively written at E4.1
+(2026-08-13); refreshed in the Final Pre-Event Consolidation.
 
 Operational companions (unchanged):
 - `docs/zandvoort-weekend-runbook.md`
@@ -15,191 +18,191 @@ Operational companions (unchanged):
 
 ### **GO for the 21–23 August 2026 Zandvoort event.**
 
-The live Strategy path, sprint ingest timing, live-write gating, SC/VSC caveat narration, and failure-mode behaviour all re-cleared against the post-E3 code. Zandvoort 2024/2025 held-out blend bars from E3 remain the accuracy baseline (both pass). Remaining gaps below are **known, evidenced, and accepted** — none should be a surprise on the day.
+The live Strategy path, sprint ingest timing, JSONL decision-log write
+safety, live-write gating, SC/VSC caveat narration, and failure-mode
+behaviour all re-cleared on the post-R.2.2 stack (Final Pre-Event
+rehearsal, T−4). The Zandvoort recommend identity is **exactly** the
+E4.1 / G1.5 lock. Remaining gaps below are **known, evidenced, and
+accepted** — none should be a surprise on the day.
 
-This is **not** a claim of perfect calendar accuracy or perfect tyre physics. It is a claim that the demo stack is locked, rehearsed, and honest about its limits.
-
----
-
-## Block E4.1 — Full rehearsal (post-E3 model)
-
-### 1. Sprint-sequence rehearsal (2024 Austria stand-in)
-
-Runbook pattern: per-session `ingest_session.py` then `ingest_weekend.py --sprint`.  
-Aimed: **≤ 120 s** cached ingest→UI-ready per session; weekend **≤ 300 s**.
-
-| Session | Actual total (s) | Aimed (s) | Result |
-|---|---:|---:|---|
-| FP1 | **11.1** | ≤ 120 | **PASS** |
-| SQ | **6.7** | ≤ 120 | **PASS** |
-| Sprint (S) | **10.2** | ≤ 120 | **PASS** |
-| Q | **9.1** | ≤ 120 | **PASS** |
-| Race (R) | **11.0** | ≤ 120 | **PASS** |
-| Full `--sprint` weekend | **11.7** | ≤ 300 | **PASS** |
-
-Log: `results/e4_1_austria_rehearsal.log`. No regression vs E2.9 (still well inside the bar; cold FastF1 first load can still take minutes).
-
-### 2. Track-specific rehearsal (2025 Zandvoort Strategy smoke)
-
-`scripts/_e1_smoke_strategy_zandvoort.py` → **SMOKE OK**
-
-| Check | Aimed / expected | Actual | Result |
-|---|---|---|---|
-| Track config | 72 laps, pit 18.5, globals | `total_laps=72` `pit_loss=18.5` slopes SOFT/MED/HARD **0.08/0.05/0.03** | PASS |
-| Prewrite windows | A≈18 / B≈29 / C≈18+40 | **A:[18] B:[29] C:[18,40]** | PASS |
-| Weekend form | sessions ingested | **n=20** | PASS |
-| Live clock | complete to lap 72 | **287 ticks → lap 72 complete=True** | PASS |
-| Mid-race state | L25 usable | L25 MEDIUM tyre_life=2 | PASS |
-| What-if | finite delta + MC band | delta **−13.00 s**, MC P10/P90 **−32.62 / −13.35** | PASS |
-| Ask/recommend | ≥1 rec | Pit lap 33 HARD; Pit lap 30 HARD; Stay out | PASS |
-| Postrace | export written | `123_VER_postrace.json`, finish=2 | PASS |
-
-Log: `results/e4_1_zandvoort_smoke.log`.
-
-### 3. Live-write gating
-
-| Condition | Flags | Aimed | Actual |
-|---|---|---|---|
-| Outside window (2026-08-13) | `--write` alone | allow write | **REFUSED=False** |
-| Outside window | no `--write` | log only | **REFUSED=False** |
-| Inside window (2026-08-22) | `--write` alone | refuse | **REFUSED=True** |
-| Inside window | `--write --allow-live-write` | allow | **REFUSED=False** |
-| Inside window | log only | allow (no write) | **REFUSED=False** |
-
-**PASS** (all five paths). Log: `results/e4_1_live_write_gating.log`.
-
-### 4. SC/VSC caveat vs residual damping
-
-HIT unchanged: **2024 Austria, RIC, lap 66, TrackStatus=71**, `recent_sc_pace=True`.
-
-Displayed narration (template path, post-E3 damp):
-
-```
-confidence_caveat=based on Safety Car-affected recent pace — lower confidence
-recommend_evidence=... | caveat: based on Safety Car-affected recent pace — lower confidence
-narrate=RIC, recommend stay out on current tyres at lap 66 — expected -1.3s vs staying out.
-        Note: based on Safety Car-affected recent pace — lower confidence.
-```
-
-**No conflict:** residual damping lives in `predict.py` (physics+residual scale); the caveat is attached in `state.py` / `recommend.py` / `narrate.py` from TrackStatus on recent lag laps. Damping does not strip or mute the caveat string.
-
-**PASS.** Log: `results/e4_1_sc_caveat.log`.
-
-### 5. Failure-mode drill (same three as E2.13)
-
-| Scenario | Aimed | Actual | Result |
-|---|---|---|---|
-| FastF1 rate limit | raise immediately, no hang | `RateLimitExceededError` in **0.01 s** | PASS |
-| Empty/missing laps | refuse before DB write | `RuntimeError: ... session.laps is None` in **0.00 s** | PASS |
-| Bad session type CLI | loud ValueError, no hang | exit 1 in **2.23 s**; `session_type 'NOTASESSION' not one of [...]` | PASS |
-
-Log: `results/e4_1_failure_modes.log`.
-
-### E4.1 checkpoint
-
-Full pytest after rehearsal: **green** (`results/e4_1_pytest.log` / `results/e4_final_pytest.log`). No rehearsal regressions vs E2.
+This is **not** a claim of beating MA(2), of FIA points, or of a
+calibrated stopwatch. It is a claim that the demo stack is locked,
+rehearsed, and honest about its limits.
 
 ---
 
-## Block E4.2 — MSE / variance semantic risk
+## Locked demo identity (E4.1 → now)
 
-### Call graph
+Unchanged on every phase since E4.1, including H.1, H.2, R.2.1, R.2.2,
+and this rehearsal. Overlay env `ARIS_TRUE_COMPOUND_SLOPES` is **unset**.
+G1.5 is shipped.
 
-| Symbol | Location | What it returns / means |
+| Check | Aimed (E4.1 / G1.5) | Actual (T−4 smoke) | Result |
+|---|---|---|---|
+| Setup | session_id 123, VER | **123**, VER, driver_id **2448** | **PASS** |
+| Track | 72 laps, pit_loss **18.5**, slopes **0.08 / 0.05 / 0.03** | **72 / 18.5 / 0.08, 0.05, 0.03** | **PASS** |
+| Prewrite windows | A:[18] B:[29] C:[18, 40] | **same** | **PASS** |
+| Weekend form | n=20 | **20** | **PASS** |
+| Clock | 287 ticks → lap 72 complete | **287** ticks, lap **72**, complete | **PASS** |
+| Live state L25 | MEDIUM, tyre_life=2 | **MEDIUM / 2** | **PASS** |
+| Recommend | Pit lap 33 HARD; Pit lap 30 HARD; Stay out | **Pit lap 33 for HARD; Pit lap 30 for HARD; Stay out on current tyres** | **PASS** |
+| Smoke exit | SMOKE OK | **SMOKE OK** | **PASS** |
+
+What-if is G1.4 physics-delta (**−11.92 s**, MC P10/P90 **−147.55 /
++29.33**), not E4.1 **−13.00 s**. MC bands are unseeded and not a
+locked identity. The recommend labels are.
+
+Log: `results/final-pre-event/zandvoort-smoke.log`.
+
+---
+
+## How good is this, really
+
+Point interview questions at [`docs/model-status.md`](./model-status.md).
+Headline, aimed vs actual:
+
+| Question | Aimed | Actual |
 |---|---|---|
-| `rolling_error_variance` | `src/aris/models/blend.py` | **MSE** of signed errors (bias²+variance), name kept for API stability |
-| Sole production caller | `blend_physics_residual_with_ma2` in `src/aris/models/predict.py` | Feeds values into `inverse_variance_blend` as **relative trust weights** |
-| `inverse_variance_blend` also used by | `src/aris/physics/tires.py` (`blend_slope_prior`, session IV pool) | Those paths pass **true sample variances** from `slope_mean_var` — they do **not** call `rolling_error_variance` |
+| One-step lap time vs MA(2) | beat baseline | E3 blend **0.583 s** vs MA(2) **0.522** — does **not** beat |
+| Mid-race match-rate vs stay-out | > 0.276 | **0.322** (28/87) |
+| Lights-out position-delta (all 48) | ≤ 0 | **−1.73** (clean **−1.49** n=35 / disrupted **−2.38** n=13) |
+| Absolute `team_sim − actual` | a stable intercept | mean **+989 s**, std **544** — **closed**, do not subtract |
+| Tyre slopes from lap time | physical C1<…<C5 | G2/G3/G4 all miss the gate — **G1.5 locked** |
 
-### Monte Carlo / intervals
+Research window is **closed until after the event**. Cornering-load
+(R1.4) is queued, not abandoned — see model-status.
 
-| Module | Noise model | Uses `rolling_error_variance`? |
+---
+
+## Final Pre-Event rehearsal (T−4) vs G.6 vs E4.1
+
+G.6 (T−6) was the last full rehearsal. H.1 / R.2.1 / R.2.2 landed
+since then; only smoke-level checks had run. This is the G.6-style
+re-run on current code. Cached FastF1, same 2024 Austria stand-in.
+
+### Sprint-sequence timing (2024 Austria)
+
+Aimed: **≤ 120 s** per session, **≤ 300 s** weekend — **and** no real
+slowdown vs G.6's actuals.
+
+| Session | Aimed (s) | E4.1 | G.6 | T−4 actual (s) | vs G.6 | Ceiling |
+|---|---:|---:|---:|---:|---:|---|
+| FP1 | ≤ 120 | 11.1 | 7.1 | **12.1** (ingest 10.2 + ui-ready 1.9) | **+5.0** | **PASS** |
+| SQ | ≤ 120 | 6.7 | 3.9 | **3.5** (2.1 + 1.4) | **−0.4** | **PASS** |
+| Sprint (S) | ≤ 120 | 10.2 | 5.1 | **7.4** (6.1 + 1.3) | **+2.3** | **PASS** |
+| Q | ≤ 120 | 9.1 | 5.4 | **5.7** (4.3 + 1.3) | **+0.3** | **PASS** |
+| Race (R) | ≤ 120 | 11.0 | 5.5 | **5.8** (4.5 + 1.3) | **+0.3** | **PASS** |
+| Full `--sprint` weekend | ≤ 300 | 11.7 | 4.2 | **3.7** | **−0.5** | **PASS** |
+
+FP1 is slower than G.6's 7.1 s and **+1.0 s** vs E4.1 11.1 s — first
+cached load of the run, still an order of magnitude under the 120 s
+ceiling. Weekend catch-up is **faster** than G.6. Cold FastF1 (first
+load of a session) can still take minutes; these numbers are cached.
+
+Log: `results/final-pre-event/austria_rehearsal.log`. Weekend types
+`['FP1','SQ','S','Q','R']`, form n=20, all sessions `+0` rows
+(idempotent).
+
+### JSONL decision-log under Watch (2025 NL VER)
+
+| Check | Aimed | G.6 | T−4 actual | Result |
+|---|---|---|---|---|
+| Clock | ~287 ticks → lap 72 | 287 / 26.28 s | **287** ticks, **23.66 s** | **PASS** |
+| Propose / resolve | every trigger, in order | 107 / 107, `order_ok=True` | **107 / 107**, `order_ok=True` | **PASS** |
+| JSONL write vs 25 s tick | << 50 ms noticeable | max **1.609 ms** | mean **0.950 ms**, max **1.858 ms** | **PASS** |
+| Write vs live-default propose | negligible | 4.880 s / 0.862 ms | **4.056 s** / **0.847 ms** (0.0209%) | **PASS** |
+| Unwritable dir | loud `RuntimeError`, no silent drop | same | same | **PASS** |
+
+Log: `results/final-pre-event/watch_jsonl.log`. JSONL is safe under
+the live clock.
+
+### Live-write gating (real 21–23 Aug window)
+
+`_EVENT_WINDOW = (date(2026, 8, 21), date(2026, 8, 23))` in
+`scripts/fit_zandvoort_tire_slopes.py`. Independent of
+`ARIS_TRUE_COMPOUND_SLOPES`.
+
+| Date | Aimed inside? | Actual | Result |
+|---|---|---|---|
+| 2026-08-17 (T−4, this rehearsal) | no | no | **PASS** |
+| 2026-08-20 (Thu) | no | no | **PASS** |
+| 2026-08-21 (Fri) | yes | yes | **PASS** |
+| 2026-08-22 (Sat) | yes | yes | **PASS** |
+| 2026-08-23 (Sun) | yes | yes | **PASS** |
+| 2026-08-24 (Mon) | no | no | **PASS** |
+
+Five E4.1 flag paths still match (YAML not touched). Overlay=pooled
+does not change `_in_event_window(2026-08-22)`. Log:
+`results/final-pre-event/live_write_gating.log`.
+
+### Failure-mode drill (same three as E2.13 / E4.1 / G.6)
+
+| Scenario | Aimed | E4.1 | G.6 | T−4 actual | Result |
+|---|---|---|---|---|---|
+| FastF1 rate limit | raise immediately, no hang | 0.01 s | 0.00 s | **0.00 s** `RateLimitExceededError` | **PASS** |
+| Empty/missing laps | refuse before DB write | 0.00 s | 0.00 s | **0.00 s** `RuntimeError: … session.laps is None` | **PASS** |
+| Bad session type CLI | loud ValueError, no hang | 2.23 s | 1.49 s | **1.58 s** exit 1 | **PASS** |
+
+Log: `results/final-pre-event/failure_modes.log`.
+
+### SC/VSC caveat, rendered UI
+
+Same F1.1 stint: **2025 Zandvoort, VER, L25** (MEDIUM, tyre_life=2).
+Formatters the gold callout actually renders
+(`format_callout_delta`, `recommendation_caveat` →
+`recommend_panel.py` `.aris-caveat`). Live strip in `01_Strategy.py`
+still prefixes `Note: {live_state.confidence_caveat}`. CSS is visible
+(amber border, not `display:none`).
+
+| Layer | Aimed (F1.1 / E4.1 / G.6) | T−4 actual | Result |
+|---|---|---|---|
+| State caveat | `based on Safety Car-affected recent pace — lower confidence` | same | **PASS** |
+| Callout strip | `Note: based on Safety Car-affected recent pace — lower confidence` | same | **PASS** |
+| Recommend identity | Pit lap 33 HARD; Pit lap 30 HARD; Stay out | **same** | **PASS** |
+| Headline truncation | none | full label, unescaped | **PASS** |
+
+Engine HIT unchanged: **2024 Austria, RIC, lap 66, TrackStatus=71**,
+`recent_sc_pace=True`, narration still appends the caveat. Logs:
+`results/final-pre-event/sc_caveat_render.log`,
+`results/final-pre-event/sc_caveat_engine.log`.
+
+Callout delta on this stint is **−49.4 s** (15-draw MC, not seeded).
+The lock for this block is the string on the rendered strip.
+
+### Day-of checklist vs current code
+
+`docs/zandvoort-day-of-checklist.md` read end to end as if running it
+Friday. Cross-checked:
+
+| Item | Checklist | Code | Result |
+|---|---|---|---|
+| Ingest commands | `ingest_session.py 2026 Netherlands {FP1,SQ,S,Q,R}` | same CLI | **PASS** |
+| Weekend catch-up | `ingest_weekend.py 2026 Netherlands --sprint` | `SPRINT_SESSIONS = (FP1, SQ, S, Q, R)` | **PASS** |
+| YAML | 72 laps, pit 18.5, compound_slopes | **72 / 18.5 / 0.08, 0.05, 0.03** | **PASS** |
+| Prewrite windows | ≈ 18 / 29 / 18+40 | **A:[18] B:[29] C:[18, 40]** | **PASS** |
+| `ARIS_FAST_CLOCK` | unset | `fast_clock_enabled()` False | **PASS** |
+| `ARIS_TRUE_COMPOUND_SLOPES` | unset | mode `off` | **PASS** |
+| `ARIS_DECISION_LOG` | default on | enabled True | **PASS** |
+| Live-write | `--write --allow-live-write` Fri–Sun 21–23 Aug | `_EVENT_WINDOW` 2026-08-21…23 | **PASS** |
+
+Log: `results/final-pre-event/checklist_sanity.log`.
+
+---
+
+## What landed since E4.1 (does not change the demo path)
+
+| Phase | What it did | Demo identity |
 |---|---|---|
-| `src/aris/montecarlo.py` | Independent Gaussian draws with fixed `PACE_SIGMA_S` (+ small pit noise) | **No** |
-| `src/aris/eval/mc_intervals.py` | Re-expresses MC p10/p90; explicitly “not calibrated conformal” | **No** |
+| F / F.1 | Strategy UI, rendered callout, SC caveat CSS | untouched |
+| G / G.1–G.5 | Walk-forward match-rate; G2–G4 overlays **opt-in**; G1.5 locked | untouched |
+| G.6 | First full post-E4.1 rehearsal; loud JSONL write fail | untouched |
+| H / H.1 / H.2 | Grounded Ask; isolate tests from live JSONL; prefer G1.5 over overlay duplicates | untouched |
+| R.1 | Cornering-load cheap check in a worktree; **not merged** | n/a |
+| R.2 / R.2.1 | Position-delta on the time-rank field; offset diagnosis; intercept **not shipped** | untouched |
+| R.2.2 | SC/VSC pit count; clean/disrupted split; `docs/model-status.md` | untouched |
 
-### Verdict
-
-**No mismatch bug.** Downstream of `rolling_error_variance`, the MSE is used only as a generic “how much do I trust this source” weight for IV combination — that is exactly why E3 switched from variance to MSE. Percentile bands do **not** treat this quantity as a Gaussian variance for interval width.
-
-**No rename / no behaviour change in E4.2.**
-
----
-
-## Block E4.3 — Tyre ordering final verdict
-
-### Sample sizes first (post E3.2 stint split), Netherlands 2021–2025
-
-Dry stints from `results/e3_2_deg_stints/netherlands.csv`:
-
-| Year | SOFT (all / race) | MEDIUM (all / race) | HARD (all / race) |
-|---|---:|---:|---:|
-| 2021 | 33 / 15 | 29 / 17 | 17 / 14 |
-| 2022 | 39 / 38 | 38 / 25 | 18 / 17 |
-| 2023 | 40 / 29 | 12 / 8 | 9 / 1 |
-| 2024 | 13 / 6 | 30 / 20 | 23 / 20 |
-| 2025 | 17 / 15 | 23 / 19 | 25 / 20 |
-| **Total** | **142 / 103** | **132 / 89** | **92 / 72** |
-
-Thin compound-years with n&lt;5 (all-session dry): **none**.  
-**Sample size is adequate** — this is **not** a data-volume limitation for Zandvoort.
-
-### One final modelling attempt
-
-Pooled compound slopes with **per-year intercepts** (OLS year fixed effects = classical random-intercept proxy; `statsmodels` MixedLM not installed in the venv, FE is the equivalent identification):
-
-| Fit | SOFT | MEDIUM | HARD | Aimed order SOFT&gt;MED&gt;HARD | Result |
-|---|---:|---:|---:|---|---|
-| E3.2 IV pool (pre-sanity) | 0.0609 | 0.0346 | 0.0491 | yes | **FAIL** (MED &lt; HARD) |
-| Year-FE, all sessions | 0.0818 | 0.0349 | 0.0704 | yes | **FAIL** |
-| Year-FE, race-only | 0.0874 | 0.0639 | 0.0655 | yes | **FAIL** (MED ≈ HARD, MED &lt; HARD by **0.0016**) |
-
-Artefact: `results/e4_3_nl_random_effects.json`, `scripts/_e4_3_nl_random_effects.py`.
-
-### Permanent ship decision for Zandvoort
-
-**Keep global fallback slopes permanently for Netherlands:** SOFT **0.08** / MEDIUM **0.05** / HARD **0.03**.
-
-Why (interview-ready): after correcting the real pipeline bugs (same-compound stint merges + SC laps in DegSlope fits), Zandvoort still will not order. Sample sizes are large enough that this is **structural** — compound means overlap within year noise; pooling the slope while absorbing year intercepts does not restore SOFT&gt;MEDIUM&gt;HARD. Further confound hunts have diminishing value; globals are the honest ship choice.
-
-**STOP here for Zandvoort tyre ordering.** No further correction attempted.
-
----
-
-## Block E4.4 — China final verdict
-
-### Baseline (accepted E3 miss)
-
-| Metric | Aimed | Actual | Result |
-|---|---:|---:|---|
-| China 2024 blend MAE | ≤ **0.563** (1.5× MA2 **0.376**) | **0.596** | **MISS by 0.033 s** |
-
-Root cause (unchanged): **57** early-stint laps with no `lag2` fall back to physics+residual alone under ~10 s physics bias; on MA2-available laps blend is **0.408** (would pass).
-
-### One narrow attempt (no-lag2 only)
-
-Idea: when `lag2` missing but `lag1` present, **precision-weight blend** physics+residual toward lag1, **without** writing lag1 errors into the MA error history (unlike E3’s MA(1) substitute, which poisoned later MA2 weights — Australia).
-
-| Mode | China MAE (aimed 0.563) | Australia MAE (aimed 0.695) | Ship? |
-|---|---:|---:|---|
-| baseline (phys+res alone on no-lag2) | **0.596 MISS** | **0.685 PASS** | current |
-| E3 MA(1) substitute + update err_m | 0.593 MISS | **0.740 MISS** | no |
-| shrink_nolag2 (IV toward lag1, no err_m update) | **0.511 PASS** | **0.704 MISS** | **no** |
-| shrink + disagreement inflate | 0.537 PASS | 0.735 MISS | no |
-
-Netherlands / Italy / Spain / Belgium / US / Bahrain / São Paulo stayed PASS under shrink, but **Australia flips PASS→MISS** (aimed **0.695**, actual **0.704**, short by **0.009 s**). Japan also degrades substantially (0.660 → 0.801) though still under its looser bar.
-
-Artefact: `results/e4_4_china_nolag2_shrink.json`, `scripts/_e4_4_china_nolag2_shrink.py`.
-
-### Permanent ship decision for China
-
-**Do not ship the no-lag2 shrinkage.** Accept China at **0.033 s over** its 1.5× MA(2) bar as understood:
-
-- The miss is concentrated in early-stint no-MA2 laps under large physics bias.
-- Pulling those laps toward lag1 fixes China but moves weight in a way that **fails Australia**, which only clears its bar by **~0.010 s**.
-- Fabricating a China-only special case would hide a real early-stint / physics-bias interaction; leaving it documented is the honest call.
-
-**STOP.** No further China correction in this phase. Production blend path unchanged.
+`simulate()` / `recommend()` / `tires.py` were not edited after G1.4 /
+G1.5 for these phases.
 
 ---
 
@@ -207,46 +210,52 @@ Artefact: `results/e4_4_china_nolag2_shrink.json`, `scripts/_e4_4_china_nolag2_s
 
 Nothing below should surprise anyone on 21–23 August:
 
-1. **Tyre slopes for Zandvoort are globals (0.08/0.05/0.03), not fitted.** Live `fit_zandvoort_tire_slopes.py` is **log-only** by default; mid-weekend YAML write needs `--write --allow-live-write` inside the event window, and only with explicit approval.
-2. **China calendar miss remains (0.033 s).** Zandvoort itself passes 2024 and 2025 bars; do not expect every other 2024 race to clear 1.5× MA(2) if you re-score the full calendar mid-demo.
-3. **Physics absolute level is still ~10–26 s slow on many circuits.** Residual + MSE blend mask this for demo MAE; bicycle geometry/calibration debt is unchanged.
-4. **SC/VSC What-if / recommend deltas can look extreme** because lag features inherit dirty pace — mitigated by the displayed caveat string, not by scrubbing lags.
-5. **Cold FastF1** (first load of a session) can take minutes; rehearsal timings above are **cached**. After session end, wait ~5–20 min for timing before ingest; empty laps **refuse loudly** — retry, do not force.
-6. **No mid-weekend residual retrain** and **no pit_loss rewrite from a single sprint sample** — keep `netherlands.yaml` `pit_loss_s: 18.5` and `total_laps: 72`.
-7. **Sprint format only** — there is no FP2/FP3; weekend form and tyre log use FP1 + Sprint long runs.
-8. **Monte Carlo bands are not conformal** — fixed pace sigma draws; do not present P10/P90 as calibrated coverage.
+1. **Tyre slopes for Zandvoort are globals (0.08/0.05/0.03), not fitted.** Live `fit_zandvoort_tire_slopes.py` is **log-only** by default; mid-weekend YAML write needs `--write --allow-live-write` inside the event window, and only with explicit approval. Overlay env does **not** bypass that refuse.
+2. **China calendar miss remains (0.033 s).** Aimed ≤ **0.563**, actual **0.596**. Zandvoort itself passes 2024 (**0.502** ≤ 0.640) and 2025 (**0.566** ≤ 0.603); do not expect every other 2024 race to clear 1.5× MA(2) if you re-score the full calendar mid-demo.
+3. **Physics absolute level is uncalibrated.** `team_sim − actual` mean **+989 s**, std **544**, per configured lap **+17.3 s**. A lap-constant intercept was tried and **not shipped** (`docs/physics-calibration-research.md`). Residual + MSE blend mask this for demo MAE; do not read `expected_race_time_s` as a stopwatch.
+4. **Lights-out −1.73 is identity-safe ranking, not FIA points.** Clean **−1.49** (n=35) / disrupted **−2.38** (n=13). **21 of 85** team pit events (0.247) were under SC/VSC. Austria 2024 VER **−6** is a clean mixed result (G1.5 long HARD), not SC-driven.
+5. **SC/VSC What-if / recommend deltas can look extreme** because lag features inherit dirty pace — mitigated by the displayed caveat string, not by scrubbing lags.
+6. **Cold FastF1** (first load of a session) can take minutes; rehearsal timings above are **cached**. After session end, wait ~5–20 min for timing before ingest; empty laps **refuse loudly** — retry, do not force.
+7. **No mid-weekend residual retrain** and **no pit_loss rewrite from a single sprint sample** — keep `netherlands.yaml` `pit_loss_s: 18.5` and `total_laps: 72`.
+8. **Sprint format only** — there is no FP2/FP3; weekend form and tyre log use FP1 + Sprint long runs.
+9. **Monte Carlo bands are not conformal** — fixed pace sigma draws; do not present P10/P90 as calibrated coverage.
+10. **Ask retrieval defaults to G1.5-shipped proposes.** Overlay-walk JSONL stays in `results/decisions/` but is not indexed unless `ARIS_ASK_INCLUDE_OVERLAY_DECISIONS=1`. Leave that unset.
 
 ---
 
-## Accuracy snapshot (carried from E3.6 — not re-tuned in E4)
+## Closed E4 decisions (still the ship choice)
 
-| Scope | Blend MAE | Aimed | Result |
-|---|---:|---:|---|
-| 2024 calendar overall | **0.583** | ≤ **0.783** (1.5× MA2 0.522) | PASS (23/24 races) |
-| Netherlands 2024 | **0.502** | ≤ **0.640** | PASS |
-| Netherlands 2025 | **0.566** | ≤ **0.603** | PASS |
-| China 2024 | **0.596** | ≤ **0.563** | MISS (−0.033) |
+### Tyre ordering (E4.3 / G.5)
 
-E4 did **not** chase further accuracy gains beyond the single tyre and China attempts above.
+**Keep global fallback slopes permanently for Netherlands:** SOFT **0.08** / MEDIUM **0.05** / HARD **0.03**. Sample sizes are adequate; fitted overlays (G2 unconstrained, G3 isotonic, G4 pooled) all missed the gate vs G1.5 **0.322**. Full write-up: `docs/tyre-degradation-research.md`.
+
+### China (E4.4)
+
+**Do not ship the no-lag2 shrinkage.** Accept China at **0.033 s over** its 1.5× MA(2) bar. Pulling those laps toward lag1 fixes China but fails Australia.
+
+### MSE vs variance (E4.2)
+
+**No mismatch bug.** `rolling_error_variance` is MSE used as an IV trust weight. MC bands do not treat it as a Gaussian variance.
 
 ---
 
-## Test suite
+## Accuracy snapshot (not re-tuned since E3 / G.5 / R.2.2)
 
-Docker Postgres up; `ARIS_DB_URL` set.
-
-| Checkpoint | Result |
-|---|---|
-| After E4.1 rehearsal | green (`results/e4_1_pytest.log`) |
-| After E4.2 (analysis only, no code change) | n/a — covered by E4.1 |
-| After E4.3 (script-only; globals unchanged) | green |
-| After E4.4 (script-only; blend unchanged) | green |
-| **End of Phase E.4** | **150 passed**, 0 failed (`results/e4_final_pytest.log`) |
-
-Production code was **not** modified in E4 (rehearsal + analysis + rejected attempts only). New scripts/artefacts under `scripts/_e4_*` and `results/e4_*`.
+| Scope | Aimed | Actual | Result |
+|---|---|---|---|
+| 2024 calendar blend MAE | ≤ **0.783** (1.5× MA2 0.522) | **0.583** | PASS (23/24 races) |
+| Netherlands 2024 | ≤ **0.640** | **0.502** | PASS |
+| Netherlands 2025 | ≤ **0.603** | **0.566** | PASS |
+| China 2024 | ≤ **0.563** | **0.596** | MISS (−0.033) |
+| Combined match-rate | > **0.276** stay-out | **0.322** (28/87) | PASS |
+| Position-delta all 48 | ≤ 0 | **−1.73** | identity-safe |
 
 ---
 
 ## Stop
 
-Phase E.4 (final Zandvoort lock-in) is complete. **Dashboard / Phase F work starts only after you review this document and say so.**
+Final Pre-Event Consolidation is complete. Print
+`docs/zandvoort-day-of-checklist.md`. Keep `ARIS_FAST_CLOCK` and
+`ARIS_TRUE_COMPOUND_SLOPES` unset; leave `ARIS_DECISION_LOG` default-on.
+Run the runbook after each session. No further model-accuracy work
+before the event.

@@ -1,7 +1,8 @@
 # Model status — where ARIS actually stands
 
-Interview-ready account of the predictive / decision core as of Phase
-R.2.2 (2026-08-17), six days before the 21–23 August 2026 Dutch GP.
+Interview-ready account of the predictive / decision core as of the
+Final Pre-Event Consolidation (2026-08-17), four days before the
+21–23 August 2026 Dutch GP.
 This page supersedes scattered phase docs as the one place to point
 someone asking **how good is this, really**. Those phase docs remain
 the evidence trail.
@@ -250,6 +251,20 @@ Locked since E4.1, re-confirmed every phase including this one:
 This phase touched eval scoring only (`OutcomeScore.major_disruption`,
 clean/disrupted split). `simulate()` / `recommend()` / `tires.py` were
 not edited.
+
+---
+
+## Research window — closed until after the event
+
+No further model-accuracy research will be attempted before 21–23
+August 2026. That includes the cornering-load bounded next step from
+[`docs/PHASE-R1-CORNERING-LOAD-SUMMARY.md`](./PHASE-R1-CORNERING-LOAD-SUMMARY.md)
+(R1.4: one opt-in G4 swap on cache-complete years). It is **queued,
+not abandoned**. Work resumes after the Dutch GP on the
+`research/cornering-load` thread, starting from that R1.4
+recommendation and
+[`docs/future-research-cornering-load.md`](./future-research-cornering-load.md).
+G1.5 stays shipped through the event.
 
 ---
 
