@@ -48,9 +48,11 @@ class TestDecisionQueue:
         assert events[0]["event"] == "propose"
         assert events[0]["kind"] == "pit"
         assert events[0]["source"] == "test"
+        assert events[0]["true_compound_slopes"] == "off"
         assert events[1]["event"] == "resolve"
         assert events[1]["accepted"] is True
         assert events[1]["choice_id"] == "yes"
+        assert events[1]["true_compound_slopes"] == "off"
 
     def test_unwritable_log_fails_loudly(self, tmp_path):
         """Write failures must raise, not drop the event silently."""

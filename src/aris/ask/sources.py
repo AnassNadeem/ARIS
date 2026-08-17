@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -19,6 +20,12 @@ CONCEPTS_DIR = _REPO_ROOT / "data" / "ask" / "concepts"
 FIXTURES_DIR = _REPO_ROOT / "data" / "ask" / "fixtures"
 DEFAULT_INDEX_DIR = _REPO_ROOT / "data" / "ask" / "index"
 DEFAULT_DECISION_DIR = _REPO_ROOT / "results" / "decisions"
+FIXTURE_DECISIONS_PATH = FIXTURES_DIR / "decisions.jsonl"
+SHIPPED_TRUE_COMPOUND_MODE = "off"
+# G2 appended overlay-walk proposes onto the same JSONL files as G1.5.
+# Cutoff is G3.2's documented split (scripts/_g3_audit_decisions.py).
+# Untagged records after this instant are overlay-window, not shipped G1.5.
+_OVERLAY_WALK_START = datetime(2026, 8, 13, 20, 0, tzinfo=timezone.utc)
 
 # 2024 walk-forward figures from docs/strategy-backtest.md (aimed vs actual there).
 BACKTEST_2024 = {
@@ -43,12 +50,17 @@ def json_number(value: Any) -> str:
 
 
 def _decision_dirs() -> list[Path]:
-    dirs: list[Path] = []
+    """Decision JSONL locations.
+
+    ``ARIS_ASK_DECISION_DIRS`` is an exclusive override (pathsep-separated
+    files or directories). Tests set it to the 14-event fixture so a live
+    ``results/decisions/`` tree cannot leak in. Unset → live dir + fixture.
+    """
     extra = os.getenv("ARIS_ASK_DECISION_DIRS")
     if extra:
-        dirs.extend(Path(p.strip()) for p in extra.split(os.pathsep) if p.strip())
-    dirs.append(DEFAULT_DECISION_DIR)
-    dirs.append(FIXTURES_DIR)
+        dirs = [Path(p.strip()) for p in extra.split(os.pathsep) if p.strip()]
+    else:
+        dirs = [DEFAULT_DECISION_DIR, FIXTURES_DIR]
     seen: set[Path] = set()
     out: list[Path] = []
     for path in dirs:
@@ -60,8 +72,56 @@ def _decision_dirs() -> list[Path]:
     return out
 
 
-def load_decision_documents(*, propose_only: bool = True) -> list[AskDocument]:
-    """Index persisted JSONL decision records. Dedupes by event_id."""
+def _parse_record_ts(raw: object) -> datetime | None:
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+
+
+def model_config_for_record(rec: dict[str, Any]) -> str:
+    """Return the tyre-model config that produced this propose.
+
+    Tagged records (``true_compound_slopes`` written at persist time) are
+    authoritative. Untagged historical JSONL is *not* guessed by label or
+    delta: G2/G3/G4 overlay walks appended onto the same files as G1.5, and
+    the only recoverable signal is G3.2's documented timestamp split.
+    """
+    tagged = rec.get("true_compound_slopes")
+    if tagged is not None and str(tagged).strip() != "":
+        return str(tagged).strip().lower()
+    ts = _parse_record_ts(rec.get("ts"))
+    if ts is None:
+        return "unknown"
+    if ts >= _OVERLAY_WALK_START:
+        return "unknown-overlay"
+    return SHIPPED_TRUE_COMPOUND_MODE
+
+
+def is_shipped_model_config(mode: str) -> bool:
+    return mode == SHIPPED_TRUE_COMPOUND_MODE
+
+
+def _include_overlay_decisions() -> bool:
+    return os.getenv("ARIS_ASK_INCLUDE_OVERLAY_DECISIONS", "") == "1"
+
+
+def load_decision_documents(
+    *,
+    propose_only: bool = True,
+    include_overlay: bool | None = None,
+) -> list[AskDocument]:
+    """Index persisted JSONL decision records. Dedupes by event_id.
+
+    Default: only G1.5-shipped proposes (``true_compound_slopes=off``, or
+    untagged records from the pre-overlay walk window). Overlay-experiment
+    walks stay out of Ask unless ``include_overlay=True`` or
+    ``ARIS_ASK_INCLUDE_OVERLAY_DECISIONS=1``.
+    """
+    if include_overlay is None:
+        include_overlay = _include_overlay_decisions()
     docs: list[AskDocument] = []
     seen: set[str] = set()
     files: list[Path] = []
@@ -86,7 +146,11 @@ def load_decision_documents(*, propose_only: bool = True) -> list[AskDocument]:
                 continue
             if propose_only and rec.get("event") != "propose":
                 continue
+            mode = model_config_for_record(rec)
+            if not include_overlay and not is_shipped_model_config(mode):
+                continue
             rec.setdefault("_source_file", path.name)
+            rec["true_compound_slopes"] = mode
             docs.append(decision_to_document(rec))
             seen.add(event_id)
     return docs
@@ -118,6 +182,8 @@ def decision_to_document(rec: dict[str, Any]) -> AskDocument:
         "source_file": source_file,
         "accepted": rec.get("accepted"),
         "choice_id": rec.get("choice_id"),
+        "true_compound_slopes": rec.get("true_compound_slopes")
+        or model_config_for_record(rec),
     }
     text = (
         f"ARIS decision record event={rec.get('event')} kind={rec.get('kind')} "
@@ -128,7 +194,8 @@ def decision_to_document(rec: dict[str, Any]) -> AskDocument:
         f"mean_race_time_s {json_number(recd.get('mean_race_time_s'))} "
         f"confidence_std_s {json_number(recd.get('confidence_std_s'))} "
         f"pit_compound {action.get('pit_compound')} pit_lap {action.get('pit_lap')} "
-        f"action_kind {action.get('kind')} source_file {source_file}"
+        f"action_kind {action.get('kind')} source_file {source_file} "
+        f"true_compound_slopes {facts['true_compound_slopes']}"
     )
     citation = (
         f"decision event_id={event_id} file={source_file} "

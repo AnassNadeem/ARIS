@@ -12,7 +12,14 @@ from typing import Any
 
 from aris.ask.memory import ConversationMemory
 from aris.ask.retrieve import DEFAULT_TOP_K, MIN_COSINE, AskDocument, AskIndex, Hit
-from aris.ask.sources import DEFAULT_INDEX_DIR, build_index, json_number, session_documents
+from aris.ask.sources import (
+    DEFAULT_INDEX_DIR,
+    SHIPPED_TRUE_COMPOUND_MODE,
+    build_index,
+    is_shipped_model_config,
+    json_number,
+    session_documents,
+)
 from aris.engine.session import RaceEngineSession
 
 ABSTAIN = (
@@ -62,6 +69,7 @@ def answer_question(
     ephemeral = _ephemeral_docs(session, memory)
     hits = _search(store, query, extra=ephemeral, k=top_k)
     hits = _apply_constraints(query, hits)
+    hits = _prefer_shipped_model(hits)
     usable = [h for h in hits if h.cosine >= MIN_COSINE or h.doc.source in {"session", "memory"}]
     if not usable:
         return ABSTAIN
@@ -152,6 +160,29 @@ def _apply_constraints(question: str, hits: list[Hit]) -> list[Hit]:
                     continue
         filtered.append(hit)
     return filtered
+
+
+def _prefer_shipped_model(hits: list[Hit]) -> list[Hit]:
+    """When overlay and G1.5 copies of the same lap both retrieve, keep G1.5.
+
+    Does not invent a winner among untagged same-config re-runs. Overlay
+    modes are the rejected G2/G3/G4 experiments; shipped is ``off``.
+    """
+    decision_hits = [h for h in hits if h.doc.source == "decision"]
+    if not decision_hits:
+        return hits
+    shipped = [
+        h
+        for h in decision_hits
+        if is_shipped_model_config(
+            str(h.doc.facts.get("true_compound_slopes") or SHIPPED_TRUE_COMPOUND_MODE)
+        )
+    ]
+    overlay = [h for h in decision_hits if h not in shipped]
+    if not (shipped and overlay):
+        return hits
+    keep = {id(h) for h in shipped}
+    return [h for h in hits if h.doc.source != "decision" or id(h) in keep]
 
 
 def _compose(question: str, hits: list[Hit]) -> str:

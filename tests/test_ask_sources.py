@@ -9,15 +9,16 @@ from aris.ask.sources import (
 
 def test_decision_source_is_real_jsonl():
     docs = load_decision_documents()
-    # Aimed: the 14 fixture propose events dumped from Phase G JSONL.
-    # Actual: whatever load_decision_documents returns in this worktree.
-    assert len(docs) >= 14, f"aimed >= 14 decision docs, actual {len(docs)}"
+    # Aimed: the 14 fixture propose events, even if ARIS_ASK_DECISION_DIRS
+    # is set to the live corpus in the shell (tests/conftest.py).
+    assert len(docs) == 14, f"aimed 14 fixture decision docs, actual {len(docs)}"
     sai = [d for d in docs if d.facts.get("driver_code") == "SAI" and d.facts.get("lap") == 21]
     assert sai, "aimed a real SAI lap-21 propose from 2024_r15 JSONL, actual none"
     delta = sai[0].facts["delta_vs_stay_out_s"]
     # Aimed: exact JSONL value from 2024 Netherlands SAI L21 Pit now HARD.
     assert delta == -72.72805747985858, f"aimed -72.72805747985858, actual {delta}"
     assert sai[0].source == "decision"
+    assert all(d.facts.get("true_compound_slopes") == "off" for d in docs)
 
 
 def test_race_source_is_session_results_not_narrative():

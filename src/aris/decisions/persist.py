@@ -7,6 +7,11 @@ migration. ``strategy_feedback`` remains the explicit post-race UI save path.
 
 Disable with ``ARIS_DECISION_LOG=0``. Override the directory with
 ``ARIS_DECISION_LOG_DIR``.
+
+Each line is tagged with ``true_compound_slopes`` (the
+``ARIS_TRUE_COMPOUND_SLOPES`` mode at write time: ``off`` / ``unconstrained``
+/ ``isotonic`` / ``pooled``) so Ask retrieval can keep G1.5-shipped records
+separate from rejected overlay-experiment walks.
 """
 
 from __future__ import annotations
@@ -57,6 +62,8 @@ class JsonlDecisionLog:
         return cls(directory / name, source=source)
 
     def append(self, event: str, payload: dict[str, Any]) -> None:
+        from aris.physics.compounds import parse_true_compound_mode
+
         record = {
             "event_id": str(uuid.uuid4()),
             "event": event,
@@ -64,6 +71,8 @@ class JsonlDecisionLog:
             "source": self.source,
             **self.meta,
             **payload,
+            # Written last so the env at persist time cannot be overwritten by payload.
+            "true_compound_slopes": parse_true_compound_mode(),
         }
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
