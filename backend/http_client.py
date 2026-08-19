@@ -19,8 +19,19 @@ def get_json(url: str, params: dict[str, Any] | None = None) -> Any:
         return resp.json()
 
 
+async def aget_json(url: str, params: dict[str, Any] | None = None) -> Any:
+    async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True) as client:
+        resp = await client.get(url, params=params)
+        resp.raise_for_status()
+        return resp.json()
+
+
 def openf1(path: str, params: dict[str, Any] | None = None) -> Any:
     return get_json(f"{OPENF1}/{path.lstrip('/')}", params)
+
+
+async def aopenf1(path: str, params: dict[str, Any] | None = None) -> Any:
+    return await aget_json(f"{OPENF1}/{path.lstrip('/')}", params)
 
 
 def jolpica(path: str) -> Any:

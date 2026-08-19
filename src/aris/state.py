@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import pandas as pd
 from pydantic import BaseModel
 from sqlalchemy import text
+
+_log = logging.getLogger(__name__)
 
 from aris.io import db
 from aris.models.features import estimate_fuel_kg
@@ -77,6 +80,7 @@ class RaceState(BaseModel):
     # ran under SC/VSC — recommendations should surface a confidence caveat.
     recent_sc_pace: bool = False
     confidence_caveat: str | None = None
+    lap_note: str | None = None
 
     def with_overrides(self, overrides: RaceStateOverrides) -> RaceState:
         data = self.model_dump()
@@ -143,18 +147,40 @@ def build_race_state(
     if laps.empty:
         raise ValueError(f"no laps for session={session_id} driver={driver_id}")
 
-    row = laps[laps["lap_number"] == lap_number]
+    requested = int(lap_number)
+    row = laps[laps["lap_number"] == requested]
+    lap_note: str | None = None
     if row.empty:
-        raise ValueError(f"lap {lap_number} not found for driver {driver_id}")
+        max_lap = int(laps["lap_number"].max())
+        if requested > max_lap:
+            lap_note = f"Lap {requested} not yet available — using lap {max_lap}"
+            _log.warning(lap_note)
+            requested = max_lap
+            row = laps[laps["lap_number"] == requested]
+        if row.empty:
+            # Nearest lower lap (missing exact row, e.g. in-lap gap).
+            prior = laps[laps["lap_number"] < int(lap_number)].sort_values("lap_number")
+            if prior.empty:
+                requested = int(laps["lap_number"].min())
+                row = laps[laps["lap_number"] == requested]
+                lap_note = lap_note or f"Lap {lap_number} not found — using lap {requested}"
+            else:
+                requested = int(prior.iloc[-1]["lap_number"])
+                row = laps[laps["lap_number"] == requested]
+                lap_note = lap_note or f"Lap {lap_number} not found — using lap {requested}"
+        if row.empty:
+            raise ValueError(f"lap {lap_number} not found for driver {driver_id}")
 
     lap = row.iloc[0]
+    if requested == 1 or laps[laps["lap_number"] < requested].empty:
+        _log.warning("no prior laps for driver=%s lap=%s — lags will be null", driver_id, requested)
     compound = str(lap.get("compound") or "MEDIUM")
     tyre_life = int(lap.get("tyre_life") or 1)
-    fuel = estimate_fuel_kg(int(lap_number), total_laps=total_laps)
-    lag1, lag2, roll3 = _pace_lags(laps, lap_number)
+    fuel = estimate_fuel_kg(requested, total_laps=total_laps)
+    lag1, lag2, roll3 = _pace_lags(laps, requested)
     weather = db.fetch_session_weather(session_id) or {}
     track_status = str(lap["track_status"]) if pd.notna(lap.get("track_status")) else None
-    sc_pace = _recent_sc_pace(laps, int(lap_number), track_status)
+    sc_pace = _recent_sc_pace(laps, requested, track_status)
 
     gaps = field_gaps or {}
     gap_ahead = gaps.get("gap_ahead_s")
@@ -169,11 +195,11 @@ def build_race_state(
         year=int(sess.year),
         round_no=int(sess.round_no),
         country=str(sess.country),
-        lap_number=int(lap_number),
+        lap_number=requested,
         compound=compound,
         tyre_life=tyre_life,
         fuel_kg=fuel,
-        laps_remaining=max(0, total_laps - int(lap_number)),
+        laps_remaining=max(0, total_laps - requested),
         total_laps=total_laps,
         track_name=track_cfg.name,
         pit_compound="HARD",
@@ -190,6 +216,7 @@ def build_race_state(
         track_status=track_status,
         recent_sc_pace=sc_pace,
         confidence_caveat=SC_PACE_CAVEAT if sc_pace else None,
+        lap_note=lap_note,
     )
     if overrides:
         state = state.with_overrides(overrides)

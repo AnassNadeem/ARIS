@@ -55,6 +55,15 @@ export const FALLBACK_TRACK_PATH =
 
 export const SPEED_OPTIONS = ["1×", "2×", "5×", "10×", "25×", "50×"] as const;
 
+export const SPEED_MS: Record<(typeof SPEED_OPTIONS)[number], number> = {
+  "1×": 90_000,
+  "2×": 45_000,
+  "5×": 18_000,
+  "10×": 9_000,
+  "25×": 3_600,
+  "50×": 1_800,
+};
+
 export function compoundColour(code: string | null | undefined): string {
   if (!code) return "#AAAAAA";
   return PIRELLI[code.toUpperCase()] ?? "#AAAAAA";

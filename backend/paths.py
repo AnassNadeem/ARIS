@@ -8,9 +8,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 BACKEND = ROOT / "backend"
-DEPS = ROOT / ".deps"
 
-for extra in (SRC, DEPS):
+for extra in (SRC,):
     if extra.exists() and str(extra) not in sys.path:
         sys.path.insert(0, str(extra))
 

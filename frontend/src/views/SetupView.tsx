@@ -1,23 +1,24 @@
-import { useState, type CSSProperties } from "react";
+import { useState } from "react";
 import type { CalendarRound, Driver, DriverStandings } from "../api/types";
 import { useCalendar } from "../hooks/useCalendar";
 import { useDrivers } from "../hooks/useDrivers";
 import { useStandings } from "../hooks/useStandings";
 import { C, T } from "../theme";
-import { Chip, EmptyState, PanelError, SectionLabel, Skeleton, initials } from "../components/atoms";
+import { Chip, EmptyState, ErrorPanel, SectionLabel, SkeletonPanel, initials } from "../components/atoms";
 import { Shell } from "../components/Shell";
 
 export function SetupView({
   year,
   onYear,
   onProceed,
+  initialRound,
 }: {
   year: number;
   onYear: (y: number) => void;
   onProceed: (cfg: { mode: "replay" | "live"; year: number; round: CalendarRound; driver: string }) => void;
+  initialRound?: CalendarRound | null;
 }) {
-  const [mode, setMode] = useState<"replay" | "live" | null>(null);
-  const [race, setRace] = useState<CalendarRound | null>(null);
+  const [race, setRace] = useState<CalendarRound | null>(initialRound ?? null);
   const [driver, setDriver] = useState<string | null>(null);
   const cal = useCalendar(year);
   const drivers = useDrivers(year);
@@ -31,122 +32,81 @@ export function SetupView({
   const rounds = cal.status === "ok" ? cal.data.rounds : [];
   const completed = rounds.filter((r) => r.status === "COMPLETED");
   const upcoming = rounds.filter((r) => r.status !== "COMPLETED");
-  const liveRound = rounds.find((r) => r.status === "LIVE") || upcoming[0] || null;
   const champ =
     standings.drivers.status === "ok"
       ? standings.drivers.data.champion_code || standings.drivers.data.leader_code
       : null;
 
-  const canProceed = mode === "live" ? !!(driver && liveRound) : !!(mode && race && driver && race.status === "COMPLETED");
+  const canProceed = !!(race && driver && race.status === "COMPLETED");
 
   return (
     <Shell title="MISSION SETUP">
       <div style={{ maxWidth: 960, margin: "0 auto", padding: "32px 24px" }}>
-        <SectionLabel>01 — SELECT MODE</SectionLabel>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 32 }}>
-          <button
-            onClick={() => {
-              setMode("replay");
-              setRace(null);
-            }}
-            style={card(mode === "replay")}
-          >
-            <div style={{ fontFamily: T.display, fontSize: 22, fontWeight: 800 }}>REPLAY</div>
-            <p style={{ fontFamily: T.body, fontSize: 12, color: C.mist, marginTop: 8 }}>
-              Run ARIS on a completed race. Speed multipliers 1×–50×. Cancelled rounds are not selectable.
-            </p>
-          </button>
-          <button
-            onClick={() => {
-              setMode("live");
-              setRace(liveRound);
-            }}
-            style={card(mode === "live")}
-          >
-            <div style={{ fontFamily: T.display, fontSize: 22, fontWeight: 800 }}>LIVE</div>
-            <p style={{ fontFamily: T.body, fontSize: 12, color: C.mist, marginTop: 8 }}>
-              Opens the current session if one is live; otherwise the next-race countdown. No speed multiplier.
-            </p>
-            <div style={{ marginTop: 10 }}>
-              <Chip tone="caution" size="xs">RACE DAY ONLY · NO SPEED MULTIPLIER</Chip>
-            </div>
-          </button>
+        <SectionLabel>01 — SELECT YEAR</SectionLabel>
+        <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
+          {[2024, 2025, 2026].map((y) => (
+            <YearChip
+              key={y}
+              y={y}
+              selected={year === y}
+              fallbackCompleted={y === year ? completed.length : null}
+              fallbackChamp={y === year ? champ ?? null : null}
+              onSelect={() => {
+                onYear(y);
+                setRace(null);
+                setDriver(null);
+              }}
+            />
+          ))}
         </div>
-
-        {mode === "replay" && (
+        <SectionLabel>02 — SELECT RACE</SectionLabel>
+        {cal.status === "loading" && (
+          <SkeletonPanel
+            rows={8}
+            label="Loading races — this may take a moment on first load as data is being cached..."
+          />
+        )}
+        {cal.status === "error" && <ErrorPanel message={`Could not load races. ${cal.error}`} onRetry={cal.retry} />}
+        {cal.status === "ok" && (
           <>
-            <SectionLabel>02 — YEAR</SectionLabel>
-            <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
-              {[2024, 2025, 2026].map((y) => (
-                <YearChip
-                  key={y}
-                  y={y}
-                  selected={year === y}
-                  fallbackCompleted={y === year ? completed.length : null}
-                  fallbackChamp={y === year ? champ ?? null : null}
-                  onSelect={() => {
-                    onYear(y);
-                    setRace(null);
-                    setDriver(null);
-                  }}
-                />
-              ))}
-            </div>
-            <SectionLabel>03 — RACE</SectionLabel>
-            {cal.status === "loading" && (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 28 }}>
-                {Array.from({ length: 8 }).map((_, i) => (
-                  <Skeleton key={i} height={52} />
-                ))}
-              </div>
-            )}
-            {cal.status === "error" && <PanelError message={cal.error} onRetry={cal.retry} />}
-            {cal.status === "ok" && (
+            <div style={{ fontFamily: T.mono, fontSize: 9, color: C.faint, marginBottom: 8 }}>COMPLETED</div>
+            <RaceGrid rounds={completed} selected={race} onSelect={setRace} />
+            {upcoming.length > 0 && (
               <>
-                <div style={{ fontFamily: T.mono, fontSize: 9, color: C.faint, marginBottom: 8 }}>COMPLETED</div>
-                <RaceGrid rounds={completed} selected={race} onSelect={setRace} />
-                {upcoming.length > 0 && (
-                  <>
-                    <div style={{ fontFamily: T.mono, fontSize: 9, color: C.faint, margin: "16px 0 8px" }}>UPCOMING</div>
-                    <RaceGrid rounds={upcoming} selected={race} onSelect={setRace} />
-                  </>
-                )}
+                <div style={{ fontFamily: T.mono, fontSize: 9, color: C.faint, margin: "16px 0 8px" }}>UPCOMING</div>
+                <RaceGrid rounds={upcoming} selected={race} onSelect={setRace} />
               </>
             )}
           </>
         )}
 
-        {mode && (
+        <SectionLabel>03 — SELECT YOUR DRIVER</SectionLabel>
+        {drivers.status === "loading" && (
+          <SkeletonPanel
+            rows={8}
+            label="Loading drivers — this may take a moment on first load as data is being cached..."
+          />
+        )}
+        {drivers.status === "error" && (
+          <ErrorPanel message={`Could not load drivers. ${drivers.error}`} onRetry={drivers.retry} />
+        )}
+        {drivers.status === "ok" && (
           <>
-            <SectionLabel>{mode === "live" ? "02" : "04"} — YOUR DRIVER</SectionLabel>
-            {drivers.status === "loading" && (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8 }}>
-                {Array.from({ length: 10 }).map((_, i) => (
-                  <Skeleton key={i} height={48} />
-                ))}
-              </div>
-            )}
-            {drivers.status === "error" && <PanelError message={drivers.error} onRetry={drivers.retry} />}
-            {drivers.status === "ok" && (
-              <>
-                {drivers.data.estimated_label && <Chip tone="signal">{drivers.data.estimated_label}</Chip>}
-                <DriverGrid
-                  drivers={drivers.data.drivers}
-                  standings={pts}
-                  selected={driver}
-                  onSelect={setDriver}
-                />
-              </>
-            )}
+            {drivers.data.estimated_label && <Chip tone="signal">{drivers.data.estimated_label}</Chip>}
+            <DriverGrid
+              drivers={drivers.data.drivers}
+              standings={pts}
+              selected={driver}
+              onSelect={setDriver}
+            />
           </>
         )}
 
         <button
           disabled={!canProceed}
           onClick={() => {
-            const rnd = mode === "live" ? liveRound : race;
-            if (!mode || !rnd || !driver) return;
-            onProceed({ mode, year: mode === "live" ? year : year, round: rnd, driver });
+            if (!race || !driver) return;
+            onProceed({ mode: "replay", year, round: race, driver });
           }}
           style={{
             marginTop: 28,
@@ -209,17 +169,6 @@ function YearChip({
       </div>
     </button>
   );
-}
-
-function card(active: boolean): CSSProperties {
-  return {
-    textAlign: "left" as const,
-    padding: 20,
-    borderRadius: 6,
-    cursor: "pointer",
-    background: active ? C.signalMid : C.panel,
-    border: `1px solid ${active ? C.signal : C.border}`,
-  };
 }
 
 function RaceGrid({

@@ -63,9 +63,9 @@ export function useCalendarState(year: number) {
   const asOf = asOfFromUrl();
   const bundle = useAsync(async () => {
     const [next, live, calendar] = await Promise.all([
-      apiGet(withAsOf("/api/next-race", asOf), { schema: nextRaceSchema, timeout: 30_000 }),
-      apiGet(withAsOf("/api/live/status", asOf), { schema: liveStatusSchema, timeout: 15_000 }),
-      apiGet(withAsOf(`/api/calendar/${year}`, asOf), { schema: calendarSchema, timeout: 30_000 }),
+      apiGet(withAsOf("/api/next-race", asOf), { schema: nextRaceSchema, timeout: 60_000 }),
+      apiGet(withAsOf("/api/live/status", asOf), { schema: liveStatusSchema, timeout: 60_000 }),
+      apiGet(withAsOf(`/api/calendar/${year}`, asOf), { schema: calendarSchema, timeout: 60_000 }),
     ]);
     return { next, live, calendar };
   }, [year, asOf]);

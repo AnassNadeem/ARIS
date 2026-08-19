@@ -8,6 +8,8 @@ export function useARISRecommend(
   driver: string,
   lap: number,
   enabled: boolean,
+  mode: "live" | "replay" | "pre_race" = "replay",
+  sessionKey?: string | number | null,
 ) {
   return useAsync(
     () =>
@@ -19,11 +21,12 @@ export function useARISRecommend(
           session_type: "R",
           driver_code: driver,
           current_lap: lap,
-          mode: "replay",
+          mode,
+          session_key: sessionKey != null ? String(sessionKey) : undefined,
         },
         { schema: recommendSchema, timeout: 60_000 },
       ),
-    [year, round, driver, lap],
+    [year, round, driver, lap, mode, sessionKey],
     enabled,
   );
 }

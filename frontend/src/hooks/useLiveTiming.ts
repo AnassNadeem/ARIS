@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { apiGet, replaySessionKeyFromUrl, withAsOf, asOfFromUrl } from "../api/client";
+import { apiGet, replaySessionKeyFromUrl, withAsOf, asOfFromUrl, apiUrl } from "../api/client";
 import { liveStatusSchema, liveTimingSchema, type LiveStatus, type LiveTiming } from "../api/types";
 
 export function useLiveTiming(active: boolean) {
@@ -23,8 +23,8 @@ export function useLiveTiming(active: boolean) {
         const statusPath = withAsOf(`/api/live/status${q}`, asOf);
         const timingPath = withAsOf(`/api/live/timing${q}`, asOf);
         const [st, tm] = await Promise.all([
-          apiGet(statusPath, { schema: liveStatusSchema, timeout: 8_000 }),
-          apiGet(timingPath, { schema: liveTimingSchema, timeout: 8_000 }),
+          apiGet(statusPath, { schema: liveStatusSchema, timeout: 60_000 }),
+          apiGet(timingPath, { schema: liveTimingSchema, timeout: 60_000 }),
         ]);
         if (cancelled) return;
         setStatus(st);
@@ -50,7 +50,7 @@ export function useLiveTiming(active: boolean) {
     }
 
     try {
-      const es = new EventSource(`/api/live/stream${q}`);
+      const es = new EventSource(apiUrl(`/api/live/stream${q}`));
       esRef.current = es;
       es.onmessage = (ev) => {
         try {

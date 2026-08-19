@@ -1,6 +1,6 @@
 import { useStandings } from "../hooks/useStandings";
 import { C, T } from "../theme";
-import { EmptyState, Panel, PanelError, Skeleton, Stat } from "../components/atoms";
+import { EmptyState, ErrorPanel, Panel, SkeletonPanel, Stat } from "../components/atoms";
 import { Shell } from "../components/Shell";
 
 export function AnalyticsView({ year }: { year: number }) {
@@ -10,8 +10,12 @@ export function AnalyticsView({ year }: { year: number }) {
   return (
     <Shell title="SEASON ANALYTICS">
       <div style={{ padding: 24, maxWidth: 1000, margin: "0 auto" }}>
-        {drivers.status === "loading" && <Skeleton height={80} />}
-        {drivers.status === "error" && <PanelError message={drivers.error} onRetry={drivers.retry} />}
+        {drivers.status === "loading" && (
+          <SkeletonPanel rows={8} label="Loading analytics — this may take a moment on first load as data is being cached..." />
+        )}
+        {drivers.status === "error" && (
+          <ErrorPanel message={`Could not load analytics. ${drivers.error}`} onRetry={drivers.retry} />
+        )}
         {leader && <Stat label="Leader" value={`${leader.driver_code} · ${leader.points} pts`} sub={`${leader.wins} wins`} accent={C.signal} />}
         {drivers.status === "ok" && drivers.data.standings.length === 0 && (
           <EmptyState title="No analytics yet" body="Standings feed is empty for this year." />

@@ -1,6 +1,6 @@
 import { type ZodType } from "zod";
 
-const DEFAULT_TIMEOUT = 10_000;
+const DEFAULT_TIMEOUT = 60_000;
 
 export class ApiError extends Error {
   readonly status: number | null;
@@ -35,6 +35,41 @@ async function parseOrThrow<T>(res: Response, path: string, schema?: ZodType<T>)
   return data as T;
 }
 
+export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8765";
+
+let inFlight = 0;
+const trafficListeners = new Set<() => void>();
+
+export function subscribeTraffic(cb: () => void): () => void {
+  trafficListeners.add(cb);
+  return () => {
+    trafficListeners.delete(cb);
+  };
+}
+
+export function inFlightCount(): number {
+  return inFlight;
+}
+
+function beginTraffic() {
+  inFlight += 1;
+  trafficListeners.forEach((cb) => cb());
+}
+
+function endTraffic() {
+  inFlight = Math.max(0, inFlight - 1);
+  trafficListeners.forEach((cb) => cb());
+}
+
+export function apiUrl(path: string): string {
+  if (path.startsWith("http://") || path.startsWith("https://")) return path;
+  const base = String(API_BASE).replace(/\/$/, "");
+  const suffix = path.startsWith("/") ? path : `/${path}`;
+  return `${base}${suffix}`;
+}
+
+const FIRST_LOAD_MSG = "This may take a moment on first load as data is being cached.";
+
 export async function apiGet<T>(
   path: string,
   opts?: { timeout?: number; schema?: ZodType<T> },
@@ -42,23 +77,23 @@ export async function apiGet<T>(
   const ctrl = new AbortController();
   const timeout = opts?.timeout ?? DEFAULT_TIMEOUT;
   const timer = setTimeout(() => ctrl.abort(), timeout);
+  const url = apiUrl(path);
+  beginTraffic();
   try {
-    const res = await fetch(path, { signal: ctrl.signal });
+    const res = await fetch(url, { signal: ctrl.signal });
     return await parseOrThrow(res, path, opts?.schema);
   } catch (err) {
     if (err instanceof ApiError) {
-      console.error("API error", { path, status: err.status, message: err.message });
       throw err;
     }
     const aborted = err instanceof DOMException && err.name === "AbortError";
-    const wrapped = new ApiError(
-      aborted ? `Timeout (${timeout}ms) ${path}` : `Network error ${path}: ${String(err)}`,
+    throw new ApiError(
+      aborted ? FIRST_LOAD_MSG : `Could not reach the ARIS backend. ${FIRST_LOAD_MSG}`,
       aborted ? 408 : null,
       path,
     );
-    console.error("API error", { path, message: wrapped.message });
-    throw wrapped;
   } finally {
+    endTraffic();
     clearTimeout(timer);
   }
 }
@@ -71,8 +106,10 @@ export async function apiPost<T>(
   const ctrl = new AbortController();
   const timeout = opts?.timeout ?? DEFAULT_TIMEOUT;
   const timer = setTimeout(() => ctrl.abort(), timeout);
+  const url = apiUrl(path);
+  beginTraffic();
   try {
-    const res = await fetch(path, {
+    const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -81,11 +118,11 @@ export async function apiPost<T>(
     return await parseOrThrow(res, path, opts?.schema);
   } catch (err) {
     if (err instanceof ApiError) {
-      console.error("API error", { path, status: err.status, message: err.message });
       throw err;
     }
-    throw new ApiError(`Network error ${path}: ${String(err)}`, null, path);
+    throw new ApiError(`Could not reach the ARIS backend. ${FIRST_LOAD_MSG}`, null, path);
   } finally {
+    endTraffic();
     clearTimeout(timer);
   }
 }

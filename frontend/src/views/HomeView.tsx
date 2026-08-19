@@ -3,7 +3,7 @@ import type { CalendarRound, CalendarState, NextRace } from "../api/types";
 import { useCircuit } from "../hooks/useCircuit";
 import { useStandings } from "../hooks/useStandings";
 import { C, T } from "../theme";
-import { Chip, EmptyState, LiveDot, Panel, PanelError, SectionLabel, Skeleton, Stat } from "../components/atoms";
+import { Chip, EmptyState, ErrorPanel, LiveDot, Panel, SectionLabel, SkeletonPanel, Stat } from "../components/atoms";
 
 function Countdown({ seconds }: { seconds: number }) {
   const [left, setLeft] = useState(seconds);
@@ -117,13 +117,17 @@ function WeekendBody({
         </Panel>
         <Panel title="CIRCUIT INFO">
           {circuit.chars.status === "loading" && (
-            <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-              <Skeleton />
-              <Skeleton />
-              <Skeleton />
-            </div>
+            <SkeletonPanel
+              rows={6}
+              label="Loading circuit info — this may take a moment on first load as data is being cached..."
+            />
           )}
-          {circuit.chars.status === "error" && <PanelError message={circuit.chars.error} onRetry={circuit.chars.retry} />}
+          {circuit.chars.status === "error" && (
+            <ErrorPanel
+              message={`Could not load circuit info. ${circuit.chars.error}`}
+              onRetry={circuit.chars.retry}
+            />
+          )}
           {circuit.chars.status === "ok" && (
             <div style={{ padding: 12 }}>
               {[
@@ -142,11 +146,17 @@ function WeekendBody({
         </Panel>
         <Panel title="HISTORICAL WINNERS">
           {circuit.history.status === "loading" && (
-            <div style={{ padding: 12 }}>
-              <Skeleton height={60} />
-            </div>
+            <SkeletonPanel
+              rows={5}
+              label="Loading historical results — this may take a moment on first load as data is being cached..."
+            />
           )}
-          {circuit.history.status === "error" && <PanelError message={circuit.history.error} onRetry={circuit.history.retry} />}
+          {circuit.history.status === "error" && (
+            <ErrorPanel
+              message={`Could not load historical results. ${circuit.history.error}`}
+              onRetry={circuit.history.retry}
+            />
+          )}
           {circuit.history.status === "ok" && (
             <div style={{ padding: 12 }}>
               {circuit.history.data.length === 0 && (
@@ -216,14 +226,19 @@ export function HomeView({
 
   if (loading) {
     return (
-      <div style={{ padding: 32, display: "flex", flexDirection: "column", gap: 12, maxWidth: 800 }}>
-        <Skeleton height={48} width={280} />
-        <Skeleton height={120} />
-        <Skeleton height={80} />
+      <div style={{ padding: 32, maxWidth: 800 }}>
+        <SkeletonPanel
+          rows={8}
+          label="Loading calendar — this may take a moment on first load as data is being cached..."
+        />
       </div>
     );
   }
-  if (error) return <PanelError message={error} onRetry={onRetry} />;
+  if (error) {
+    return (
+      <ErrorPanel message={`Could not load calendar. ${error}`} onRetry={onRetry} />
+    );
+  }
   if (!calendarState) return <EmptyState title="No calendar state" body="Retry loading next-race and calendar." />;
 
   if (calendarState.type === "LIVE_RACE" || calendarState.type === "LIVE_QUALI" || calendarState.type === "LIVE_PRACTICE") {
@@ -345,9 +360,11 @@ export function HomeView({
           />
         </div>
       )}
-      {standings.drivers.status === "loading" && <Skeleton height={48} width={320} />}
+      {standings.drivers.status === "loading" && (
+        <SkeletonPanel rows={4} label="Loading standings — this may take a moment on first load as data is being cached..." />
+      )}
       {standings.drivers.status === "error" && (
-        <PanelError message={standings.drivers.error} onRetry={standings.drivers.retry} />
+        <ErrorPanel message={`Could not load standings. ${standings.drivers.error}`} onRetry={standings.drivers.retry} />
       )}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
         <Panel title="DRIVERS — TOP 5">

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -90,6 +90,7 @@ class NextRaceResponse(BaseModel):
     notes: list[str] = Field(default_factory=list)
     as_of: datetime
     off_season: bool = False
+    is_live: bool = False
 
 
 class Driver(BaseModel):
@@ -145,6 +146,8 @@ class ConstructorStanding(BaseModel):
     team_colour: str | None = None
     points: float
     wins: int
+    podiums: int = 0
+    drivers: list[str] = Field(default_factory=list)
     gap_to_leader: float
 
 
@@ -329,6 +332,82 @@ class CircuitPathResponse(BaseModel):
     corners: list[CircuitPathPoint] = Field(default_factory=list)
 
 
+class CircuitCorner(BaseModel):
+    number: int
+    letter: str = ""
+    angle: float | None = None
+    distance: float | None = None
+    x: float
+    y: float
+    description: str | None = None
+
+
+class CircuitMarker(BaseModel):
+    kind: str
+    x: float
+    y: float
+    label: str
+
+
+class CircuitMapBounds(BaseModel):
+    min_x: float
+    max_x: float
+    min_y: float
+    max_y: float
+
+
+class CircuitMapResponse(BaseModel):
+    year: int
+    round_number: int
+    x: list[float] = Field(default_factory=list)
+    y: list[float] = Field(default_factory=list)
+    corners: list[CircuitCorner] = Field(default_factory=list)
+    markers: list[CircuitMarker] = Field(default_factory=list)
+    drs_segments: list[list[int]] = Field(default_factory=list)
+    bounds: CircuitMapBounds | None = None
+    available: bool = True
+    fallback: bool = False
+    error: str | None = None
+    view_box: str = "0 0 440 280"
+
+
+class SessionCarPosition(BaseModel):
+    driver_code: str
+    x: float
+    y: float
+    team_colour: str | None = None
+    is_pitted: bool = False
+    is_dnf: bool = False
+
+
+class SessionPositionsResponse(BaseModel):
+    year: int
+    round_number: int
+    session_type: str
+    lap: int
+    positions: list[SessionCarPosition] = Field(default_factory=list)
+
+
+class SessionPositionsAllResponse(BaseModel):
+    year: int
+    round_number: int
+    session_type: str
+    laps: dict[str, list[SessionCarPosition]] = Field(default_factory=dict)
+
+
+class CommentaryEvent(BaseModel):
+    type: str
+    text: str
+
+
+class SessionEventsResponse(BaseModel):
+    year: int
+    round_number: int
+    session_type: str = "R"
+    lap: int
+    events: list[CommentaryEvent] = Field(default_factory=list)
+
+
 class GapLap(BaseModel):
     lap: int
     gaps: dict[str, float]
@@ -429,6 +508,14 @@ class CircuitHistoryResponse(BaseModel):
     years: list[CircuitHistoryYear]
 
 
+class ArisCircuitNotes(BaseModel):
+    undercut_effectiveness: str = ""
+    tyre_compound_tendencies: str = ""
+    overtaking_difficulty: str = ""
+    sc_probability_history: str = ""
+    summary: str = ""
+
+
 class CircuitCharacteristics(BaseModel):
     circuit_key: str
     name: str
@@ -438,10 +525,13 @@ class CircuitCharacteristics(BaseModel):
     drs_zones: int | None = None
     pit_loss_seconds: float | None = None
     total_laps: int | None = None
+    tyre_stress_rating: str | None = None
+    track_evolution_rating: str | None = None
     sector_descriptions: list[str] = Field(default_factory=list)
     similar_circuits: list[str] = Field(default_factory=list)
     corner_types: list[str] = Field(default_factory=list)
     known_deg_compounds: dict[str, float] = Field(default_factory=dict)
+    aris_notes: ArisCircuitNotes | None = None
     estimated: bool = False
     reg_note_2026: bool = False
 
@@ -468,6 +558,9 @@ class CompareDriversResponse(BaseModel):
     sector1_delta_ms: float | None = None
     sector2_delta_ms: float | None = None
     sector3_delta_ms: float | None = None
+    race_pace_median_delta_ms: float | None = None
+    fastest_lap_a_ms: int | None = None
+    fastest_lap_b_ms: int | None = None
 
 
 class LiveStatus(BaseModel):
@@ -484,6 +577,8 @@ class LiveStatus(BaseModel):
     session_flag: SessionFlag = "UNKNOWN"
     last_success_utc: datetime | None = None
     replay_mode: bool = False
+    session: dict[str, Any] | None = None
+    error: str | None = None
 
 
 class LiveTimingRow(BaseModel):
@@ -522,6 +617,8 @@ class LivePosition(BaseModel):
     x: float
     y: float
     team_colour: str | None = None
+    is_pitted: bool = False
+    is_dnf: bool = False
 
 
 class LivePositionsResponse(BaseModel):
@@ -569,7 +666,7 @@ class RecommendRequest(BaseModel):
     session_type: str = "R"
     driver_code: str
     current_lap: int
-    mode: Literal["live", "replay"] = "replay"
+    mode: Literal["live", "replay", "pre_race"] = "replay"
 
 
 class RecommendAlternative(BaseModel):
@@ -591,6 +688,13 @@ class RecommendResponse(BaseModel):
     alternatives: list[RecommendAlternative]
     wet_reduced_confidence: bool = False
     reg_note_2026: bool = False
+    data_source: str | None = None
+    lap_note: str | None = None
+
+
+class CustomPitStop(BaseModel):
+    lap: int
+    compound: str
 
 
 class SimulateRequest(BaseModel):
@@ -602,6 +706,7 @@ class SimulateRequest(BaseModel):
     current_lap: int = 1
     pit_lap: int | None = None
     compound: str | None = None
+    pit_stops: list[CustomPitStop] = Field(default_factory=list)
     sc_probability: float = 0.0
     rain_lap: int | None = None
     deg_factor: float = 1.0
@@ -618,6 +723,10 @@ class SimulateResponse(BaseModel):
     projected_pit_stops: list[ProjectedPit]
     risk_level: Literal["Low", "Medium", "Higher"]
     baseline_delta_s: float = 0.0
+    delta_vs_aris_s: float | None = None
+    delta_vs_actual_s: float | None = None
+    pace_gain_s: float | None = None
+    pit_cost_s: float | None = None
     wet_reduced_confidence: bool = False
     note: str | None = None
 
@@ -656,6 +765,38 @@ class DebriefDecision(BaseModel):
     actual_call: str
     outcome: str
     net_delta_s: float | None = None
+    reasoning: str | None = None
+    user_override: str | None = None
+    pace_gain_s: float | None = None
+    pit_cost_s: float | None = None
+
+
+class StrategyColumn(BaseModel):
+    label: str
+    position: int | None = None
+    plan_name: str | None = None
+    pits: list[ProjectedPit] = Field(default_factory=list)
+
+
+class DebriefStats(BaseModel):
+    laps_led: int = 0
+    pit_time_s: float | None = None
+    compounds_used: list[str] = Field(default_factory=list)
+    positions_gained: int | None = None
+    fastest_lap_ms: int | None = None
+    field_fastest_lap_ms: int | None = None
+    deg_rate_ms: float | None = None
+    field_deg_rate_ms: float | None = None
+    aris_correct: int = 0
+    aris_total: int = 0
+    sc_events: int = 0
+    sc_handled: int = 0
+
+
+class DebriefDeltaPoint(BaseModel):
+    lap: int
+    aris_vs_actual_s: float = 0.0
+    optimal_vs_actual_s: float = 0.0
 
 
 class DebriefResponse(BaseModel):
@@ -664,10 +805,25 @@ class DebriefResponse(BaseModel):
     driver_code: str
     actual_position: int | None = None
     aris_projected_position: int | None = None
+    optimal_position: int | None = None
     actual_pits: list[int]
     decisions: list[DebriefDecision]
     summary: str
     podium: list[SessionResultRow] = Field(default_factory=list)
+    aris_strategy: StrategyColumn | None = None
+    actual_strategy: StrategyColumn | None = None
+    optimal_strategy: StrategyColumn | None = None
+    stats: DebriefStats | None = None
+    delta_series: list[DebriefDeltaPoint] = Field(default_factory=list)
+
+
+class ArisStatsResponse(BaseModel):
+    lap_time_mae_s: float
+    decision_match_rate: float
+    never_pit_baseline: float
+    avg_position_delta: float
+    clean_delta: float
+    disrupted_delta: float
 
 
 class HealthResponse(BaseModel):

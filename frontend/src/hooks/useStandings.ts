@@ -12,7 +12,7 @@ export function useStandings(year: number) {
     () =>
       apiGet<DriverStandings>(`/api/standings/drivers/${year}`, {
         schema: driverStandingsSchema,
-        timeout: 20_000,
+        timeout: 60_000,
       }),
     [year],
   );
@@ -20,7 +20,7 @@ export function useStandings(year: number) {
     () =>
       apiGet<ConstructorStandings>(`/api/standings/constructors/${year}`, {
         schema: constructorStandingsSchema,
-        timeout: 20_000,
+        timeout: 60_000,
       }),
     [year],
   );

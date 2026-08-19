@@ -8,7 +8,7 @@ export function useCalendar(year: number) {
     () =>
       apiGet<CalendarResponse>(withAsOf(`/api/calendar/${year}`, asOf), {
         schema: calendarSchema,
-        timeout: 30_000,
+        timeout: 60_000,
       }),
     [year, asOf],
   );

@@ -4,7 +4,7 @@ import { useAsync } from "./useAsync";
 
 export function useDrivers(year: number) {
   return useAsync(
-    () => apiGet<DriversResponse>(`/api/drivers/${year}`, { schema: driversSchema, timeout: 30_000 }),
+    () => apiGet<DriversResponse>(`/api/drivers/${year}`, { schema: driversSchema, timeout: 60_000 }),
     [year],
   );
 }

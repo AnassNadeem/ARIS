@@ -9,6 +9,7 @@ from backend.cache import TTL_FORECAST, cached
 from backend.calendar import circuit_key_for, get_calendar, get_round
 from backend.http_client import get_json
 from backend.models import (
+    ArisCircuitNotes,
     CircuitCharacteristics,
     CircuitHistoryResponse,
     CircuitHistoryYear,
@@ -27,7 +28,7 @@ from backend.models import (
     TyreStrategyResponse,
     TyreStrategyStint,
 )
-from backend.sessions import session_laps, session_results
+from backend.sessions import session_laps, session_results, session_weather
 
 
 def gap_history(year: int, round_number: int) -> GapHistoryResponse:
@@ -192,25 +193,101 @@ def _yaml_stem_match(circuit_key: str) -> Any:
     return load_track_config(circuit_key)
 
 
+def _aris_notes_from_cfg(cfg: Any, circuit_key: str) -> ArisCircuitNotes:
+    pit = float(cfg.pit_loss_s or 21.0)
+    if pit <= 17:
+        undercut = "Strong undercut — pit loss is short, so boxing a lap early usually pays."
+    elif pit <= 20:
+        undercut = "Average undercut — a clean stop can jump a rival within ~1.5s, not much more."
+    else:
+        undercut = "Weak undercut — long pit loss means overcut or equal-length stints are usually better."
+    slopes = {str(k).upper(): float(v) for k, v in (cfg.compound_slopes or {}).items()}
+    soft = slopes.get("SOFT")
+    med = slopes.get("MEDIUM")
+    hard = slopes.get("HARD")
+    if soft and med and hard:
+        tyre = (
+            f"Deg slopes {soft:.3f}/{med:.3f}/{hard:.3f} s/lap (S/M/H). "
+            "Softer compounds fall off sooner; plan the first stop around the cliff, not the window midpoint."
+        )
+    elif slopes:
+        tyre = "Compound deg is track-specific; expect the softer tyre to be the limiter on long stints."
+    else:
+        tyre = "No fitted deg slopes — treat this as a medium-deg circuit until practice data arrives."
+    turns = len(cfg.corners) if cfg.corners else 0
+    if turns >= 16:
+        overtake = "Overtaking is difficult — high corner count, track position matters more than raw pace."
+    elif turns >= 10:
+        overtake = "Overtaking is mixed — DRS and a tyre offset can make a pass stick, but not everywhere."
+    else:
+        overtake = "Overtaking is more open — long straights reward a tyre or DRS offset."
+    hist = circuit_history(circuit_key)
+    sc_bits = [n for y in hist.years for n in (y.incident_notes or [])]
+    if sc_bits:
+        sc = f"Safety-car history: {'; '.join(sc_bits[:4])}."
+    else:
+        sc = "No classified SC notes in recent years — treat SC as a low-probability swing factor."
+    summary = f"{undercut} {tyre} {overtake} {sc}"
+    return ArisCircuitNotes(
+        undercut_effectiveness=undercut,
+        tyre_compound_tendencies=tyre,
+        overtaking_difficulty=overtake,
+        sc_probability_history=sc,
+        summary=summary,
+    )
+
+
 def circuit_characteristics(circuit_key: str, year: int | None = None) -> CircuitCharacteristics:
     cfg = _yaml_stem_match(circuit_key)
     turns = len(cfg.corners) if cfg.corners else None
     length_km = (cfg.lap_length_m / 1000.0) if cfg.lap_length_m else None
     deg = {k: float(v) for k, v in (cfg.compound_slopes or {}).items()}
     estimated = cfg.lap_length_m is None and not cfg.corners
+    radii = [getattr(c, "radius_m", None) for c in (cfg.corners or [])]
+    tight = [r for r in radii if r is not None and r < 60]
+    if turns and turns >= 14 and len(tight) >= 6:
+        tyre_stress = "HIGH"
+    elif turns and turns >= 10:
+        tyre_stress = "MEDIUM"
+    else:
+        tyre_stress = "LOW"
+    evo = "HIGH" if (cfg.compound_slopes or {}) else "MEDIUM"
+    notes = _aris_notes_from_cfg(cfg, circuit_key)
+    sectors: list[str] = []
+    if cfg.corners:
+        n = len(cfg.corners)
+        sectors = [
+            f"S1: opening {max(1, n // 3)} corners, set the lap.",
+            f"S2: mid-lap {max(1, n // 3)} corners, tyre energy.",
+            f"S3: final {max(1, n - 2 * (n // 3))} corners onto the straight.",
+        ]
+    key = circuit_key.lower().replace(" ", "").replace("_", "").replace("-", "")
+    drs_known = {
+        "netherlands": 2,
+        "zandvoort": 2,
+        "dutch": 2,
+        "bahrain": 3,
+        "monaco": 1,
+        "monza": 2,
+        "italy": 2,
+    }
+    drs_zones = getattr(cfg, "drs_zones", None) or drs_known.get(key)
     return CircuitCharacteristics(
         circuit_key=circuit_key,
         name=cfg.name,
         country=cfg.country,
         lap_length_km=round(length_km, 3) if length_km else None,
         turns=turns,
-        drs_zones=None,
+        drs_zones=drs_zones,
         pit_loss_seconds=cfg.pit_loss_s,
         total_laps=cfg.total_laps,
-        sector_descriptions=[],
+        tyre_stress_rating=tyre_stress,
+        track_evolution_rating=evo,
+        sector_descriptions=sectors,
         similar_circuits=[],
         corner_types=[],
         known_deg_compounds=deg,
+        aris_notes=notes,
         estimated=estimated,
         reg_note_2026=year == 2026 if year else False,
     )
@@ -218,21 +295,31 @@ def circuit_characteristics(circuit_key: str, year: int | None = None) -> Circui
 
 def circuit_history(circuit_key: str) -> CircuitHistoryResponse:
     years_out: list[CircuitHistoryYear] = []
+    stems = {circuit_key}
+    try:
+        from aris.tracks import _match_track_file
+
+        path = _match_track_file(circuit_key)
+        if path is not None:
+            stems.add(path.stem)
+    except Exception:
+        pass
     for year in (2024, 2025, 2026):
         cal = get_calendar(year)
-        match = next((r for r in cal.rounds if r.circuit_key == circuit_key), None)
+        match = next((r for r in cal.rounds if r.circuit_key in stems), None)
         if match is None:
+            needle = circuit_key.replace("_", "").replace("-", "").lower()
             match = next(
                 (
                     r
                     for r in cal.rounds
-                    if circuit_key.replace("_", "") in (r.circuit_key + r.name + r.city).lower().replace(" ", "").replace("_", "")
+                    if needle in (r.circuit_key + r.name + r.city).lower().replace(" ", "").replace("_", "")
                 ),
                 None,
             )
         if match is None or match.status not in {"COMPLETED", "LIVE"}:
             continue
-        winner = pole = fl = team = None
+        winner = pole = fl = team = weather = None
         try:
             results = session_results(year, match.round_number, "R").results
             if results:
@@ -245,6 +332,15 @@ def circuit_history(circuit_key: str) -> CircuitHistoryResponse:
                 pole = quali[0].driver_code
         except Exception:
             pass
+        try:
+            wx = session_weather(year, match.round_number, "R")
+            if wx.rainfall and any(wx.rainfall):
+                weather = "Wet"
+            elif wx.track_temp and any(t is not None for t in wx.track_temp):
+                temps = [t for t in wx.track_temp if t is not None]
+                weather = f"Dry · {sum(temps) / len(temps):.0f}°C track" if temps else "Dry"
+        except Exception:
+            weather = None
         years_out.append(
             CircuitHistoryYear(
                 year=year,
@@ -252,6 +348,7 @@ def circuit_history(circuit_key: str) -> CircuitHistoryResponse:
                 winner_team=team,
                 pole=pole,
                 fastest_lap=fl,
+                weather=weather,
                 incident_notes=match.notes,
             )
         )
@@ -308,6 +405,24 @@ def compare_drivers(
             if la.sector3_ms and lb.sector3_ms:
                 s3.append(la.sector3_ms - lb.sector3_ms)
     mean = lambda xs: sum(xs) / len(xs) if xs else None
+
+    def _median(xs: list[float]) -> float | None:
+        if not xs:
+            return None
+        s = sorted(xs)
+        mid = len(s) // 2
+        return s[mid] if len(s) % 2 else (s[mid - 1] + s[mid]) / 2
+
+    fl_a = fl_b = None
+    try:
+        if round_number:
+            laps_one = session_laps(year, round_number, "R").laps
+            a_times = [l.lap_time_ms for l in laps_one if l.driver_code == a and l.lap_time_ms]
+            b_times = [l.lap_time_ms for l in laps_one if l.driver_code == b and l.lap_time_ms]
+            fl_a = min(a_times) if a_times else None
+            fl_b = min(b_times) if b_times else None
+    except Exception:
+        pass
     return CompareDriversResponse(
         driver_a=a,
         driver_b=b,
@@ -321,6 +436,9 @@ def compare_drivers(
         sector1_delta_ms=mean(s1),
         sector2_delta_ms=mean(s2),
         sector3_delta_ms=mean(s3),
+        race_pace_median_delta_ms=_median(lap_deltas),
+        fastest_lap_a_ms=fl_a,
+        fastest_lap_b_ms=fl_b,
     )
 
 

@@ -7,7 +7,7 @@ export function useCircuit(circuitKey: string | undefined, year?: number) {
     if (!circuitKey) throw new Error("No circuit");
     const q = year ? `?year=${year}` : "";
     return apiGet<CircuitCharacteristics>(`/api/circuit/${circuitKey}/characteristics${q}`, {
-      timeout: 20_000,
+      timeout: 60_000,
     });
   }, [circuitKey, year]);
   const history = useAsync(async () => {

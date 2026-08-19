@@ -1,4 +1,4 @@
-"""OpenF1 live polling, SSE stream, and replay-as-if-live."""
+"""OpenF1 live polling (async httpx), SSE stream, and replay-as-if-live."""
 
 from __future__ import annotations
 
@@ -7,9 +7,10 @@ import json
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from backend.cache import TTL_LIVE, TTL_WEATHER_LIVE, cached
+import httpx
+
+from backend.cache import TTL_LIVE, TTL_WEATHER_LIVE, cache
 from backend.calendar import now_utc
-from backend.http_client import openf1
 from backend.models import (
     LiveInterval,
     LiveIntervalsResponse,
@@ -24,6 +25,9 @@ from backend.models import (
     RaceControlMessage,
     StintRow,
 )
+from backend.utils import run_sync
+
+OPENF1_BASE = "https://api.openf1.org/v1"
 
 _STATE: dict[str, Any] = {
     "status": None,
@@ -68,17 +72,42 @@ def _session_type_map(name: str, stype: str) -> str:
     return (stype or name or "UNKNOWN")[:4].upper()
 
 
-def peek_live_session(as_of: datetime | None = None) -> dict[str, Any] | None:
+async def _openf1(path: str, params: dict[str, Any] | None = None) -> Any:
+    try:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+            r = await client.get(f"{OPENF1_BASE}/{path.lstrip('/')}", params=params)
+            r.raise_for_status()
+            return r.json()
+    except Exception:
+        return []
+
+
+async def get_live_timing_raw(session_key: int) -> list[dict]:
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        r = await client.get(f"{OPENF1_BASE}/intervals", params={"session_key": session_key})
+        r.raise_for_status()
+        return r.json()
+
+
+async def get_live_positions_raw(session_key: int) -> list[dict]:
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        r = await client.get(f"{OPENF1_BASE}/position", params={"session_key": session_key})
+        r.raise_for_status()
+        return r.json()
+
+
+async def peek_live_session(as_of: datetime | None = None) -> dict[str, Any] | None:
     as_of = now_utc(as_of)
-
-    def _fetch() -> list[dict[str, Any]]:
+    year = as_of.year
+    cache_key = f"openf1:sessions:{year}"
+    sessions = cache.get(cache_key, TTL_LIVE)
+    if sessions is None:
         try:
-            data = openf1("sessions", {"year": as_of.year})
+            data = await _openf1("sessions", {"year": year})
+            sessions = data if isinstance(data, list) else []
+            cache.set(cache_key, sessions)
         except Exception:
-            return []
-        return data if isinstance(data, list) else []
-
-    sessions = cached(f"openf1:sessions:{as_of.year}", TTL_LIVE, _fetch)
+            sessions = []
     hits: list[tuple[float, dict[str, Any]]] = []
     for sess in sessions:
         start = _parse_dt(sess.get("date_start"))
@@ -93,21 +122,21 @@ def peek_live_session(as_of: datetime | None = None) -> dict[str, Any] | None:
     return hits[0][1] if hits else None
 
 
-def peek_live_round(as_of: datetime | None = None) -> tuple[int, int] | None:
+async def peek_live_round(as_of: datetime | None = None) -> tuple[int, int] | None:
     """Best-effort (year, round) for a live OpenF1 session, else None."""
-    sess = peek_live_session(as_of)
+    sess = await peek_live_session(as_of)
     if not sess:
         return None
     year = int(sess.get("year") or now_utc(as_of).year)
     meeting_key = sess.get("meeting_key")
-    try:
-        meetings = cached(
-            f"openf1:meetings:{year}",
-            TTL_LIVE * 20,
-            lambda: openf1("meetings", {"year": year}) or [],
-        )
-    except Exception:
-        meetings = []
+    mkey = f"openf1:meetings:{year}"
+    meetings = cache.get(mkey, TTL_LIVE * 20)
+    if meetings is None:
+        try:
+            meetings = await _openf1("meetings", {"year": year}) or []
+            cache.set(mkey, meetings)
+        except Exception:
+            meetings = []
     name = ""
     for m in meetings if isinstance(meetings, list) else []:
         if m.get("meeting_key") == meeting_key:
@@ -120,7 +149,7 @@ def peek_live_round(as_of: datetime | None = None) -> tuple[int, int] | None:
     try:
         from backend.calendar import _schedule_from_fastf1
 
-        sched = _schedule_from_fastf1(year)
+        sched = await run_sync(_schedule_from_fastf1, year)
         for _, row in sched.iterrows():
             location = str(row.get("Location") or "").lower()
             event = str(row.get("EventName") or "").lower()
@@ -130,7 +159,6 @@ def peek_live_round(as_of: datetime | None = None) -> tuple[int, int] | None:
             if circuit and (circuit in blob or location and location in circuit):
                 return year, int(row["RoundNumber"])
             if not circuit and name:
-                # Fall back to full meeting title only when circuit is missing.
                 if name.lower() in blob:
                     return year, int(row["RoundNumber"])
     except Exception:
@@ -138,15 +166,16 @@ def peek_live_round(as_of: datetime | None = None) -> tuple[int, int] | None:
     return None
 
 
-def _driver_code_map(session_key: int) -> dict[int, str]:
-    def _fetch() -> list[dict[str, Any]]:
+async def _driver_code_map(session_key: int) -> dict[int, str]:
+    key = f"openf1:drivers:{session_key}"
+    rows = cache.get(key, 3600)
+    if rows is None:
         try:
-            data = openf1("drivers", {"session_key": session_key})
+            data = await _openf1("drivers", {"session_key": session_key})
+            rows = data if isinstance(data, list) else []
+            cache.set(key, rows)
         except Exception:
-            return []
-        return data if isinstance(data, list) else []
-
-    rows = cached(f"openf1:drivers:{session_key}", 3600, _fetch)
+            rows = []
     out: dict[int, str] = {}
     for row in rows:
         num = row.get("driver_number")
@@ -195,25 +224,48 @@ def _fastf1_window_live(as_of: datetime) -> LiveStatus | None:
                 continue
             live_s = next((s for s in weekend.sessions if s.status == "LIVE"), None)
             if live_s is None:
+                started = [
+                    s
+                    for s in weekend.sessions
+                    if s.datetime_utc is not None and s.datetime_utc <= as_of
+                ]
+                live_s = max(started, key=lambda s: s.datetime_utc or as_of) if started else None
+            if live_s is None:
                 continue
             elapsed = None
             if live_s.datetime_utc is not None:
                 elapsed = max(0, int((as_of - live_s.datetime_utc).total_seconds()))
+            openf1_names = {
+                "FP1": "Practice 1",
+                "FP2": "Practice 2",
+                "FP3": "Practice 3",
+                "Q": "Qualifying",
+                "SQ": "Sprint Qualifying",
+                "S": "Sprint",
+                "R": "Race",
+            }
+            stype = openf1_names.get(live_s.session_type, live_s.session_name or live_s.session_type)
             return LiveStatus(
                 is_live=True,
                 year=year,
                 round_number=rnd.round_number,
-                session_type=live_s.session_type,
-                session_name=live_s.session_name,
+                session_type=stype,
+                session_name=live_s.session_name or stype,
                 gp_name=rnd.name,
                 session_elapsed_seconds=elapsed,
                 last_success_utc=_STATE.get("last_success"),
                 replay_mode=False,
+                session={
+                    "session_type": stype,
+                    "session_name": live_s.session_name or stype,
+                    "year": year,
+                    "round_number": rnd.round_number,
+                },
             )
     return None
 
 
-def live_status(
+async def live_status(
     as_of: datetime | None = None,
     *,
     replay_session_key: int | None = None,
@@ -227,16 +279,35 @@ def live_status(
             session_name="Replay",
             replay_mode=True,
             last_success_utc=_STATE.get("last_success"),
+            session={"session_key": replay_session_key, "session_type": "Replay"},
         )
-    sess = peek_live_session(as_of)
+    openf1_error: str | None = None
+    try:
+        local = await run_sync(_fastf1_window_live, as_of)
+    except Exception:
+        local = None
+
+    sess = None
+    if local is not None:
+        try:
+            sess = await peek_live_session(as_of)
+        except Exception as extra:
+            sess = None
+            openf1_error = str(extra)
+
     if not sess:
-        fallback = _fastf1_window_live(as_of)
-        if fallback is not None:
-            return fallback
-        return LiveStatus(is_live=False, last_success_utc=_STATE.get("last_success"))
+        if local is not None:
+            return local
+        return LiveStatus(
+            is_live=False,
+            session=None,
+            last_success_utc=_STATE.get("last_success"),
+            error=openf1_error,
+        )
     year = int(sess.get("year") or as_of.year)
-    rnd = peek_live_round(as_of)
-    stype = _session_type_map(str(sess.get("session_name") or ""), str(sess.get("session_type") or ""))
+    rnd = await peek_live_round(as_of)
+    raw_name = str(sess.get("session_name") or "")
+    stype = raw_name or _session_type_map(raw_name, str(sess.get("session_type") or ""))
     start = _parse_dt(sess.get("date_start"))
     elapsed = None
     if start is not None:
@@ -244,11 +315,11 @@ def live_status(
     flag: str = "GREEN"
     try:
         key = sess.get("session_key")
-        rc = cached(
-            f"openf1:rc-flag:{key}",
-            TTL_LIVE,
-            lambda: openf1("race_control", {"session_key": key}) or [],
-        )
+        rc_key = f"openf1:rc-flag:{key}"
+        rc = cache.get(rc_key, TTL_LIVE)
+        if rc is None:
+            rc = await _openf1("race_control", {"session_key": key}) or []
+            cache.set(rc_key, rc)
         if isinstance(rc, list) and rc:
             last = rc[-1]
             cat = str(last.get("category") or last.get("flag") or "").upper()
@@ -265,22 +336,25 @@ def live_status(
         year=year,
         round_number=rnd[1] if rnd else None,
         session_type=stype,
-        session_name=str(sess.get("session_name") or stype),
+        session_name=raw_name or stype,
         session_key=int(sess["session_key"]) if sess.get("session_key") is not None else None,
         gp_name=str(sess.get("circuit_short_name") or sess.get("location") or ""),
         session_elapsed_seconds=elapsed,
         session_flag=flag,  # type: ignore[arg-type]
         last_success_utc=_STATE.get("last_success"),
         replay_mode=False,
+        session=sess,
     )
 
 
-def _timing_from_openf1(session_key: int) -> list[LiveTimingRow]:
-    codes = _driver_code_map(session_key)
-    try:
-        positions = openf1("position", {"session_key": session_key})
-    except Exception:
-        positions = []
+async def _timing_from_openf1(session_key: int) -> list[LiveTimingRow]:
+    codes = await _driver_code_map(session_key)
+    positions, intervals, laps, stints = await asyncio.gather(
+        _openf1("position", {"session_key": session_key}),
+        _openf1("intervals", {"session_key": session_key}),
+        _openf1("laps", {"session_key": session_key}),
+        _openf1("stints", {"session_key": session_key}),
+    )
     latest_pos: dict[int, int] = {}
     if isinstance(positions, list):
         for row in positions:
@@ -289,10 +363,6 @@ def _timing_from_openf1(session_key: int) -> list[LiveTimingRow]:
             if num is None or pos is None:
                 continue
             latest_pos[int(num)] = int(pos)
-    try:
-        intervals = openf1("intervals", {"session_key": session_key})
-    except Exception:
-        intervals = []
     latest_int: dict[int, dict[str, Any]] = {}
     if isinstance(intervals, list):
         for row in intervals:
@@ -300,10 +370,6 @@ def _timing_from_openf1(session_key: int) -> list[LiveTimingRow]:
             if num is None:
                 continue
             latest_int[int(num)] = row
-    try:
-        laps = openf1("laps", {"session_key": session_key})
-    except Exception:
-        laps = []
     last_lap: dict[int, dict[str, Any]] = {}
     best_ms: dict[int, int] = {}
     if isinstance(laps, list):
@@ -318,10 +384,6 @@ def _timing_from_openf1(session_key: int) -> list[LiveTimingRow]:
                 ms = int(float(dur) * 1000)
                 if n not in best_ms or ms < best_ms[n]:
                     best_ms[n] = ms
-    try:
-        stints = openf1("stints", {"session_key": session_key})
-    except Exception:
-        stints = []
     stint_of: dict[int, dict[str, Any]] = {}
     pit_count: dict[int, int] = {}
     if isinstance(stints, list):
@@ -339,8 +401,9 @@ def _timing_from_openf1(session_key: int) -> list[LiveTimingRow]:
         iv = latest_int.get(num) or {}
         st = stint_of.get(num) or {}
         last_ms = int(float(lap["lap_duration"]) * 1000) if lap.get("lap_duration") else None
-        def _sec(key: str) -> int | None:
-            val = lap.get(key)
+
+        def _sec(key: str, lap_row: dict[str, Any] = lap) -> int | None:
+            val = lap_row.get(key)
             return int(float(val) * 1000) if val else None
 
         rows.append(
@@ -373,16 +436,18 @@ def _float(value: Any) -> float | None:
         return None
 
 
-def live_timing(as_of: datetime | None = None, replay_session_key: int | None = None) -> LiveTimingResponse:
-    status = live_status(as_of, replay_session_key=replay_session_key)
+async def live_timing(
+    as_of: datetime | None = None, replay_session_key: int | None = None
+) -> LiveTimingResponse:
+    status = await live_status(as_of, replay_session_key=replay_session_key)
     if not status.is_live or status.session_key is None:
         return LiveTimingResponse(is_live=False, rows=[], last_success_utc=status.last_success_utc)
     try:
-        rows = cached(
-            f"openf1:timing:{status.session_key}",
-            TTL_LIVE,
-            lambda: _timing_from_openf1(status.session_key or 0),
-        )
+        tkey = f"openf1:timing:{status.session_key}"
+        rows = cache.get(tkey, TTL_LIVE)
+        if rows is None:
+            rows = await _timing_from_openf1(status.session_key or 0)
+            cache.set(tkey, rows)
         _STATE["last_success"] = now_utc(as_of)
         return LiveTimingResponse(
             is_live=True,
@@ -399,13 +464,15 @@ def live_timing(as_of: datetime | None = None, replay_session_key: int | None = 
         )
 
 
-def live_positions(as_of: datetime | None = None, replay_session_key: int | None = None) -> LivePositionsResponse:
-    status = live_status(as_of, replay_session_key=replay_session_key)
+async def live_positions(
+    as_of: datetime | None = None, replay_session_key: int | None = None
+) -> LivePositionsResponse:
+    status = await live_status(as_of, replay_session_key=replay_session_key)
     if not status.is_live or status.session_key is None:
         return LivePositionsResponse(is_live=False, positions=[], last_success_utc=status.last_success_utc)
-    codes = _driver_code_map(status.session_key)
+    codes = await _driver_code_map(status.session_key)
     try:
-        loc = openf1("location", {"session_key": status.session_key})
+        loc = await _openf1("location", {"session_key": status.session_key})
     except Exception:
         loc = []
     latest: dict[int, dict[str, Any]] = {}
@@ -430,8 +497,10 @@ def live_positions(as_of: datetime | None = None, replay_session_key: int | None
     )
 
 
-def live_intervals(as_of: datetime | None = None, replay_session_key: int | None = None) -> LiveIntervalsResponse:
-    timing = live_timing(as_of, replay_session_key=replay_session_key)
+async def live_intervals(
+    as_of: datetime | None = None, replay_session_key: int | None = None
+) -> LiveIntervalsResponse:
+    timing = await live_timing(as_of, replay_session_key=replay_session_key)
     return LiveIntervalsResponse(
         is_live=timing.is_live,
         intervals=[
@@ -445,12 +514,14 @@ def live_intervals(as_of: datetime | None = None, replay_session_key: int | None
     )
 
 
-def live_race_control(as_of: datetime | None = None, replay_session_key: int | None = None) -> LiveRaceControlResponse:
-    status = live_status(as_of, replay_session_key=replay_session_key)
+async def live_race_control(
+    as_of: datetime | None = None, replay_session_key: int | None = None
+) -> LiveRaceControlResponse:
+    status = await live_status(as_of, replay_session_key=replay_session_key)
     if not status.is_live or status.session_key is None:
         return LiveRaceControlResponse(is_live=False, messages=[])
     try:
-        raw = openf1("race_control", {"session_key": status.session_key})
+        raw = await _openf1("race_control", {"session_key": status.session_key})
     except Exception:
         raw = []
     messages: list[RaceControlMessage] = []
@@ -468,13 +539,15 @@ def live_race_control(as_of: datetime | None = None, replay_session_key: int | N
     return LiveRaceControlResponse(is_live=True, messages=messages)
 
 
-def live_stints(as_of: datetime | None = None, replay_session_key: int | None = None) -> LiveStintsResponse:
-    status = live_status(as_of, replay_session_key=replay_session_key)
+async def live_stints(
+    as_of: datetime | None = None, replay_session_key: int | None = None
+) -> LiveStintsResponse:
+    status = await live_status(as_of, replay_session_key=replay_session_key)
     if not status.is_live or status.session_key is None:
         return LiveStintsResponse(is_live=False, stints=[])
-    codes = _driver_code_map(status.session_key)
+    codes = await _driver_code_map(status.session_key)
     try:
-        raw = openf1("stints", {"session_key": status.session_key})
+        raw = await _openf1("stints", {"session_key": status.session_key})
     except Exception:
         raw = []
     stints: list[StintRow] = []
@@ -500,18 +573,20 @@ def live_stints(as_of: datetime | None = None, replay_session_key: int | None = 
     return LiveStintsResponse(is_live=True, stints=stints)
 
 
-def live_weather(as_of: datetime | None = None, replay_session_key: int | None = None) -> LiveWeatherResponse:
-    status = live_status(as_of, replay_session_key=replay_session_key)
+async def live_weather(
+    as_of: datetime | None = None, replay_session_key: int | None = None
+) -> LiveWeatherResponse:
+    status = await live_status(as_of, replay_session_key=replay_session_key)
     if not status.is_live or status.session_key is None:
         return LiveWeatherResponse(is_live=False)
-    try:
-        raw = cached(
-            f"openf1:weather:{status.session_key}",
-            TTL_WEATHER_LIVE,
-            lambda: openf1("weather", {"session_key": status.session_key}) or [],
-        )
-    except Exception:
-        raw = []
+    wkey = f"openf1:weather:{status.session_key}"
+    raw = cache.get(wkey, TTL_WEATHER_LIVE)
+    if raw is None:
+        try:
+            raw = await _openf1("weather", {"session_key": status.session_key}) or []
+            cache.set(wkey, raw)
+        except Exception:
+            raw = []
     last = raw[-1] if isinstance(raw, list) and raw else {}
     return LiveWeatherResponse(
         is_live=True,
@@ -527,8 +602,8 @@ def live_weather(as_of: datetime | None = None, replay_session_key: int | None =
 
 async def sse_generator(replay_session_key: int | None = None):
     while True:
-        status = live_status(replay_session_key=replay_session_key)
-        timing = live_timing(replay_session_key=replay_session_key)
+        status = await live_status(replay_session_key=replay_session_key)
+        timing = await live_timing(replay_session_key=replay_session_key)
         payload = {
             "status": status.model_dump(mode="json"),
             "timing": timing.model_dump(mode="json"),

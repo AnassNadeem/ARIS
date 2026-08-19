@@ -14,6 +14,10 @@ def check_triggers(session: RaceEngineSession, event: SectorEvent) -> DecisionKi
         return None
 
     lap = event.index.lap_number
+    if lap != session.last_trigger_lap:
+        session.fired_this_lap.clear()
+        session.last_trigger_lap = lap
+
     # Field clock can advance past a DNF'd focus driver's last lap — skip
     # triggers rather than building a synthetic clamped state that would
     # re-fire pit/tyre thresholds forever.
@@ -24,14 +28,18 @@ def check_triggers(session: RaceEngineSession, event: SectorEvent) -> DecisionKi
     state = session.build_state(lap)
 
     if lap == 1 and event.is_new_lap and 1 not in session.triggered_laps:
-        session.triggered_laps.add(1)
-        return DecisionKind.CONFIRM_STRAT
+        if "CONFIRM_STRAT" not in session.fired_this_lap:
+            session.fired_this_lap.add("CONFIRM_STRAT")
+            session.triggered_laps.add(1)
+            return DecisionKind.CONFIRM_STRAT
 
     if (
         state.track_status
         and str(state.track_status) not in ("1", "None")
         and lap not in session.triggered_laps
+        and "SC" not in session.fired_this_lap
     ):
+        session.fired_this_lap.add("SC")
         session.triggered_laps.add(lap)
         return DecisionKind.SC
 
@@ -39,11 +47,13 @@ def check_triggers(session: RaceEngineSession, event: SectorEvent) -> DecisionKi
     thresholds = (0.25, 0.5, 0.75)
     for thr in thresholds:
         key = int(thr * 1000) + lap
-        if life_pct >= thr and key not in session.triggered_laps:
+        if life_pct >= thr and key not in session.triggered_laps and "PIT" not in session.fired_this_lap:
+            session.fired_this_lap.add("PIT")
             session.triggered_laps.add(key)
             return DecisionKind.PIT
 
-    if state.undercut_threat and lap not in session.triggered_laps:
+    if state.undercut_threat and lap not in session.triggered_laps and "PIT" not in session.fired_this_lap:
+        session.fired_this_lap.add("PIT")
         session.triggered_laps.add(lap)
         return DecisionKind.PIT
 
@@ -51,7 +61,8 @@ def check_triggers(session: RaceEngineSession, event: SectorEvent) -> DecisionKi
     gap_ahead = gaps.get("gap_ahead_s")
     if gap_ahead is not None and gap_ahead < 1.0:
         key = 9000 + lap
-        if key not in session.triggered_laps:
+        if key not in session.triggered_laps and "TACTICAL" not in session.fired_this_lap:
+            session.fired_this_lap.add("TACTICAL")
             session.triggered_laps.add(key)
             return DecisionKind.TACTICAL
 

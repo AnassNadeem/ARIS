@@ -174,7 +174,7 @@ export function Panel({
           {right}
         </div>
       )}
-      <div style={{ flex: 1, minHeight: 0 }}>{children}</div>
+      <div style={{ flex: 1, minHeight: 0, height: "100%", display: "flex", flexDirection: "column" }}>{children}</div>
     </div>
   );
 }
@@ -328,10 +328,32 @@ export function Skeleton({ height = 12, width = "100%" }: { height?: number; wid
   );
 }
 
+export function SkeletonPanel({ rows = 8, label }: { rows?: number; label?: string }) {
+  return (
+    <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+      {label && (
+        <div style={{ fontFamily: T.mono, fontSize: 11, color: C.mist, letterSpacing: "0.04em", marginBottom: 4 }}>
+          {label}
+        </div>
+      )}
+      {Array.from({ length: rows }).map((_, i) => (
+        <Skeleton key={i} height={12} width={`${92 - (i % 4) * 8}%`} />
+      ))}
+    </div>
+  );
+}
+
+function friendlyError(message: string): string {
+  if (/timeout|abort|failed to fetch|network error/i.test(message)) {
+    return "Could not load data. This may take a moment on first load as data is being cached.";
+  }
+  return message.replace(/Timeout \([^)]+\)\s*/gi, "").replace(/Failed to fetch/gi, "").trim() || message;
+}
+
 export function PanelError({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
     <div style={{ padding: 16 }}>
-      <div style={{ fontFamily: T.body, fontSize: 12, color: C.caution, marginBottom: 8 }}>{message}</div>
+      <div style={{ fontFamily: T.body, fontSize: 12, color: C.caution, marginBottom: 8 }}>{friendlyError(message)}</div>
       <button
         onClick={onRetry}
         style={{
@@ -349,6 +371,10 @@ export function PanelError({ message, onRetry }: { message: string; onRetry: () 
       </button>
     </div>
   );
+}
+
+export function ErrorPanel({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return <PanelError message={message} onRetry={onRetry} />;
 }
 
 export function EmptyState({ title, body }: { title: string; body: string }) {

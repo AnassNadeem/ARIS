@@ -130,7 +130,7 @@ def _drivers_from_fastf1(year: int) -> list[Driver]:
                     driver_code=code,
                     full_name=str(row.get("FullName") or code),
                     team_name=str(row.get("TeamName") or ""),
-                    team_colour=None,
+                    team_colour=team_colour(str(row.get("TeamName") or "")),
                     driver_number=int(row["DriverNumber"]) if row.get("DriverNumber") == row.get("DriverNumber") else None,
                     estimated=False,
                 )
@@ -173,9 +173,15 @@ def get_drivers(year: int) -> DriversResponse:
         drivers = _drivers_estimated(year)
         source = "estimated"
         label = "[ESTIMATED — API unavailable]"
+    filled: list[Driver] = []
+    for drv in drivers:
+        if drv.team_colour:
+            filled.append(drv)
+            continue
+        filled.append(drv.model_copy(update={"team_colour": team_colour(drv.team_name)}))
     return DriversResponse(
         year=year,
-        drivers=drivers,
+        drivers=filled,
         source=source,  # type: ignore[arg-type]
         estimated_label=label,
     )
@@ -184,12 +190,16 @@ def get_drivers(year: int) -> DriversResponse:
 def team_colour(team_name: str) -> str | None:
     if not team_name:
         return None
-    if team_name.lower() in _TEAM_COLOUR_FALLBACK:
-        return _TEAM_COLOUR_FALLBACK[team_name.lower()]
+    needle = team_name.lower().strip()
+    if needle in _TEAM_COLOUR_FALLBACK:
+        return _TEAM_COLOUR_FALLBACK[needle]
     notes = load_notes()
     for year_block in (notes.get("estimated_rosters") or {}).values():
         for t in year_block.get("teams") or []:
-            if str(t.get("name") or "").lower() == team_name.lower():
+            name = str(t.get("name") or "").lower()
+            if not name:
+                continue
+            if name == needle or name in needle or needle in name:
                 return _hex(t.get("colour"))
     return None
 
@@ -203,6 +213,45 @@ def _jolpica(path: str) -> dict[str, Any] | None:
         return None
 
 
+def _season_result_extras(year: int) -> dict[str, dict[str, int]]:
+    """Podiums, fastest laps, and DNFs from Jolpica race results."""
+    from backend.http_client import JOLPICA, get_json
+
+    def _fetch() -> dict[str, Any]:
+        try:
+            return get_json(f"{JOLPICA}/{year}/results.json", {"limit": 1000})
+        except Exception:
+            return {}
+
+    data = cached(f"jolpica:{year}:results", TTL_STANDINGS, _fetch)
+    extras: dict[str, dict[str, int]] = {}
+    try:
+        races = data["MRData"]["RaceTable"]["Races"]
+    except (KeyError, TypeError):
+        return extras
+    for race in races:
+        for res in race.get("Results") or []:
+            driver = res.get("Driver") or {}
+            code = str(driver.get("code") or driver.get("driverId") or "")[:3].upper()
+            if not code:
+                continue
+            bucket = extras.setdefault(code, {"podiums": 0, "fastest_laps": 0, "dnfs": 0})
+            try:
+                pos = int(res.get("position") or 99)
+            except (TypeError, ValueError):
+                pos = 99
+            if pos <= 3:
+                bucket["podiums"] += 1
+            fl = res.get("FastestLap") or {}
+            if str(fl.get("rank") or "") == "1":
+                bucket["fastest_laps"] += 1
+            status = str(res.get("status") or "")
+            finished = status.lower() == "finished" or status.startswith("+")
+            if not finished:
+                bucket["dnfs"] += 1
+    return extras
+
+
 def driver_standings(year: int) -> DriverStandingsResponse:
     data = _jolpica(f"{year}/driverStandings")
     if not data:
@@ -212,6 +261,7 @@ def driver_standings(year: int) -> DriverStandingsResponse:
         table = lists[0]["DriverStandings"] if lists else []
     except (KeyError, IndexError, TypeError):
         return DriverStandingsResponse(year=year, standings=[], source="unavailable")
+    extras = _season_result_extras(year)
     rows: list[DriverStanding] = []
     leader_pts = 0.0
     for entry in table:
@@ -223,6 +273,7 @@ def driver_standings(year: int) -> DriverStandingsResponse:
         wins = int(entry.get("wins") or 0)
         code = str(driver.get("code") or driver.get("driverId") or "")[:3].upper()
         team = str(cons.get("name") or "")
+        extra = extras.get(code, {})
         rows.append(
             DriverStanding(
                 position=int(entry.get("position") or len(rows) + 1),
@@ -232,6 +283,9 @@ def driver_standings(year: int) -> DriverStandingsResponse:
                 team_colour=team_colour(team),
                 points=pts,
                 wins=wins,
+                podiums=int(extra.get("podiums") or 0),
+                fastest_laps=int(extra.get("fastest_laps") or 0),
+                dnfs=int(extra.get("dnfs") or 0),
                 gap_to_leader=round(leader_pts - pts, 1),
             )
         )
@@ -273,11 +327,21 @@ def constructor_standings(year: int) -> ConstructorStandingsResponse:
                 gap_to_leader=round(leader - pts, 1),
             )
         )
+    champ_name = rows[0].team_name if rows and year <= 2025 else None
+    dstand = driver_standings(year)
+    by_team: dict[str, list[str]] = {}
+    podiums_by_team: dict[str, int] = {}
+    for d in dstand.standings:
+        by_team.setdefault(d.team_name, []).append(d.driver_code)
+        podiums_by_team[d.team_name] = podiums_by_team.get(d.team_name, 0) + int(d.podiums or 0)
+    for row in rows:
+        row.drivers = by_team.get(row.team_name, [])
+        row.podiums = podiums_by_team.get(row.team_name, 0)
     return ConstructorStandingsResponse(
         year=year,
         standings=rows,
         source="jolpica",
-        champion_name=rows[0].team_name if rows and year <= 2025 else None,
+        champion_name=champ_name,
     )
 
 

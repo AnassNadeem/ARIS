@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   Area,
   AreaChart,
   CartesianGrid,
   Line,
   LineChart,
+  ReferenceArea,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -17,14 +18,21 @@ import { useCircuit } from "../hooks/useCircuit";
 import { useLiveTiming } from "../hooks/useLiveTiming";
 import { useReplayTiming, useSessionLaps } from "../hooks/useSession";
 import { useStandings } from "../hooks/useStandings";
-import { C, SPEED_OPTIONS, T, compoundLetter } from "../theme";
-import { Chip, EmptyState, LiveDot, Panel, PanelError, ReasoningBar, Skeleton, Stat, TabBar, TyreBadge, formatMs } from "../components/atoms";
+import { C, SPEED_MS, SPEED_OPTIONS, T, compoundLetter } from "../theme";
+import { Chip, EmptyState, LiveDot, Panel, PanelError, ReasoningBar, Skeleton, SkeletonPanel, Stat, TabBar, TyreBadge, formatMs } from "../components/atoms";
 import { TimingTower } from "../components/TimingTower";
 import { TrackMap } from "../components/TrackMap";
+import { CarFilter } from "../components/CarFilter";
+import { CommsPanel, type CommMsg } from "../components/CommsPanel";
+import { BoxBanner } from "../components/BoxBanner";
+import { LapTimeChart } from "../components/LapTimeChart";
+import { CircuitOutline } from "../components/CircuitSvg";
+import { useCircuitMap } from "../hooks/useCircuitMap";
+import { useDrivers } from "../hooks/useDrivers";
 
 const CHART_COLORS = [C.blue, C.signal, C.green, C.caution, C.purple, "#FF8000"];
 
-type Msg = { id: number; type: string; text: string };
+type Msg = CommMsg;
 
 export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDebrief: () => void }) {
   const isLive = config.mode === "live";
@@ -44,9 +52,44 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
   const live = useLiveTiming(isLive);
   const replay = useReplayTiming(config.year, config.round.round_number, "R", lap, !isLive);
   const laps = useSessionLaps(config.year, config.round.round_number, "R", !isLive);
-  const rec = useARISRecommend(config.year, config.round.round_number, config.driver, lap, !isLive);
+  const rec = useARISRecommend(
+    config.year,
+    config.round.round_number,
+    config.driver,
+    lap,
+    true,
+    isLive ? "live" : "replay",
+    live.status?.session_key,
+  );
   const standings = useStandings(config.year);
   const circuit = useCircuit(config.round.circuit_key, config.year);
+  const drivers = useDrivers(config.year);
+  const [scRanges, setScRanges] = useState<[number, number][]>([]);
+
+  useEffect(() => {
+    apiGet<{ messages: { lap: number | null; flag: string | null; category: string | null; message: string }[] }>(
+      `/api/session/${config.year}/${config.round.round_number}/R/messages`,
+      { timeout: 60_000 },
+    )
+      .then((d) => {
+        const ranges: [number, number][] = [];
+        let start: number | null = null;
+        for (const m of d.messages) {
+          const blob = `${m.flag || ""} ${m.category || ""} ${m.message || ""}`.toUpperCase();
+          const lapNo = m.lap ?? 0;
+          if ((blob.includes("SAFETY CAR") || blob.includes("VSC") || blob === "SC") && start == null) {
+            start = lapNo || 1;
+          }
+          if (start != null && (blob.includes("CLEAR") || blob.includes("GREEN") || blob.includes("END"))) {
+            ranges.push([start, lapNo || start + 1]);
+            start = null;
+          }
+        }
+        if (start != null) ranges.push([start, start + 3]);
+        setScRanges(ranges);
+      })
+      .catch(() => undefined);
+  }, [config.year, config.round.round_number]);
 
   const totalLaps = circuit.chars.status === "ok" ? circuit.chars.data.total_laps ?? 60 : 60;
   const rows: LiveTimingRow[] = isLive ? live.timing?.rows ?? [] : replay.status === "ok" ? replay.data.rows : [];
@@ -59,31 +102,55 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
     return () => window.clearTimeout(id);
   }, [lap]);
 
-  const speedMs: Record<string, number> = {
-    "1×": 90000,
-    "2×": 45000,
-    "5×": 18000,
-    "10×": 9000,
-    "25×": 5000,
-    "50×": 3000,
-  };
-
   useEffect(() => {
     if (isLive || !running) return;
     const id = window.setInterval(() => {
       setLap((n) => Math.min(totalLaps, n + 1));
-    }, speedMs[speed] ?? 90000);
+    }, SPEED_MS[speed] ?? 1500);
     return () => window.clearInterval(id);
   }, [running, speed, isLive, totalLaps]);
+
+  const lastRecId = useRef<string | null>(null);
+  const lastAction = useRef<string | null>(null);
+  const lastEventsLap = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (isLive) return;
+    if (lastEventsLap.current === lap) return;
+    lastEventsLap.current = lap;
+    apiGet<{ events: { type: string; text: string }[] }>(
+      `/api/session/${config.year}/${config.round.round_number}/R/events/${lap}?driver_code=${config.driver}`,
+      { timeout: 30_000 },
+    )
+      .then((d) => {
+        if (!d.events.length) return;
+        setMessages((m) => [
+          ...m,
+          ...d.events.map((e, i) => ({
+            id: m.length + i + 1,
+            type: e.type.toLowerCase() === "alert" ? "alert" : "intel",
+            text: e.text,
+          })),
+        ]);
+      })
+      .catch(() => undefined);
+  }, [lap, isLive, config.year, config.round.round_number, config.driver]);
 
   useEffect(() => {
     if (rec.status !== "ok") return;
     const r = rec.data;
+    const stayRepeat = r.action === "STAY_OUT" && lastAction.current === "STAY_OUT";
+    if (r.decision_record_id === lastRecId.current) return;
+    if (stayRepeat) {
+      lastRecId.current = r.decision_record_id;
+      return;
+    }
+    lastRecId.current = r.decision_record_id;
+    lastAction.current = r.action;
     setMessages((m) => {
-      if (m.some((x) => x.text.includes(r.decision_record_id))) return m;
       const next: Msg[] = [
         ...m,
-        { id: m.length + 1, type: "recommend", text: `${r.action}: ${r.reasoning} [${r.decision_record_id}]` },
+        { id: m.length + 1, type: "recommend", text: `${r.action}: ${r.reasoning}` },
       ];
       if (r.wet_reduced_confidence) {
         next.push({ id: next.length + 1, type: "alert", text: "[WET: REDUCED CONFIDENCE]" });
@@ -97,10 +164,10 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
       }
       return next;
     });
-  }, [rec.status, rec.status === "ok" ? rec.data.decision_record_id : null, config.arisMode]);
+  }, [rec.status, rec.status === "ok" ? rec.data.decision_record_id : null, rec.status === "ok" ? rec.data.action : null, config.arisMode]);
 
   const chartData = useMemo(() => buildLapChart(laps.status === "ok" ? laps.data : null, chartLap), [laps, chartLap]);
-  const codes = chartData.codes.slice(0, 6);
+  const codes = chartData.codes;
 
   const sendChat = async () => {
     const q = chatInput.trim();
@@ -109,8 +176,8 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
     setMessages((m) => [...m, { id: m.length + 1, type: "user", text: q }]);
     try {
       const ans = await apiGet<ChatResponse>(
-        `/api/aris/chat?question=${encodeURIComponent(q)}&driver_code=${config.driver}`,
-        { timeout: 20_000 },
+        `/api/aris/chat?question=${encodeURIComponent(q)}&driver_code=${config.driver}&year=${config.year}&round_number=${config.round.round_number}&current_lap=${lap}`,
+        { timeout: 60_000 },
       );
       setMessages((m) => [
         ...m,
@@ -231,7 +298,23 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
           onRetry={rec.retry}
         />
       )}
-      {config.arisMode === "assisted" && rec.status === "ok" && pitDecision === null && (
+      {config.arisMode === "assisted" && rec.status === "ok" && pitDecision === null && (rec.data.action === "BOX" || rec.data.action === "PIT_SOON") && (
+        <BoxBanner
+          rec={rec.data}
+          onBox={(compound) => {
+            setPitDecision("pit");
+            setMessages((m) => [
+              ...m,
+              { id: m.length + 1, type: "confirm", text: `BOX BOX — ${compound} (user confirmed)` },
+            ]);
+          }}
+          onStay={() => {
+            setPitDecision("stay");
+            setMessages((m) => [...m, { id: m.length + 1, type: "alert", text: "STAY OUT — user override" }]);
+          }}
+        />
+      )}
+      {config.arisMode === "assisted" && rec.status === "ok" && pitDecision === null && rec.data.action !== "BOX" && rec.data.action !== "PIT_SOON" && (
         <div
           style={{
             padding: "10px 16px",
@@ -243,33 +326,10 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
           }}
         >
           <span style={{ fontFamily: T.mono, fontSize: 11, color: C.signal }}>
-            ARIS RECOMMENDS: {rec.data.action}
-            {rec.data.compound_recommendation ? ` → ${rec.data.compound_recommendation}` : ""} — {rec.data.reasoning}
+            ARIS RECOMMENDS: {rec.data.action} — {rec.data.reasoning}
           </span>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <div style={{ minWidth: 220 }}>
-              <ReasoningBar paceGain={rec.data.pace_gain_s} pitCost={rec.data.pit_cost_s} />
-            </div>
-            <button
-              onClick={() => setPitDecision("pit")}
-              style={{ padding: "5px 16px", background: C.green, border: "none", color: C.ink, fontFamily: T.mono, fontSize: 10, cursor: "pointer" }}
-            >
-              ✓ BOX BOX
-            </button>
-            <button
-              onClick={() => setPitDecision("stay")}
-              style={{
-                padding: "5px 16px",
-                background: "transparent",
-                border: `1px solid ${C.caution}`,
-                color: C.caution,
-                fontFamily: T.mono,
-                fontSize: 10,
-                cursor: "pointer",
-              }}
-            >
-              STAY OUT
-            </button>
+          <div style={{ minWidth: 220 }}>
+            <ReasoningBar paceGain={rec.data.pace_gain_s} pitCost={rec.data.pit_cost_s} />
           </div>
         </div>
       )}
@@ -301,42 +361,30 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
               padding: 10,
             }}
           >
-            <Panel
-              title="TRACK MAP"
-              style={{ gridRow: "1 / 2" }}
-              right={
-                <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                  {rows.slice(0, 12).map((c) => (
-                    <button
-                      key={c.driver_code}
-                      onClick={() =>
-                        setHiddenCars((h) =>
-                          h.includes(c.driver_code) ? h.filter((x) => x !== c.driver_code) : [...h, c.driver_code],
-                        )
-                      }
-                      style={{
-                        fontSize: 8,
-                        fontFamily: T.mono,
-                        border: `1px solid ${hiddenCars.includes(c.driver_code) ? C.border : c.team_colour || C.mist}`,
-                        background: "transparent",
-                        color: hiddenCars.includes(c.driver_code) ? C.faint : C.paper,
-                        cursor: "pointer",
-                      }}
-                    >
-                      {c.driver_code}
-                    </button>
-                  ))}
+            <Panel title="TRACK MAP" style={{ gridRow: "1 / 2" }}>
+              <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+                <div style={{ flex: 1, minHeight: 0 }}>
+                  <TrackMap
+                    year={config.year}
+                    round={config.round.round_number}
+                    cars={rows}
+                    focusCode={config.driver}
+                    hiddenCars={hiddenCars}
+                    lap={lap}
+                    live={isLive}
+                    speed={speed}
+                  />
                 </div>
-              }
-            >
-              <TrackMap
-                year={config.year}
-                round={config.round.round_number}
-                sessionType="R"
-                cars={rows}
-                focusCode={config.driver}
-                hiddenCars={hiddenCars}
-              />
+                {drivers.status === "ok" && (
+                  <CarFilter
+                    drivers={drivers.data.drivers}
+                    hidden={hiddenCars}
+                    onToggle={(code) =>
+                      setHiddenCars((h) => (h.includes(code) ? h.filter((x) => x !== code) : [...h, code]))
+                    }
+                  />
+                )}
+              </div>
             </Panel>
             <Panel title="TIMING TOWER">
               {replay.status === "error" && !isLive && <PanelError message={replay.error} onRetry={replay.retry} />}
@@ -352,25 +400,30 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
               />
             </Panel>
             <Panel title="ARIS COMMS" style={{ gridRow: "1 / 3" }} right={<Chip tone="signal" size="xs">{config.arisMode.toUpperCase()}</Chip>}>
-              <Comms messages={messages} input={chatInput} setInput={setChatInput} onSend={() => void sendChat()} />
+              <CommsPanel messages={messages} input={chatInput} setInput={setChatInput} onSend={() => void sendChat()} />
             </Panel>
-            <Panel title="LAP TIME TREND">
-              {laps.status === "loading" && <div style={{ padding: 12 }}><Skeleton height={140} /></div>}
-              {laps.status === "error" && <PanelError message={laps.error} onRetry={laps.retry} />}
-              {laps.status === "ok" && (
-                <ResponsiveContainer width="100%" height={170}>
-                  <LineChart data={chartData.rows} margin={{ top: 8, right: 12, left: -10, bottom: 0 }}>
-                    <CartesianGrid stroke={C.ghost} strokeDasharray="2 4" vertical={false} />
-                    <XAxis dataKey="lap" tick={{ fill: C.faint, fontSize: 9 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: C.faint, fontSize: 9 }} domain={["dataMin - 0.3", "dataMax + 0.5"]} axisLine={false} tickLine={false} />
-                    <Tooltip contentStyle={{ background: C.panel2, border: `1px solid ${C.border}`, fontSize: 10 }} />
-                    {codes.map((code, i) => (
-                      <Line key={code} type="monotone" dataKey={code} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={code === config.driver ? 2.2 : 1.2} dot={false} isAnimationActive={false} />
-                    ))}
-                  </LineChart>
-                </ResponsiveContainer>
-              )}
-            </Panel>
+            {(() => {
+              const colourBy = new Map(rows.map((r) => [r.driver_code, r.team_colour || C.signal]));
+              if (drivers.status === "ok") {
+                for (const d of drivers.data.drivers) {
+                  if (d.team_colour) colourBy.set(d.driver_code, d.team_colour);
+                }
+              }
+              const pitLaps =
+                laps.status === "ok"
+                  ? [...new Set(laps.data.laps.filter((l) => l.pit_in_lap).map((l) => l.lap_number))]
+                  : [];
+              return (
+                <LapTimeChart
+                  laps={laps}
+                  upTo={chartLap}
+                  focus={config.driver}
+                  colourBy={colourBy}
+                  pitLaps={pitLaps}
+                  scRanges={scRanges}
+                />
+              );
+            })()}
             <Panel title={`TYRE STATUS · ${config.driver}`}>
               <div style={{ padding: 14 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -407,12 +460,15 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
         {mainTab === "strategy" && (
           <div style={{ height: "100%", overflow: "auto", padding: 14 }}>
             <TabBar
-              tabs={[["h2h", "HEAD-TO-HEAD"], ["whatif", "WHAT-IF"], ["field", "FIELD STRATEGY"]]}
+              tabs={[["h2h", "HEAD-TO-HEAD"], ["three", "3-WAY SIM"], ["whatif", "WHAT-IF"], ["field", "FIELD STRATEGY"]]}
               active={simTab}
               onChange={setSimTab}
             />
             {simTab === "h2h" && (
-              <H2H config={config} codes={codes} chartData={chartData} />
+              <H2H config={config} codes={chartData.codes} chartData={chartData} rows={rows} standings={standings} />
+            )}
+            {simTab === "three" && (
+              <ThreeWay config={config} rows={rows} codes={chartData.codes} />
             )}
             {simTab === "whatif" && (
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
@@ -462,7 +518,7 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
           </div>
         )}
 
-        {mainTab === "telemetry" && <TelemetryPane config={config} codes={codes} />}
+        {mainTab === "telemetry" && <TelemetryPane config={config} codes={codes} rows={rows} />}
 
         {mainTab === "ops" && isLive && <OpsPane />}
       </div>
@@ -499,80 +555,6 @@ function buildLapChart(data: LapsResponse | null, upTo: number) {
     byLap.set(lap.lap_number, row);
   }
   return { rows: [...byLap.values()].sort((a, b) => a.lap - b.lap), codes };
-}
-
-function Comms({
-  messages,
-  input,
-  setInput,
-  onSend,
-}: {
-  messages: Msg[];
-  input: string;
-  setInput: (s: string) => void;
-  onSend: () => void;
-}) {
-  const border: Record<string, string> = {
-    intel: C.mist,
-    recommend: C.signal,
-    alert: C.caution,
-    confirm: C.green,
-    user: C.blue,
-    aris_response: C.purple,
-  };
-  const label: Record<string, string> = {
-    intel: "◉ INTEL",
-    recommend: "⚡ ARIS RECOMMENDS",
-    alert: "⚠ ALERT",
-    confirm: "✓ CONFIRM",
-    user: "YOU",
-    aris_response: "ARIS RESPONSE",
-  };
-  return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <div style={{ flex: 1, overflow: "auto", padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
-        {messages.length === 0 && (
-          <EmptyState title="No messages yet" body="Recommendations appear as the replay clock advances. Ask ARIS below." />
-        )}
-        {messages.map((m) => (
-          <div
-            key={m.id}
-            style={{
-              padding: "8px 10px",
-              borderRadius: 4,
-              background: C.panel2,
-              borderLeft: `3px solid ${border[m.type] || C.border}`,
-            }}
-          >
-            <div style={{ fontFamily: T.mono, fontSize: 8, color: C.faint, marginBottom: 3 }}>{label[m.type] || "ARIS"}</div>
-            <div style={{ fontFamily: T.body, fontSize: 11.5, color: C.paper, lineHeight: 1.5 }}>{m.text}</div>
-          </div>
-        ))}
-      </div>
-      <div style={{ padding: 8, borderTop: `1px solid ${C.border}`, display: "flex", gap: 6 }}>
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && onSend()}
-          placeholder="Ask ARIS anything…"
-          style={{
-            flex: 1,
-            background: C.raised,
-            border: `1px solid ${C.border}`,
-            borderRadius: 3,
-            padding: "6px 10px",
-            color: C.paper,
-            fontFamily: T.body,
-            fontSize: 11,
-            outline: "none",
-          }}
-        />
-        <button onClick={onSend} style={{ padding: "6px 10px", background: C.signal, border: "none", borderRadius: 3, cursor: "pointer", color: C.ink, fontFamily: T.mono, fontSize: 10 }}>
-          →
-        </button>
-      </div>
-    </div>
-  );
 }
 
 function AnalyticsPane({
@@ -643,7 +625,12 @@ function AnalyticsPane({
         )}
         {tab === "standings" && (
           <Panel title="DRIVERS CHAMPIONSHIP">
-            {standings.drivers.status === "loading" && <div style={{ padding: 12 }}>{Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} height={16} />)}</div>}
+            {standings.drivers.status === "loading" && (
+              <SkeletonPanel
+                rows={8}
+                label="Loading standings — this may take a moment on first load as data is being cached..."
+              />
+            )}
             {standings.drivers.status === "error" && <PanelError message={standings.drivers.error} onRetry={standings.drivers.retry} />}
             {standings.drivers.status === "ok" && standings.drivers.data.standings.length === 0 && (
               <EmptyState title="Standings unavailable" body="Jolpica returned no championship data for this year." />
@@ -675,31 +662,10 @@ function AnalyticsPane({
         {tab === "gaps" && <GapPane year={config.year} round={config.round.round_number} lap={lap} />}
         {tab === "positions" && <PosPane year={config.year} round={config.round.round_number} lap={lap} codes={codes} />}
         {tab === "tyres" && (
-          <Panel title="TYRE STRATEGY">
-            <TyrePane year={config.year} round={config.round.round_number} rec={rec} />
-          </Panel>
+          <TyreAnalysis config={config} rec={rec} rows={rows} />
         )}
         {tab === "track" && (
-          <Panel title={`${config.round.circuit_name}`}>
-            {circuit.chars.status === "ok" ? (
-              <div style={{ padding: 14 }}>
-                {[
-                  ["Length", circuit.chars.data.lap_length_km ? `${circuit.chars.data.lap_length_km} km` : "—"],
-                  ["Turns", String(circuit.chars.data.turns ?? "—")],
-                  ["Pit loss", circuit.chars.data.pit_loss_seconds != null ? `~${circuit.chars.data.pit_loss_seconds}s` : "—"],
-                ].map(([k, v]) => (
-                  <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0" }}>
-                    <span style={{ color: C.mist }}>{k}</span>
-                    <span style={{ fontFamily: T.mono }}>{v}</span>
-                  </div>
-                ))}
-              </div>
-            ) : circuit.chars.status === "error" ? (
-              <PanelError message={circuit.chars.error} onRetry={circuit.chars.retry} />
-            ) : (
-              <div style={{ padding: 14 }}><Skeleton height={80} /></div>
-            )}
-          </Panel>
+          <TrackInfoTab config={config} circuit={circuit} />
         )}
       </div>
     </div>
@@ -760,128 +726,238 @@ function PosPane({ year, round, lap, codes }: { year: number; round: number; lap
   );
 }
 
-function TyrePane({ year, round, rec }: { year: number; round: number; rec: RecommendResponse | null }) {
-  const [stints, setStints] = useState<{ driver_code: string; compound: string | null; lap_start: number; lap_end: number }[] | null>(null);
-  useEffect(() => {
-    apiGet<{ stints: { driver_code: string; compound: string | null; lap_start: number; lap_end: number }[] }>(
-      `/api/race/${year}/${round}/tyre-strategy`,
-      { timeout: 120_000 },
-    )
-      .then((d) => setStints(d.stints))
-      .catch(() => setStints([]));
-  }, [year, round]);
-  if (!stints) return <Skeleton height={120} />;
-  return (
-    <div style={{ padding: 14 }}>
-      {rec && <ReasoningBar paceGain={rec.pace_gain_s} pitCost={rec.pit_cost_s} label />}
-      {stints.slice(0, 24).map((s, i) => (
-        <div key={i} style={{ display: "flex", gap: 8, padding: "4px 0", fontFamily: T.mono, fontSize: 11 }}>
-          <span style={{ width: 36 }}>{s.driver_code}</span>
-          <TyreBadge compound={s.compound} size="sm" />
-          <span style={{ color: C.mist }}>
-            L{s.lap_start}–{s.lap_end}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function H2H({
   config,
   codes,
   chartData,
+  rows,
+  standings,
 }: {
   config: SessionConfig;
   codes: string[];
   chartData: { rows: Record<string, number>[] };
+  rows: LiveTimingRow[];
+  standings: ReturnType<typeof useStandings>;
 }) {
-  const b = codes.find((c) => c !== config.driver) || codes[0];
-  const [cmp, setCmp] = useState<{ quali_wins_a: number; quali_wins_b: number; race_wins_a: number; race_wins_b: number; avg_lap_delta_ms: number | null } | null>(null);
+  const p2 =
+    standings.drivers.status === "ok"
+      ? standings.drivers.data.standings.find((s) => s.driver_code !== config.driver)?.driver_code
+      : undefined;
+  const defaultB =
+    p2 ||
+    rows.find((r) => r.driver_code !== config.driver)?.driver_code ||
+    codes.find((c) => c !== config.driver) ||
+    codes[0];
+  const [a, setA] = useState(config.driver);
+  const [b, setB] = useState(defaultB || "");
+  const [cmp, setCmp] = useState<{
+    quali_wins_a: number;
+    quali_wins_b: number;
+    race_wins_a: number;
+    race_wins_b: number;
+    avg_lap_delta_ms: number | null;
+    race_pace_median_delta_ms?: number | null;
+    fastest_lap_a_ms?: number | null;
+    fastest_lap_b_ms?: number | null;
+  } | null>(null);
   useEffect(() => {
-    if (!b) return;
-    apiGet<{ quali_wins_a: number; quali_wins_b: number; race_wins_a: number; race_wins_b: number; avg_lap_delta_ms: number | null }>(`/api/compare/drivers?driver_a=${config.driver}&driver_b=${b}&year=${config.year}&round_number=${config.round.round_number}`, { timeout: 60_000 })
+    if (!a || !b) return;
+    apiGet<{
+      quali_wins_a: number;
+      quali_wins_b: number;
+      race_wins_a: number;
+      race_wins_b: number;
+      avg_lap_delta_ms: number | null;
+      race_pace_median_delta_ms?: number | null;
+      fastest_lap_a_ms?: number | null;
+      fastest_lap_b_ms?: number | null;
+    }>(`/api/compare/drivers?driver_a=${a}&driver_b=${b}&year=${config.year}&round_number=${config.round.round_number}`, { timeout: 60_000 })
       .then((d) => setCmp(d))
       .catch(() => setCmp(null));
-  }, [b, config]);
+  }, [a, b, config]);
+  const all = [...new Set([...codes, ...rows.map((r) => r.driver_code)])];
   const deltaRows = chartData.rows.map((r) => ({
     lap: r.lap,
-    delta: typeof r[config.driver] === "number" && typeof r[b] === "number" ? Number(r[config.driver]) - Number(r[b]) : 0,
+    delta: typeof r[a] === "number" && typeof r[b] === "number" ? Number(r[a]) - Number(r[b]) : 0,
   }));
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
-      <Panel title={`HEAD-TO-HEAD: ${config.driver} vs ${b ?? "—"}`}>
-        <div style={{ padding: 14 }}>
-          {!cmp && <EmptyState title="Compare loading or unavailable" body="Needs both drivers in this session." />}
-          {cmp && (
-            <>
-              <Stat label="Quali record" value={`${cmp.quali_wins_a}–${cmp.quali_wins_b}`} />
-              <Stat label="Race record" value={`${cmp.race_wins_a}–${cmp.race_wins_b}`} />
-              <Stat label="Avg lap delta" value={cmp.avg_lap_delta_ms != null ? `${(cmp.avg_lap_delta_ms / 1000).toFixed(3)}s` : "—"} />
-            </>
-          )}
+    <div style={{ marginTop: 12 }}>
+      <div style={{ display: "flex", gap: 16, marginBottom: 12 }}>
+        <label style={{ fontFamily: T.mono, fontSize: 11, color: C.mist }}>
+          DRIVER A{" "}
+          <select value={a} onChange={(e) => setA(e.target.value)} style={sel}>
+            {all.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+        </label>
+        <label style={{ fontFamily: T.mono, fontSize: 11, color: C.mist }}>
+          DRIVER B{" "}
+          <select value={b} onChange={(e) => setB(e.target.value)} style={sel}>
+            {all.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <Panel title={`HEAD-TO-HEAD: ${a} vs ${b || "—"}`}>
+          <div style={{ padding: 14 }}>
+            {!cmp && <EmptyState title="Compare loading or unavailable" body="Needs both drivers in this session." />}
+            {cmp && (
+              <>
+                <Stat label="Qualifying record" value={`${cmp.quali_wins_a}–${cmp.quali_wins_b}`} />
+                <Stat label="Race pace / wins" value={`${cmp.race_wins_a}–${cmp.race_wins_b}`} />
+                <Stat label="Median pace delta" value={cmp.race_pace_median_delta_ms != null ? `${(cmp.race_pace_median_delta_ms / 1000).toFixed(3)}s` : cmp.avg_lap_delta_ms != null ? `${(cmp.avg_lap_delta_ms / 1000).toFixed(3)}s` : "—"} />
+                <Stat label="Fastest laps" value={`${cmp.fastest_lap_a_ms != null ? (cmp.fastest_lap_a_ms / 1000).toFixed(3) : "—"} vs ${cmp.fastest_lap_b_ms != null ? (cmp.fastest_lap_b_ms / 1000).toFixed(3) : "—"}`} />
+              </>
+            )}
+          </div>
+        </Panel>
+        <Panel title="PACE DELTA BY LAP">
+          <ResponsiveContainer width="100%" height={240}>
+            <AreaChart data={deltaRows}>
+              <CartesianGrid stroke={C.ghost} strokeDasharray="2 4" vertical={false} />
+              <XAxis dataKey="lap" tick={{ fill: C.faint, fontSize: 9 }} />
+              <YAxis tick={{ fill: C.faint, fontSize: 9 }} />
+              <Tooltip contentStyle={{ background: C.panel2, border: `1px solid ${C.border}` }} />
+              <Area dataKey="delta" stroke={C.signal} fill={C.signalDim} isAnimationActive={false} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </Panel>
+      </div>
+    </div>
+  );
+}
+
+function ThreeWay({ config, rows, codes }: { config: SessionConfig; rows: LiveTimingRow[]; codes: string[] }) {
+  const sorted = [...rows].sort((a, b) => a.position - b.position);
+  const d0 = config.driver;
+  const d1 = sorted.find((r) => r.driver_code !== d0)?.driver_code || codes[1];
+  const d2 = sorted.find((r) => r.driver_code !== d0 && r.driver_code !== d1)?.driver_code || codes[2];
+  const [a, setA] = useState(d0);
+  const [b, setB] = useState(d1 || "");
+  const [c, setC] = useState(d2 || "");
+  const all = [...new Set([...codes, ...rows.map((r) => r.driver_code)])];
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
+        {([
+          ["A", a, setA] as const,
+          ["B", b, setB] as const,
+          ["C", c, setC] as const,
+        ]).map(([lab, val, set]) => (
+          <label key={lab} style={{ fontFamily: T.mono, fontSize: 11, color: C.mist }}>
+            DRIVER {lab}{" "}
+            <select value={val} onChange={(e) => set(e.target.value)} style={sel}>
+              {all.map((code) => (
+                <option key={code} value={code}>{code}</option>
+              ))}
+            </select>
+          </label>
+        ))}
+      </div>
+      <Panel title="3-WAY PACE">
+        <div style={{ padding: 14, display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+          {[a, b, c].map((code) => {
+            const row = rows.find((r) => r.driver_code === code);
+            return (
+              <div key={code} style={{ background: C.panel2, padding: 12, borderRadius: 4 }}>
+                <div style={{ fontFamily: T.display, fontSize: 22, fontWeight: 800 }}>{code}</div>
+                <div style={{ fontFamily: T.mono, fontSize: 11, color: C.mist, marginTop: 6 }}>
+                  P{row?.position ?? "—"} · gap {row?.gap_to_leader_s != null ? `+${row.gap_to_leader_s.toFixed(1)}s` : "—"}
+                </div>
+                <div style={{ fontFamily: T.mono, fontSize: 11, color: C.faint }}>
+                  last {row?.last_lap_ms != null ? (row.last_lap_ms / 1000).toFixed(3) : "—"} · {row?.compound ?? "—"}
+                </div>
+              </div>
+            );
+          })}
         </div>
-      </Panel>
-      <Panel title="PACE DELTA BY LAP">
-        <ResponsiveContainer width="100%" height={240}>
-          <AreaChart data={deltaRows}>
-            <CartesianGrid stroke={C.ghost} strokeDasharray="2 4" vertical={false} />
-            <XAxis dataKey="lap" tick={{ fill: C.faint, fontSize: 9 }} />
-            <YAxis tick={{ fill: C.faint, fontSize: 9 }} />
-            <Tooltip contentStyle={{ background: C.panel2, border: `1px solid ${C.border}` }} />
-            <Area dataKey="delta" stroke={C.signal} fill={C.signalDim} isAnimationActive={false} />
-          </AreaChart>
-        </ResponsiveContainer>
       </Panel>
     </div>
   );
 }
 
-function TelemetryPane({ config, codes }: { config: SessionConfig; codes: string[] }) {
-  const other = codes.find((c) => c !== config.driver);
-  const [a, setA] = useState<{ distance: number[]; speed: number[]; throttle: number[]; brake: number[] } | null>(null);
-  const [b, setB] = useState<{ distance: number[]; speed: number[] } | null>(null);
+function TelemetryPane({ config, codes, rows }: { config: SessionConfig; codes: string[]; rows: LiveTimingRow[] }) {
+  const all = [...new Set([...codes, ...rows.map((r) => r.driver_code)])];
+  const rival =
+    rows.find((r) => r.driver_code !== config.driver && Math.abs(r.position - (rows.find((x) => x.driver_code === config.driver)?.position ?? 99)) === 1)
+      ?.driver_code || all.find((c) => c !== config.driver);
+  const [a, setA] = useState(config.driver);
+  const [b, setB] = useState(rival || "");
+  const [thrDriver, setThrDriver] = useState(config.driver);
+  const [ta, setTA] = useState<{ distance: number[]; speed: number[]; throttle: number[]; brake: number[] } | null>(null);
+  const [tb, setTB] = useState<{ distance: number[]; speed: number[] } | null>(null);
+  const [thr, setThr] = useState<{ distance: number[]; throttle: number[]; brake: number[] } | null>(null);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
-    apiGet<{ distance: number[]; speed: number[]; throttle: number[]; brake: number[] }>(`/api/session/${config.year}/${config.round.round_number}/R/telemetry/${config.driver}`, { timeout: 120_000 })
-      .then((d) => setA(d))
+    setTA(null);
+    apiGet<{ distance: number[]; speed: number[]; throttle: number[]; brake: number[] }>(
+      `/api/session/${config.year}/${config.round.round_number}/R/telemetry/${a}`,
+      { timeout: 120_000 },
+    )
+      .then((d) => setTA(d))
       .catch((e) => setErr(String(e)));
-    if (other) {
-      apiGet<{ distance: number[]; speed: number[] }>(`/api/session/${config.year}/${config.round.round_number}/R/telemetry/${other}`, { timeout: 120_000 })
-        .then((d) => setB(d))
+    if (b) {
+      apiGet<{ distance: number[]; speed: number[] }>(
+        `/api/session/${config.year}/${config.round.round_number}/R/telemetry/${b}`,
+        { timeout: 120_000 },
+      )
+        .then((d) => setTB(d))
         .catch(() => undefined);
     }
-  }, [config, other]);
+  }, [config, a, b]);
+  useEffect(() => {
+    apiGet<{ distance: number[]; throttle: number[]; brake: number[] }>(
+      `/api/session/${config.year}/${config.round.round_number}/R/telemetry/${thrDriver}`,
+      { timeout: 120_000 },
+    )
+      .then((d) => setThr(d))
+      .catch(() => undefined);
+  }, [config, thrDriver]);
   if (err) return <PanelError message={err} onRetry={() => setErr(null)} />;
-  if (!a) return <div style={{ padding: 14 }}><Skeleton height={220} /></div>;
-  const speedRows = a.distance.map((d, i) => ({
+  if (!ta) return <div style={{ padding: 14 }}><Skeleton height={220} /></div>;
+  const speedRows = ta.distance.map((d, i) => ({
     dist: Math.round(d),
-    [config.driver]: a.speed[i],
-    ...(b ? { [other as string]: b.speed[i] } : {}),
+    [a]: ta.speed[i],
+    ...(tb ? { [b]: tb.speed[i] } : {}),
   }));
-  const thr = a.distance.map((d, i) => ({ dist: Math.round(d), throttle: a.throttle[i], brake: a.brake[i] }));
-  const intercept = speedRows.slice(0, 80).map((row, i) => {
-    const va = Number(row[config.driver] ?? 0);
-    const vb = Number(other ? row[other] ?? 0 : 0);
-    return { i, delta: va - vb };
-  });
+  const thrRows = (thr ?? ta).distance.map((d, i) => ({
+    dist: Math.round(d),
+    throttle: (thr ?? ta).throttle[i],
+    brake: (thr ?? ta).brake[i],
+  }));
   return (
     <div style={{ overflow: "auto", padding: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-      <Panel title={`SPEED TRACE — ${config.driver}${other ? ` vs ${other}` : ""}`}>
+      <Panel title={`SPEED TRACE — ${a}${b ? ` vs ${b}` : ""}`}>
+        <div style={{ padding: "8px 12px", display: "flex", gap: 8 }}>
+          <select value={a} onChange={(e) => setA(e.target.value)} style={sel}>
+            {all.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <select value={b} onChange={(e) => setB(e.target.value)} style={sel}>
+            {all.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
         <ResponsiveContainer width="100%" height={220}>
           <LineChart data={speedRows}>
             <CartesianGrid stroke={C.ghost} strokeDasharray="2 4" vertical={false} />
             <XAxis dataKey="dist" tick={{ fill: C.faint, fontSize: 9 }} />
             <YAxis tick={{ fill: C.faint, fontSize: 9 }} />
             <Tooltip contentStyle={{ background: C.panel2, border: `1px solid ${C.border}` }} />
-            <Line dataKey={config.driver} stroke={C.signal} dot={false} isAnimationActive={false} />
-            {other && <Line dataKey={other} stroke={C.blue} dot={false} isAnimationActive={false} />}
+            <Line dataKey={a} stroke={C.signal} dot={false} isAnimationActive={false} />
+            {b && <Line dataKey={b} stroke={C.blue} dot={false} isAnimationActive={false} />}
           </LineChart>
         </ResponsiveContainer>
       </Panel>
-      <Panel title={`THROTTLE vs BRAKE — ${config.driver}`}>
+      <Panel title={`THROTTLE vs BRAKE — ${thrDriver}`}>
+        <div style={{ padding: "8px 12px" }}>
+          <select value={thrDriver} onChange={(e) => setThrDriver(e.target.value)} style={sel}>
+            {all.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
         <ResponsiveContainer width="100%" height={220}>
-          <AreaChart data={thr}>
+          <AreaChart data={thrRows}>
             <CartesianGrid stroke={C.ghost} strokeDasharray="2 4" vertical={false} />
             <XAxis dataKey="dist" tick={{ fill: C.faint, fontSize: 9 }} />
             <YAxis tick={{ fill: C.faint, fontSize: 9 }} />
@@ -891,29 +967,6 @@ function TelemetryPane({ config, codes }: { config: SessionConfig; codes: string
           </AreaChart>
         </ResponsiveContainer>
       </Panel>
-      <Panel title="MINI-SECTOR INTERCEPT">
-        <div style={{ padding: 14 }}>
-          {intercept.filter((_, i) => i % 10 === 0).slice(0, 8).map((m, idx) => (
-            <div key={idx} style={{ display: "flex", gap: 8, marginBottom: 6, alignItems: "center" }}>
-              <span style={{ fontFamily: T.mono, fontSize: 9, color: C.faint, width: 48 }}>Mini {idx + 1}</span>
-              <div style={{ flex: 1, height: 6, background: C.ghost, position: "relative" }}>
-                <div style={{ position: "absolute", left: "50%", width: 1, height: "100%", background: C.border }} />
-                <div
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    height: "100%",
-                    width: `${Math.min(50, Math.abs(m.delta) / 4)}%`,
-                    left: m.delta >= 0 ? "50%" : undefined,
-                    right: m.delta < 0 ? "50%" : undefined,
-                    background: m.delta >= 0 ? C.green : C.signal,
-                  }}
-                />
-              </div>
-            </div>
-          ))}
-        </div>
-      </Panel>
     </div>
   );
 }
@@ -922,9 +975,14 @@ function OpsPane() {
   const [msgs, setMsgs] = useState<{ utc_time: string | null; category: string | null; message: string }[]>([]);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
-    apiGet<{ messages: typeof msgs }>("/api/live/race-control", { timeout: 15_000 })
-      .then((d) => setMsgs(d.messages))
-      .catch((e) => setErr(String(e)));
+    const poll = () => {
+      apiGet<{ messages: typeof msgs }>("/api/live/race-control", { timeout: 60_000 })
+        .then((d) => setMsgs(d.messages))
+        .catch((e) => setErr(String(e)));
+    };
+    poll();
+    const id = window.setInterval(poll, 5000);
+    return () => window.clearInterval(id);
   }, []);
   return (
     <div style={{ padding: 12 }}>
@@ -945,3 +1003,207 @@ function OpsPane() {
 
 const lab: CSSProperties = { display: "flex", justifyContent: "space-between", fontFamily: T.body, fontSize: 12, color: C.mist, alignItems: "center" };
 const inp: CSSProperties = { background: C.raised, border: `1px solid ${C.border}`, color: C.paper, padding: "4px 8px", width: 80, fontFamily: T.mono };
+const sel: CSSProperties = { background: C.raised, border: `1px solid ${C.border}`, color: C.paper, padding: "4px 8px", fontFamily: T.mono, fontSize: 11 };
+
+function TyreAnalysis({
+  config,
+  rec,
+  rows,
+}: {
+  config: SessionConfig;
+  rec: RecommendResponse | null;
+  rows: LiveTimingRow[];
+}) {
+  const [driver, setDriver] = useState(config.driver);
+  const [stints, setStints] = useState<
+    { driver_code: string; stint_number: number; compound: string | null; lap_start: number; lap_end: number; total_laps: number; average_lap_ms: number | null; deg_rate_ms_per_lap: number | null; fresh_tyre: boolean | null }[] | null
+  >(null);
+  const [laps, setLaps] = useState<LapsResponse | null>(null);
+  useEffect(() => {
+    apiGet<{ stints: NonNullable<typeof stints> }>(
+      `/api/session/${config.year}/${config.round.round_number}/R/stints`,
+      { timeout: 120_000 },
+    )
+      .then((d) => setStints(d.stints))
+      .catch(() => setStints([]));
+    apiGet<LapsResponse>(`/api/session/${config.year}/${config.round.round_number}/R/laps`, { timeout: 120_000 })
+      .then(setLaps)
+      .catch(() => undefined);
+  }, [config.year, config.round.round_number]);
+  const codes = [...new Set((stints || []).map((s) => s.driver_code))];
+  const mine = (stints || []).filter((s) => s.driver_code === driver);
+  const wearByStint = new Map<number, { age: number; delta: number }[]>();
+  for (const l of laps?.laps || []) {
+    if (l.driver_code !== driver || l.lap_time_ms == null || l.tyre_life == null) continue;
+    const stint = l.stint_number ?? 1;
+    const list = wearByStint.get(stint) ?? [];
+    list.push({ age: l.tyre_life, delta: l.lap_time_ms / 1000 });
+    wearByStint.set(stint, list);
+  }
+  const ages = [...new Set([...wearByStint.values()].flat().map((x) => x.age))].sort((a, b) => a - b);
+  const wearRows = ages.map((age) => {
+    const row: Record<string, number> = { age };
+    for (const [st, pts] of wearByStint) {
+      const base = pts[0]?.delta ?? 0;
+      const hit = pts.find((p) => p.age === age);
+      if (hit) row[`s${st}`] = hit.delta - base;
+    }
+    return row;
+  });
+  const windowAges = (() => {
+    const first = wearByStint.get(mine[0]?.stint_number ?? 1) || [];
+    if (!first.length) return null;
+    const base = first[0].delta;
+    const good = first.filter((p) => Math.abs(p.delta - base) <= 0.4).map((p) => p.age);
+    if (!good.length) return null;
+    return [Math.min(...good), Math.max(...good)] as [number, number];
+  })();
+  const degAccel = mine.map((s) => s.deg_rate_ms_per_lap || 0);
+  const grain = degAccel.some((d) => d > 80) ? "HIGH" : degAccel.some((d) => d > 40) ? "MEDIUM" : "LOW";
+  const field = [...(stints || [])].sort((a, b) => {
+    const pa = rows.find((r) => r.driver_code === a.driver_code)?.position ?? 99;
+    const pb = rows.find((r) => r.driver_code === b.driver_code)?.position ?? 99;
+    return pa - pb || a.stint_number - b.stint_number;
+  });
+  const grouped = new Map<string, typeof field>();
+  for (const s of field) {
+    grouped.set(s.driver_code, [...(grouped.get(s.driver_code) || []), s]);
+  }
+  return (
+    <div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 12 }}>
+        {codes.map((c) => (
+          <button key={c} onClick={() => setDriver(c)} style={{ padding: "3px 8px", cursor: "pointer", fontFamily: T.mono, fontSize: 10, background: driver === c ? C.signalMid : "transparent", border: `1px solid ${driver === c ? C.signal : C.border}`, color: driver === c ? C.signal : C.mist }}>
+            {c}
+          </button>
+        ))}
+      </div>
+      {rec && <ReasoningBar paceGain={rec.pace_gain_s} pitCost={rec.pit_cost_s} label />}
+      <Panel title={`${driver} STINTS`} style={{ marginTop: 12 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: T.mono, fontSize: 11 }}>
+          <thead>
+            <tr style={{ color: C.faint, fontSize: 9 }}>
+              {["STINT", "COMP", "LAPS", "AVG", "DEG ms/lap", "PEAK", "ENTRY"].map((h) => (
+                <th key={h} style={{ textAlign: "left", padding: "6px 10px" }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {mine.map((s) => {
+              const stintLaps = (laps?.laps || []).filter((l) => l.driver_code === driver && l.lap_number >= s.lap_start && l.lap_number <= s.lap_end && l.lap_time_ms);
+              const peak = stintLaps.length ? Math.min(...stintLaps.map((l) => l.lap_time_ms as number)) : null;
+              return (
+                <tr key={s.stint_number} style={{ borderBottom: `1px solid ${C.border}40` }}>
+                  <td style={{ padding: "6px 10px" }}>{s.stint_number}</td>
+                  <td style={{ padding: "6px 10px" }}><TyreBadge compound={s.compound} size="sm" /></td>
+                  <td style={{ padding: "6px 10px" }}>{s.total_laps}</td>
+                  <td style={{ padding: "6px 10px" }}>{s.average_lap_ms != null ? formatMs(s.average_lap_ms) : "—"}</td>
+                  <td style={{ padding: "6px 10px" }}>{s.deg_rate_ms_per_lap != null ? s.deg_rate_ms_per_lap.toFixed(1) : "—"}</td>
+                  <td style={{ padding: "6px 10px" }}>{peak != null ? formatMs(peak) : "—"}</td>
+                  <td style={{ padding: "6px 10px" }}>{s.fresh_tyre ? "fresh" : "used"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        <div style={{ padding: 12, fontFamily: T.mono, fontSize: 11, color: C.mist }}>GRAINING RISK: {grain}</div>
+        <ResponsiveContainer width="100%" height={180}>
+          <LineChart data={wearRows}>
+            <CartesianGrid stroke={C.ghost} strokeDasharray="2 4" vertical={false} />
+            <XAxis dataKey="age" tick={{ fill: C.faint, fontSize: 9 }} />
+            <YAxis tick={{ fill: C.faint, fontSize: 9 }} />
+            <Tooltip contentStyle={{ background: C.panel2, border: `1px solid ${C.border}` }} />
+            {windowAges && <ReferenceArea x1={windowAges[0]} x2={windowAges[1]} fill={C.signal} fillOpacity={0.12} />}
+            {[...wearByStint.keys()].map((st, i) => (
+              <Line
+                key={st}
+                dataKey={`s${st}`}
+                stroke={CHART_COLORS[i % CHART_COLORS.length]}
+                dot={false}
+                isAnimationActive={false}
+                connectNulls
+                name={`Stint ${st}`}
+              />
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+      </Panel>
+      <Panel title="FIELD COMPARISON" style={{ marginTop: 12 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: T.mono, fontSize: 11 }}>
+          <thead>
+            <tr style={{ color: C.faint, fontSize: 9 }}>
+              {["POS", "DRV", "STINTS", "DEG", "STOPS"].map((h) => (
+                <th key={h} style={{ textAlign: "left", padding: "6px 10px" }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {[...grouped.entries()].map(([code, ss]) => {
+              const pos = rows.find((r) => r.driver_code === code)?.position;
+              return (
+                <tr key={code} style={{ borderBottom: `1px solid ${C.border}30` }}>
+                  <td style={{ padding: "6px 10px" }}>{pos ?? "—"}</td>
+                  <td style={{ padding: "6px 10px" }}>{code}</td>
+                  <td style={{ padding: "6px 10px", display: "flex", gap: 6 }}>
+                    {ss.map((s) => (
+                      <TyreBadge key={s.stint_number} compound={s.compound} size="sm" />
+                    ))}
+                  </td>
+                  <td style={{ padding: "6px 10px" }}>{ss.map((s) => (s.deg_rate_ms_per_lap != null ? s.deg_rate_ms_per_lap.toFixed(0) : "—")).join(" / ")}</td>
+                  <td style={{ padding: "6px 10px" }}>{Math.max(0, ss.length - 1)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </Panel>
+    </div>
+  );
+}
+
+function TrackInfoTab({
+  config,
+  circuit,
+}: {
+  config: SessionConfig;
+  circuit: ReturnType<typeof useCircuit>;
+}) {
+  const cmap = useCircuitMap(config.year, config.round.round_number);
+  const [tip, setTip] = useState<string | null>(null);
+  return (
+    <Panel title={config.round.circuit_name}>
+      <div style={{ position: "relative", height: 280 }}>
+        {cmap.status === "loading" && <SkeletonPanel rows={6} label="Loading circuit map…" />}
+        {cmap.status === "ok" && (
+          <CircuitOutline
+            map={cmap.data}
+            showCorners
+            showSectors
+            showDrs
+            onCornerHover={(t) => setTip(t)}
+          />
+        )}
+        {tip && (
+          <div style={{ position: "absolute", bottom: 8, left: 12, background: C.raised, border: `1px solid ${C.border}`, padding: "4px 8px", fontFamily: T.mono, fontSize: 10 }}>
+            {tip}
+          </div>
+        )}
+      </div>
+      {circuit.chars.status === "ok" && (
+        <div style={{ padding: 14 }}>
+          {[
+            ["Length", circuit.chars.data.lap_length_km ? `${circuit.chars.data.lap_length_km} km` : "—"],
+            ["Turns", String(circuit.chars.data.turns ?? "—")],
+            ["Pit loss", circuit.chars.data.pit_loss_seconds != null ? `~${circuit.chars.data.pit_loss_seconds}s` : "—"],
+            ["Tyre stress", circuit.chars.data.tyre_stress_rating ?? "—"],
+          ].map(([k, v]) => (
+            <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0" }}>
+              <span style={{ color: C.mist }}>{k}</span>
+              <span style={{ fontFamily: T.mono }}>{v}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </Panel>
+  );
+}

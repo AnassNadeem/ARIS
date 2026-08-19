@@ -47,6 +47,8 @@ class RaceEngineSession(BaseModel):
     paused: bool = False
     field_state: FieldState | None = None
     triggered_laps: set[int] = Field(default_factory=set)
+    fired_this_lap: set[str] = Field(default_factory=set)
+    last_trigger_lap: int = 0
 
     def model_post_init(self, __context: Any) -> None:
         # Live + backtest sessions persist propose/resolve past process end.

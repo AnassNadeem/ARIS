@@ -8,7 +8,7 @@ from typing import Any
 import pandas as pd
 import yaml
 
-from backend.cache import enable_fastf1_cache
+from backend.cache import TTL_CALENDAR, cache as mem_cache, enable_fastf1_cache
 from backend.models import (
     CalendarResponse,
     CalendarRound,
@@ -20,6 +20,7 @@ from backend.models import (
 from backend.paths import BACKEND
 
 NOTES_PATH = BACKEND / "calendar_notes.yaml"
+_SCHED_MEM: dict[int, pd.DataFrame] = {}
 
 SESSION_NAME_MAP = {
     "practice 1": "FP1",
@@ -173,17 +174,13 @@ def _pick_session_dt(row: pd.Series, *names: str) -> datetime | None:
     return None
 
 
-def _live_session_keys(as_of: datetime) -> set[tuple[int, int]]:
-    """(year, round) pairs that currently have a live OpenF1 session."""
-    try:
-        from backend.live import peek_live_round
+def _live_session_keys(_as_of: datetime) -> set[tuple[int, int]]:
+    """OpenF1 live detection lives in backend.live — calendar uses session windows only.
 
-        hit = peek_live_round(as_of)
-        if hit is None:
-            return set()
-        return {hit}
-    except Exception:
-        return set()
+    Calling OpenF1 (and FastF1 again) from every calendar request was blocking the
+    event loop. Round LIVE/UPCOMING is derived from FastF1 session timestamps.
+    """
+    return set()
 
 
 def _round_status(
@@ -213,10 +210,14 @@ def _round_status(
 
 
 def _schedule_from_fastf1(year: int) -> pd.DataFrame:
+    hit = _SCHED_MEM.get(year)
+    if hit is not None:
+        return hit
     enable_fastf1_cache()
     import fastf1
 
     sched = fastf1.get_event_schedule(year, include_testing=False)
+    _SCHED_MEM[year] = sched
     return sched
 
 
@@ -332,7 +333,13 @@ def _rounds_from_schedule(year: int, sched: pd.DataFrame, as_of: datetime) -> li
 
 
 def get_calendar(year: int, as_of: datetime | None = None) -> CalendarResponse:
+    wall = datetime.now(timezone.utc)
     as_of = now_utc(as_of)
+    near_now = abs((as_of - wall).total_seconds()) < 180
+    cache_key = f"calbuild_{year}" if near_now else f"calbuild_{year}_{as_of.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+    hit = mem_cache.get(cache_key, TTL_CALENDAR)
+    if hit is not None:
+        return hit
     notes = load_notes()
     try:
         sched = _schedule_from_fastf1(year)
@@ -341,7 +348,9 @@ def get_calendar(year: int, as_of: datetime | None = None) -> CalendarResponse:
     except Exception:
         rounds = _fallback_rounds(year, notes, as_of)
         source = "estimated"
-    return CalendarResponse(year=year, rounds=rounds, source=source, as_of=as_of)  # type: ignore[arg-type]
+    result = CalendarResponse(year=year, rounds=rounds, source=source, as_of=as_of)  # type: ignore[arg-type]
+    mem_cache.set(cache_key, result)
+    return result
 
 
 def get_round(year: int, round_number: int, as_of: datetime | None = None) -> CalendarRound:
@@ -495,4 +504,5 @@ def _next_from_round(
         notes=rnd.notes,
         as_of=as_of,
         off_season=off_season,
+        is_live=rnd.status == "LIVE",
     )

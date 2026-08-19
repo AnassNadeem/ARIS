@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Any
 
@@ -9,8 +10,13 @@ import pandas as pd
 
 from backend.cache import enable_fastf1_cache
 from backend.models import (
+    CircuitCorner,
+    CircuitMapBounds,
+    CircuitMapResponse,
+    CircuitMarker,
     CircuitPathPoint,
     CircuitPathResponse,
+    CommentaryEvent,
     DriverFastest,
     LapRow,
     LapsResponse,
@@ -18,6 +24,10 @@ from backend.models import (
     MessagesResponse,
     RaceControlMessage,
     SectorRecord,
+    SessionCarPosition,
+    SessionEventsResponse,
+    SessionPositionsAllResponse,
+    SessionPositionsResponse,
     SessionResultRow,
     SessionResultsResponse,
     SessionSummary,
@@ -27,6 +37,8 @@ from backend.models import (
     WeatherSeries,
     WeatherSummary,
 )
+
+_log = logging.getLogger(__name__)
 
 _SESSION_CACHE: dict[tuple[int, int, str], Any] = {}
 
@@ -613,3 +625,512 @@ def timing_at_lap(year: int, round_number: int, session_type: str, current_lap: 
         )
     rows.sort(key=lambda r: r["position"])
     return rows
+
+
+def _bounds_and_norm(
+    xs: list[float], ys: list[float], w: float = 400.0, h: float = 240.0, pad: float = 20.0
+) -> tuple[CircuitMapBounds | None, list[float], list[float]]:
+    if not xs or not ys:
+        return None, [], []
+    min_x, max_x = min(xs), max(xs)
+    min_y, max_y = min(ys), max(ys)
+    dx = max(max_x - min_x, 1e-6)
+    dy = max(max_y - min_y, 1e-6)
+    nx: list[float] = []
+    ny: list[float] = []
+    for x, y in zip(xs, ys):
+        nx.append(round(pad + (x - min_x) / dx * w, 2))
+        ny.append(round(pad + (1.0 - (y - min_y) / dy) * h, 2))
+    return CircuitMapBounds(min_x=min_x, max_x=max_x, min_y=min_y, max_y=max_y), nx, ny
+
+
+def _apply_bounds(
+    x: float, y: float, bounds: CircuitMapBounds, w: float = 400.0, h: float = 240.0, pad: float = 20.0
+) -> tuple[float, float]:
+    dx = max(bounds.max_x - bounds.min_x, 1e-6)
+    dy = max(bounds.max_y - bounds.min_y, 1e-6)
+    return (
+        round(pad + (x - bounds.min_x) / dx * w, 2),
+        round(pad + (1.0 - (y - bounds.min_y) / dy) * h, 2),
+    )
+
+
+def _nearest_index(distances: list[float], target: float) -> int:
+    if not distances:
+        return 0
+    best_i = 0
+    best = abs(distances[0] - target)
+    for i, d in enumerate(distances):
+        err = abs(d - target)
+        if err < best:
+            best = err
+            best_i = i
+    return best_i
+
+
+def circuit_map(year: int, round_number: int) -> CircuitMapResponse:
+    """Track outline, corners, DRS and sector markers from FastF1."""
+    empty = CircuitMapResponse(
+        year=year,
+        round_number=round_number,
+        available=False,
+        fallback=True,
+        error="Corner data unavailable for this circuit",
+    )
+    try:
+        sess = load_session(year, round_number, "R", telemetry=True)
+        laps = sess.laps
+        if laps is None or laps.empty:
+            return empty
+        pos = None
+        try:
+            fast = laps.pick_fastest()
+            pos = fast.get_pos_data()
+        except Exception as extra:
+            _log.warning("pick_fastest failed for %s R%s: %s", year, round_number, extra)
+            pos = None
+        if pos is None or getattr(pos, "empty", True) or "X" not in getattr(pos, "columns", []):
+            pos_data = getattr(sess, "pos_data", None) or {}
+            drivers = list(pos_data.keys())
+            if drivers:
+                pos = pos_data[drivers[0]]
+            else:
+                return empty
+        if pos is None or getattr(pos, "empty", True) or "X" not in pos.columns:
+            return empty
+        raw_x = [float(v) for v in pos["X"].dropna().tolist()]
+        raw_y = [float(v) for v in pos["Y"].dropna().tolist()]
+        if not raw_x or not raw_y:
+            return empty
+        if max(raw_x) - min(raw_x) == 0 or max(raw_y) - min(raw_y) == 0:
+            return empty
+        step = max(1, len(raw_x) // 400)
+        raw_x, raw_y = raw_x[::step], raw_y[::step]
+        bounds, nx, ny = _bounds_and_norm(raw_x, raw_y)
+        if bounds is None or len(nx) < 2:
+            return empty
+
+        npts = max(len(nx) - 1, 1)
+        corners: list[CircuitCorner] = []
+        markers: list[CircuitMarker] = []
+        drs_segments: list[list[int]] = []
+        try:
+            info = sess.get_circuit_info()
+        except Exception as extra:
+            _log.warning("get_circuit_info failed for %s R%s: %s", year, round_number, extra)
+            info = None
+        if info is not None:
+            cdf = getattr(info, "corners", None)
+            if cdf is not None and not getattr(cdf, "empty", True):
+                n = max(len(cdf), 1)
+                dist_col = "Distance" if "Distance" in getattr(pos, "columns", []) else None
+                pos_dist = [float(v) for v in pos["Distance"].tolist()] if dist_col else []
+                for i, rec in cdf.iterrows():
+                    number = (
+                        int(rec["Number"])
+                        if "Number" in cdf.columns and pd.notna(rec.get("Number"))
+                        else int(i) + 1
+                    )
+                    letter = ""
+                    if "Letter" in cdf.columns and pd.notna(rec.get("Letter")):
+                        letter = str(rec["Letter"])
+                    angle = _num(rec.get("Angle")) if "Angle" in cdf.columns else None
+                    dist = _num(rec.get("Distance")) if "Distance" in cdf.columns else None
+                    if "X" in cdf.columns and "Y" in cdf.columns and pd.notna(rec.get("X")):
+                        cx, cy = _apply_bounds(float(rec["X"]), float(rec["Y"]), bounds)
+                    elif dist is not None and pos_dist:
+                        idx_src = _nearest_index(pos_dist, dist)
+                        idx = min(len(nx) - 1, int(idx_src / max(len(pos_dist) - 1, 1) * npts))
+                        cx, cy = nx[idx], ny[idx]
+                    else:
+                        idx = min(len(nx) - 1, int((number - 0.5) / n * npts))
+                        cx, cy = nx[idx], ny[idx]
+                    corners.append(
+                        CircuitCorner(
+                            number=number,
+                            letter=letter,
+                            angle=angle,
+                            distance=dist,
+                            x=cx,
+                            y=cy,
+                            description=f"Turn {number}{letter}".strip(),
+                        )
+                    )
+            lights = getattr(info, "marshal_lights", None)
+            if lights is not None and not getattr(lights, "empty", True) and "X" in lights.columns:
+                idxs: list[int] = []
+                for _, rec in lights.iterrows():
+                    if pd.isna(rec.get("X")):
+                        continue
+                    mx, my = _apply_bounds(float(rec["X"]), float(rec["Y"]), bounds)
+                    dists = [((mx - x) ** 2 + (my - y) ** 2) ** 0.5 for x, y in zip(nx, ny)]
+                    idx = _nearest_index(dists, 0.0)
+                    idxs.append(idx)
+                    markers.append(CircuitMarker(kind="drs", x=mx, y=my, label="DRS"))
+                for a, b in zip(idxs[::2], idxs[1::2]):
+                    drs_segments.append([a, b])
+            sectors = getattr(info, "marshal_sectors", None)
+            if sectors is not None and not getattr(sectors, "empty", True) and "X" in sectors.columns:
+                labels = [("S1", "s1"), ("S2", "s2"), ("S3", "s3")]
+                count = 0
+                for _, rec in sectors.iterrows():
+                    if count >= 3 or pd.isna(rec.get("X")):
+                        continue
+                    mx, my = _apply_bounds(float(rec["X"]), float(rec["Y"]), bounds)
+                    lab, kind = labels[count]
+                    markers.append(CircuitMarker(kind=kind, x=mx, y=my, label=lab))
+                    count += 1
+
+        if not any(m.kind in {"s1", "s2", "s3"} for m in markers) and len(nx) > 3:
+            for frac, lab, kind in ((1 / 3, "S1", "s1"), (2 / 3, "S2", "s2"), (0.99, "S3", "s3")):
+                idx = min(len(nx) - 1, int(frac * npts))
+                markers.append(CircuitMarker(kind=kind, x=nx[idx], y=ny[idx], label=lab))
+
+        return CircuitMapResponse(
+            year=year,
+            round_number=round_number,
+            x=nx,
+            y=ny,
+            corners=corners,
+            markers=markers,
+            drs_segments=drs_segments,
+            bounds=bounds,
+            available=True,
+            fallback=False,
+        )
+    except Exception as extra:
+        _log.warning("circuit_map failed for %s R%s: %s", year, round_number, extra)
+        return empty
+
+
+def session_positions(
+    year: int, round_number: int, session_type: str, lap: int
+) -> SessionPositionsResponse:
+    from backend.standings import team_colour
+
+    empty = SessionPositionsResponse(
+        year=year, round_number=round_number, session_type=session_type.upper(), lap=lap, positions=[]
+    )
+    try:
+        cmap = circuit_map(year, round_number)
+        bounds = cmap.bounds
+        sess = load_session(year, round_number, session_type, telemetry=True)
+        results = sess.results
+        laps_df = sess.laps
+        if laps_df is None or laps_df.empty:
+            return empty
+
+        code_by_num: dict[str, str] = {}
+        team_by_code: dict[str, str | None] = {}
+        dnf_codes: set[str] = set()
+        if results is not None and not results.empty:
+            for _, rec in results.iterrows():
+                code = str(rec.get("Abbreviation") or rec.get("Driver") or "")[:3].upper()
+                num = rec.get("DriverNumber")
+                if not code:
+                    continue
+                if num is not None and pd.notna(num):
+                    code_by_num[str(int(num))] = code
+                team_by_code[code] = team_colour(str(rec.get("TeamName") or rec.get("Team") or ""))
+                status = str(rec.get("Status") or "")
+                laps_done = _int(rec.get("Laps")) or 0
+                low = status.lower()
+                finished = low in {"finished", "lapped"} or "+" in status or "lap" in low and "+" in status
+                if not finished and laps_done < max(lap, 1) and low not in {"", "finished"}:
+                    dnf_codes.add(code)
+
+        this_lap = laps_df[laps_df["LapNumber"] == lap] if "LapNumber" in laps_df.columns else laps_df.iloc[0:0]
+        ref_time = None
+        if not this_lap.empty and "Time" in this_lap.columns:
+            times = this_lap["Time"].dropna()
+            if not times.empty:
+                ref_time = times.median()
+
+        positions: list[SessionCarPosition] = []
+        pos_data = getattr(sess, "pos_data", None) or {}
+        for num, df in pos_data.items():
+            code = code_by_num.get(str(num), "")
+            if not code:
+                try:
+                    drv = sess.get_driver(str(num))
+                    code = str(getattr(drv, "Abbreviation", "") or "")[:3].upper()
+                except Exception:
+                    code = f"D{num}"
+            if df is None or getattr(df, "empty", True) or "X" not in df.columns:
+                continue
+            try:
+                if ref_time is not None and "Time" in df.columns:
+                    delta = (df["Time"] - ref_time).abs()
+                    row = df.iloc[int(delta.argmin())]
+                else:
+                    row = df.iloc[min(len(df) - 1, max(0, int(lap * len(df) / 80)))]
+                rx, ry = float(row["X"]), float(row["Y"])
+            except Exception:
+                continue
+            px, py = _apply_bounds(rx, ry, bounds) if bounds else (rx, ry)
+            pitted = False
+            if "Status" in df.columns:
+                pitted = "pit" in str(row.get("Status") or "").lower()
+            drv_laps = this_lap[this_lap["Driver"] == code] if "Driver" in this_lap.columns else this_lap.iloc[0:0]
+            if not drv_laps.empty:
+                for col in ("PitInTime", "PitOutTime"):
+                    if col in drv_laps.columns:
+                        pit_val = drv_laps.iloc[0].get(col)
+                        pitted = pitted or (pit_val is not None and not pd.isna(pit_val))
+            positions.append(
+                SessionCarPosition(
+                    driver_code=code,
+                    x=px,
+                    y=py,
+                    team_colour=team_by_code.get(code),
+                    is_pitted=bool(pitted),
+                    is_dnf=code in dnf_codes,
+                )
+            )
+
+        if not positions and "Driver" in laps_df.columns:
+            for code in laps_df["Driver"].unique().tolist():
+                try:
+                    dlaps = laps_df[(laps_df["Driver"] == code) & (laps_df["LapNumber"] == lap)]
+                    if dlaps.empty:
+                        dlaps = laps_df[laps_df["Driver"] == code].tail(1)
+                    if dlaps.empty:
+                        continue
+                    pdata = dlaps.iloc[0].get_pos_data()
+                    if pdata is None or pdata.empty:
+                        continue
+                    mid = pdata.iloc[len(pdata) // 2]
+                    rx, ry = float(mid["X"]), float(mid["Y"])
+                    px, py = _apply_bounds(rx, ry, bounds) if bounds else (rx, ry)
+                    positions.append(
+                        SessionCarPosition(
+                            driver_code=str(code),
+                            x=px,
+                            y=py,
+                            team_colour=team_by_code.get(str(code)),
+                            is_dnf=str(code) in dnf_codes,
+                        )
+                    )
+                except Exception:
+                    continue
+
+        return SessionPositionsResponse(
+            year=year,
+            round_number=round_number,
+            session_type=session_type.upper(),
+            lap=lap,
+            positions=positions,
+        )
+    except Exception:
+        return empty
+
+
+def circuit_preview_from_map(full: CircuitMapResponse) -> CircuitMapResponse:
+    """Downsample a cached full map to ~20 points for index cards."""
+    if not full.x or not full.y or not full.available:
+        return CircuitMapResponse(
+            year=full.year,
+            round_number=full.round_number,
+            available=False,
+            fallback=True,
+            error=full.error or "Circuit preview unavailable",
+        )
+    step = max(1, len(full.x) // 20)
+    xs = full.x[::step]
+    ys = full.y[::step]
+    if xs[-1] != full.x[-1]:
+        xs.append(full.x[-1])
+        ys.append(full.y[-1])
+    return CircuitMapResponse(
+        year=full.year,
+        round_number=full.round_number,
+        x=xs,
+        y=ys,
+        corners=[],
+        markers=[],
+        drs_segments=[],
+        bounds=full.bounds,
+        available=True,
+        fallback=False,
+        view_box=full.view_box,
+    )
+
+
+def session_positions_all(
+    year: int, round_number: int, session_type: str = "R"
+) -> SessionPositionsAllResponse:
+    from backend.standings import team_colour
+
+    empty = SessionPositionsAllResponse(
+        year=year, round_number=round_number, session_type=session_type.upper(), laps={}
+    )
+    try:
+        cmap = circuit_map(year, round_number)
+        bounds = cmap.bounds
+        sess = load_session(year, round_number, session_type, telemetry=True)
+        laps_df = sess.laps
+        results = sess.results
+        if laps_df is None or laps_df.empty:
+            return empty
+        max_lap = int(laps_df["LapNumber"].max()) if "LapNumber" in laps_df.columns else 0
+        if max_lap < 1:
+            return empty
+
+        code_by_num: dict[str, str] = {}
+        team_by_code: dict[str, str | None] = {}
+        last_lap_by_code: dict[str, int] = {}
+        if results is not None and not results.empty:
+            for _, rec in results.iterrows():
+                code = str(rec.get("Abbreviation") or rec.get("Driver") or "")[:3].upper()
+                num = rec.get("DriverNumber")
+                if not code:
+                    continue
+                if num is not None and pd.notna(num):
+                    code_by_num[str(int(num))] = code
+                team_by_code[code] = team_colour(str(rec.get("TeamName") or rec.get("Team") or ""))
+                last_lap_by_code[code] = _int(rec.get("Laps")) or 0
+
+        if "Driver" in laps_df.columns and "LapNumber" in laps_df.columns:
+            for code, grp in laps_df.groupby("Driver"):
+                last_lap_by_code[str(code)] = int(grp["LapNumber"].max())
+
+        pos_data = getattr(sess, "pos_data", None) or {}
+        laps_out: dict[str, list[SessionCarPosition]] = {str(n): [] for n in range(1, max_lap + 1)}
+
+        for num, df in pos_data.items():
+            code = code_by_num.get(str(num), "")
+            if not code:
+                try:
+                    drv = sess.get_driver(str(num))
+                    code = str(getattr(drv, "Abbreviation", "") or "")[:3].upper()
+                except Exception:
+                    code = f"D{num}"
+            if df is None or getattr(df, "empty", True) or "X" not in df.columns:
+                continue
+            drv_laps = (
+                laps_df[laps_df["Driver"] == code]
+                if "Driver" in laps_df.columns
+                else laps_df.iloc[0:0]
+            )
+            last_for_driver = last_lap_by_code.get(code, max_lap)
+            for lap_no in range(1, max_lap + 1):
+                row = None
+                this = drv_laps[drv_laps["LapNumber"] == lap_no] if not drv_laps.empty else drv_laps
+                ref_time = None
+                pitted = False
+                if not this.empty:
+                    for col in ("LapStartTime", "Time"):
+                        if col in this.columns and pd.notna(this.iloc[0].get(col)):
+                            ref_time = this.iloc[0].get(col)
+                            break
+                    for col in ("PitInTime", "PitOutTime"):
+                        if col in this.columns:
+                            pit_val = this.iloc[0].get(col)
+                            pitted = pitted or (pit_val is not None and not pd.isna(pit_val))
+                try:
+                    if ref_time is not None and "Time" in df.columns:
+                        delta = (df["Time"] - ref_time).abs()
+                        row = df.iloc[int(delta.argmin())]
+                    else:
+                        frac = lap_no / max(max_lap, 1)
+                        row = df.iloc[min(len(df) - 1, max(0, int(frac * (len(df) - 1))))]
+                    rx, ry = float(row["X"]), float(row["Y"])
+                except Exception:
+                    continue
+                px, py = _apply_bounds(rx, ry, bounds) if bounds else (rx, ry)
+                laps_out[str(lap_no)].append(
+                    SessionCarPosition(
+                        driver_code=code,
+                        x=px,
+                        y=py,
+                        team_colour=team_by_code.get(code),
+                        is_pitted=bool(pitted),
+                        is_dnf=last_for_driver < max_lap and lap_no > last_for_driver,
+                    )
+                )
+
+        return SessionPositionsAllResponse(
+            year=year,
+            round_number=round_number,
+            session_type=session_type.upper(),
+            laps=laps_out,
+        )
+    except Exception as extra:
+        _log.warning("session_positions_all failed for %s R%s: %s", year, round_number, extra)
+        return empty
+
+
+def _snapshot_at_lap(year: int, round_number: int, lap: int, total_laps: int):
+    from aris.commentary import DriverSnap, FieldSnapshot
+
+    raw = timing_at_lap(year, round_number, "R", lap)
+    stints = session_stints(year, round_number, "R").stints
+    stint_no: dict[str, int] = {}
+    compound: dict[str, str | None] = {}
+    for s in stints:
+        if s.lap_start <= lap <= s.lap_end:
+            stint_no[s.driver_code] = s.stint_number
+            compound[s.driver_code] = s.compound
+    drivers: list[DriverSnap] = []
+    ordered = sorted(raw, key=lambda r: r.get("position") or 99)
+    for i, r in enumerate(ordered):
+        code = str(r["driver_code"])
+        gap_ahead = None
+        if i > 0:
+            g0 = ordered[i - 1].get("gap_to_leader_s")
+            g1 = r.get("gap_to_leader_s")
+            if g0 is not None and g1 is not None:
+                gap_ahead = float(g1) - float(g0)
+        drivers.append(
+            DriverSnap(
+                code=code,
+                position=r.get("position"),
+                gap_to_leader_s=r.get("gap_to_leader_s"),
+                gap_ahead_s=gap_ahead,
+                compound=compound.get(code) or r.get("compound"),
+                tyre_life=r.get("tyre_life"),
+                stint_number=stint_no.get(code),
+                last_lap_ms=r.get("last_lap_ms"),
+                best_lap_ms=r.get("best_lap_ms"),
+            )
+        )
+    msgs = []
+    try:
+        for m in session_messages(year, round_number, "R").messages:
+            if m.lap == lap:
+                msgs.append({"lap": m.lap, "flag": m.flag, "category": m.category, "message": m.message})
+    except Exception:
+        msgs = []
+    return FieldSnapshot(lap=lap, total_laps=total_laps, drivers=drivers, messages=msgs)
+
+
+def session_events(
+    year: int, round_number: int, session_type: str, lap: int, focus_driver: str = "NOR"
+) -> SessionEventsResponse:
+    from aris.commentary import events_for_transition
+    from aris.tracks import load_track_config
+    from backend.calendar import get_round
+
+    try:
+        rnd = get_round(year, round_number)
+        total = load_track_config(rnd.country, year=year, round_no=round_number).total_laps
+    except Exception:
+        total = 72
+    prev = _snapshot_at_lap(year, round_number, max(1, lap - 1), total) if lap > 1 else None
+    current = _snapshot_at_lap(year, round_number, lap, total)
+    msgs = events_for_transition(prev, current, focus_driver)
+    # Deduplicate identical texts in one lap (SC messages can repeat).
+    seen: set[str] = set()
+    events: list[CommentaryEvent] = []
+    for m in msgs:
+        if m.text in seen:
+            continue
+        seen.add(m.text)
+        events.append(CommentaryEvent(type=m.type.lower() if m.type != "INTEL" else "intel", text=m.text))
+    return SessionEventsResponse(
+        year=year,
+        round_number=round_number,
+        session_type=session_type.upper(),
+        lap=lap,
+        events=events,
+    )

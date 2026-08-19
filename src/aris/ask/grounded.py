@@ -24,8 +24,8 @@ from aris.engine.session import RaceEngineSession
 
 ABSTAIN = (
     "No relevant source retrieved for that question. I won't guess — "
-    "ask about a logged decision, a classified result in session_results, "
-    "or a strategy concept in the knowledge base."
+    "ask about a logged decision, a classified race result, "
+    "or a strategy concept."
 )
 
 _DRIVER_RE = re.compile(r"\b([A-Za-z]{3})\b")
@@ -206,34 +206,36 @@ def _compose(question: str, hits: list[Hit]) -> str:
     ):
         lines.append(extra_concepts[0].text.split("Source:")[0].strip())
 
-    lines.append("")
-    lines.append("Cited:")
-    seen: set[str] = set()
-    for hit in hits:
-        cite = hit.doc.citation
-        if cite in seen:
-            continue
-        seen.add(cite)
-        lines.append(f"- {cite}")
-        if len(seen) >= 3:
-            break
-    return "\n".join(lines)
+    body = " ".join(x for x in lines if x).strip()
+    sentences = [s.strip() for s in body.replace("\n", " ").split(".") if s.strip()]
+    clipped = ". ".join(sentences[:3])
+    if clipped and not clipped.endswith("."):
+        clipped += "."
+    return clipped or body
 
 
 def _decision_answer(doc: AskDocument) -> str:
     f = doc.facts
-    parts = [
-        f"ARIS logged {f.get('event')} for {f.get('driver_code')} at {f.get('year')} "
-        f"{f.get('country')} round {f.get('round_no')} lap {f.get('lap')}: {f.get('label')}.",
-        f"delta_vs_stay_out_s={json_number(f.get('delta_vs_stay_out_s'))}",
-        f"mean_race_time_s={json_number(f.get('mean_race_time_s'))}",
-    ]
-    if f.get("pit_compound") is not None:
-        parts.append(f"pit_compound={json_number(f.get('pit_compound'))}")
-    if f.get("pit_lap") is not None:
-        parts.append(f"pit_lap={json_number(f.get('pit_lap'))}")
-    if f.get("confidence_std_s") is not None:
-        parts.append(f"confidence_std_s={json_number(f.get('confidence_std_s'))}")
+    driver = f.get("driver_code") or "the car"
+    lap = f.get("lap")
+    label = f.get("label") or f.get("event") or "the call"
+    delta = f.get("delta_vs_stay_out_s")
+    country = f.get("country") or ""
+    year = f.get("year") or ""
+    parts = [f"{driver} at {country} {year}, lap {lap}: {label}.".replace("  ", " ")]
+    if delta is not None:
+        try:
+            d = float(delta)
+            parts.append(f"Net vs staying out: {d:+.1f}s.")
+        except (TypeError, ValueError):
+            pass
+    compound = f.get("pit_compound")
+    pit_lap = f.get("pit_lap")
+    if compound:
+        extra = f"Box compound {compound}"
+        if pit_lap is not None:
+            extra += f" on lap {pit_lap}"
+        parts.append(extra + ".")
     return " ".join(parts)
 
 
@@ -241,30 +243,53 @@ def _race_answer(doc: AskDocument) -> str:
     f = doc.facts
     if "match_rate" in f:
         return (
-            f"2024 walk-forward: match_rate={json_number(f.get('match_rate'))} "
-            f"({f.get('n_match')}/{f.get('n_scored')}); "
-            f"always_stay_out_rate={json_number(f.get('always_stay_out_rate'))} "
-            f"({f.get('always_stay_out_n')}/{f.get('always_stay_out_d')}); "
-            f"mean_position_delta={json_number(f.get('mean_position_delta'))}."
+            f"Decision match-rate {json_number(f.get('match_rate'))} "
+            f"versus never-pit {json_number(f.get('always_stay_out_rate'))}. "
+            f"Mean position delta {json_number(f.get('mean_position_delta'))}."
         )
-    return (
-        f"Classified result {f.get('year')} round {f.get('round_no')} {f.get('country')} "
-        f"{f.get('driver_code')}: grid_pos={json_number(f.get('grid_pos'))} "
-        f"finish_pos={json_number(f.get('finish_pos'))} "
-        f"points={json_number(f.get('points'))} "
-        f"pit_in_count={json_number(f.get('pit_in_count'))}."
-    )
+    country = f.get("country") or "that race"
+    year = f.get("year") or ""
+    driver = f.get("driver_code") or "the driver"
+    grid = f.get("grid_pos")
+    finish = f.get("finish_pos")
+    bits = [f"Based on the {country} {year} race data, {driver}"]
+    if finish is not None:
+        bits.append(f"finished P{json_number(finish)}")
+    if grid is not None:
+        bits.append(f"from P{json_number(grid)} on the grid")
+    pts = f.get("points")
+    if pts is not None:
+        bits.append(f"for {json_number(pts)} points")
+    return " ".join(bits).replace(" ,", ",") + "."
 
 
 def _session_answer(doc: AskDocument) -> str:
     f = doc.facts
-    return (
-        f"Current snapshot {f.get('driver_code')} lap {f.get('lap')}: "
-        f"compound={json_number(f.get('compound'))} tyre_life={json_number(f.get('tyre_life'))} "
-        f"position={json_number(f.get('position'))} "
-        f"gap_to_leader_s={json_number(f.get('gap_to_leader_s'))} "
-        f"gap_ahead_s={json_number(f.get('gap_ahead_s'))}."
-    )
+    driver = f.get("driver_code") or "Your driver"
+    pos = f.get("position")
+    gap = f.get("gap_to_leader_s")
+    ahead = f.get("gap_ahead_s")
+    compound = f.get("compound")
+    life = f.get("tyre_life")
+    parts = [f"{driver}"]
+    if pos is not None:
+        parts.append(f"is P{json_number(pos)}")
+    if gap is not None:
+        try:
+            parts.append(f"at +{float(gap):.1f}s to the leader")
+        except (TypeError, ValueError):
+            parts.append(f"gap to leader {json_number(gap)}")
+    if ahead is not None:
+        try:
+            parts.append(f"{float(ahead):.1f}s to the car ahead")
+        except (TypeError, ValueError):
+            pass
+    if compound is not None:
+        tyre = f"on {compound}"
+        if life is not None:
+            tyre += f" ({json_number(life)} laps old)"
+        parts.append(tyre)
+    return " ".join(parts) + "."
 
 
 def _concept_answer(doc: AskDocument) -> str:

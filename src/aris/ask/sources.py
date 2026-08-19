@@ -283,19 +283,12 @@ def _race_row_to_doc(row: dict[str, Any]) -> AskDocument:
         "session_id": row.get("session_id"),
     }
     text = (
-        f"Historical race classified result from session_results. "
-        f"year={year} round {round_no} country={country} driver {code} "
-        f"full_name={row.get('full_name')} team={row.get('team')} "
-        f"grid_pos={json_number(row.get('grid_pos'))} "
-        f"finish_pos={json_number(row.get('finish_pos'))} "
-        f"points={json_number(row.get('points'))} "
-        f"pit_in_count={json_number(row.get('pit_in_count'))}. "
-        f"Not a race narrative; grid/finish/points/pit-in count only."
+        f"In the {year} {country} race, {code} "
+        f"started P{json_number(row.get('grid_pos'))} and "
+        f"finished P{json_number(row.get('finish_pos'))} "
+        f"scoring {json_number(row.get('points'))} points."
     )
-    citation = (
-        f"session_results year={year} round={round_no} country={country} "
-        f"driver={code} session_id={row.get('session_id')}"
-    )
+    citation = f"{year} {country} classified result for {code}"
     return AskDocument(
         doc_id=f"race:{year}:r{round_no}:{code}",
         source="race",

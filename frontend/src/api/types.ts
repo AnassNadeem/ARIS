@@ -142,6 +142,8 @@ export const driverStandingSchema = z
     points: z.number(),
     wins: z.number(),
     podiums: z.number().optional(),
+    fastest_laps: z.number().optional(),
+    dnfs: z.number().optional(),
     gap_to_leader: z.number(),
   })
   .passthrough();
@@ -161,6 +163,8 @@ export const constructorStandingSchema = z
     team_colour: z.string().nullable().optional(),
     points: z.number(),
     wins: z.number(),
+    podiums: z.number().optional(),
+    drivers: z.array(z.string()).optional(),
     gap_to_leader: z.number(),
   })
   .passthrough();
@@ -185,6 +189,7 @@ export const lapRowSchema = z
     is_personal_best: z.boolean().optional(),
     pit_in_lap: z.boolean().optional(),
     pit_out_lap: z.boolean().optional(),
+    stint_number: z.number().nullable().optional(),
     s1_colour: z.string().optional(),
     s2_colour: z.string().optional(),
     s3_colour: z.string().optional(),
@@ -212,6 +217,8 @@ export const recommendSchema = z
     alternatives: z.array(z.any()).default([]),
     wet_reduced_confidence: z.boolean().optional(),
     reg_note_2026: z.boolean().optional(),
+    data_source: z.string().nullable().optional(),
+    lap_note: z.string().nullable().optional(),
   })
   .passthrough();
 
@@ -238,9 +245,18 @@ export type CircuitCharacteristics = {
   drs_zones: number | null;
   pit_loss_seconds: number | null;
   total_laps: number | null;
+  tyre_stress_rating?: string | null;
+  track_evolution_rating?: string | null;
   sector_descriptions: string[];
   similar_circuits: string[];
   known_deg_compounds: Record<string, number>;
+  aris_notes?: {
+    undercut_effectiveness: string;
+    tyre_compound_tendencies: string;
+    overtaking_difficulty: string;
+    sc_probability_history: string;
+    summary: string;
+  } | null;
   estimated: boolean;
   reg_note_2026: boolean;
 };
@@ -251,7 +267,40 @@ export type CircuitHistoryYear = {
   winner_team: string | null;
   pole: string | null;
   fastest_lap: string | null;
+  weather?: string | null;
   incident_notes: string[];
+};
+
+export type CircuitMap = {
+  year: number;
+  round_number: number;
+  x: number[];
+  y: number[];
+  corners: {
+    number: number;
+    letter?: string;
+    angle?: number | null;
+    distance?: number | null;
+    x: number;
+    y: number;
+    description?: string | null;
+  }[];
+  markers?: { kind: string; x: number; y: number; label: string }[];
+  drs_segments?: number[][];
+  bounds?: { min_x: number; max_x: number; min_y: number; max_y: number } | null;
+  available: boolean;
+  fallback?: boolean;
+  error?: string | null;
+  view_box?: string;
+};
+
+export type CarPosition = {
+  driver_code: string;
+  x: number;
+  y: number;
+  team_colour?: string | null;
+  is_pitted?: boolean;
+  is_dnf?: boolean;
 };
 
 export type ChatResponse = { answer: string; cited_ids: string[]; abstained: boolean };
@@ -267,6 +316,7 @@ export type StratPlan = {
   pace_gain_s: number | null;
   pit_cost_s: number | null;
   risk: string;
+  reasoning?: string;
 };
 
 export type SessionConfig = {
