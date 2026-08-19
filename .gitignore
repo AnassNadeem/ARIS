@@ -14,6 +14,14 @@ env/
 
 # FastF1 cache (regenerable, can be GBs)
 fastf1_cache/
+cache/
+
+# V3 React app
+frontend/node_modules/
+frontend/dist/
+
+# Local extra Python deps (OneDrive-safe target install)
+.deps/
 
 # Data & models (too big for git)
 data/raw/*

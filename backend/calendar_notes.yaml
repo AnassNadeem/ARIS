@@ -1,0 +1,204 @@
+# Overlay only: notes, cancellations, estimated sprint flags, last-resort
+# fallbacks. Runtime calendar always prefers FastF1 + OpenF1.
+
+notes:
+  "2024-3":
+    - "Carlos Sainz withdrew before qualifying (appendicitis). Oliver Bearman substituted in the Ferrari."
+    - "First Chinese GP since 2019 is round 5, not this round."
+  "2024-5":
+    - "First Chinese Grand Prix since 2019. Sprint weekend."
+  "2024-14":
+    - "Max Verstappen received a 10-place grid penalty. Highlight in qualifying result."
+  "2026-12":
+    - "2026 Dutch Grand Prix at Zandvoort. New 2026 technical regulations (MGU-H removed)."
+  "2026-15":
+    - "2026 Dutch Grand Prix at Zandvoort. New 2026 technical regulations (MGU-H removed)."
+
+cancelled: {}
+
+# Used only if FastF1 EventFormat is missing.
+estimated_sprint:
+  "2024": [5, 6, 11, 14, 19, 21, 23]
+  "2025": [2, 6, 11, 13, 19, 21, 23]
+  "2026": [5, 6, 11, 13, 15, 19, 21, 23]
+
+# Last-resort roster if OpenF1 and FastF1 both return nothing.
+# UI MUST show [ESTIMATED — API unavailable].
+estimated_rosters:
+  2024:
+    teams:
+      - {name: Red Bull Racing, colour: "#3671C6"}
+      - {name: Mercedes, colour: "#27F4D2"}
+      - {name: Ferrari, colour: "#E8002D"}
+      - {name: McLaren, colour: "#FF8000"}
+      - {name: Aston Martin, colour: "#229971"}
+      - {name: Alpine, colour: "#00A1E8"}
+      - {name: RB, colour: "#6B98FF"}
+      - {name: Haas, colour: "#B6BABD"}
+      - {name: Williams, colour: "#1868DB"}
+      - {name: Stake F1 Team, colour: "#52E252"}
+    drivers:
+      - {code: VER, name: Max Verstappen, team: Red Bull Racing, number: 1, colour: "#3671C6"}
+      - {code: PER, name: Sergio Perez, team: Red Bull Racing, number: 11, colour: "#3671C6"}
+      - {code: HAM, name: Lewis Hamilton, team: Mercedes, number: 44, colour: "#27F4D2"}
+      - {code: RUS, name: George Russell, team: Mercedes, number: 63, colour: "#27F4D2"}
+      - {code: LEC, name: Charles Leclerc, team: Ferrari, number: 16, colour: "#E8002D"}
+      - {code: SAI, name: Carlos Sainz, team: Ferrari, number: 55, colour: "#E8002D"}
+      - {code: NOR, name: Lando Norris, team: McLaren, number: 4, colour: "#FF8000"}
+      - {code: PIA, name: Oscar Piastri, team: McLaren, number: 81, colour: "#FF8000"}
+      - {code: ALO, name: Fernando Alonso, team: Aston Martin, number: 14, colour: "#229971"}
+      - {code: STR, name: Lance Stroll, team: Aston Martin, number: 18, colour: "#229971"}
+      - {code: GAS, name: Pierre Gasly, team: Alpine, number: 10, colour: "#00A1E8"}
+      - {code: OCO, name: Esteban Ocon, team: Alpine, number: 31, colour: "#00A1E8"}
+      - {code: TSU, name: Yuki Tsunoda, team: RB, number: 22, colour: "#6B98FF"}
+      - {code: RIC, name: Daniel Ricciardo, team: RB, number: 3, colour: "#6B98FF"}
+      - {code: HUL, name: Nico Hulkenberg, team: Haas, number: 27, colour: "#B6BABD"}
+      - {code: MAG, name: Kevin Magnussen, team: Haas, number: 20, colour: "#B6BABD"}
+      - {code: ALB, name: Alexander Albon, team: Williams, number: 23, colour: "#1868DB"}
+      - {code: SAR, name: Logan Sargeant, team: Williams, number: 2, colour: "#1868DB"}
+      - {code: BOT, name: Valtteri Bottas, team: Stake F1 Team, number: 77, colour: "#52E252"}
+      - {code: ZHO, name: Zhou Guanyu, team: Stake F1 Team, number: 24, colour: "#52E252"}
+  2025:
+    teams:
+      - {name: Red Bull Racing, colour: "#3671C6"}
+      - {name: Mercedes, colour: "#27F4D2"}
+      - {name: Ferrari, colour: "#E8002D"}
+      - {name: McLaren, colour: "#FF8000"}
+      - {name: Aston Martin, colour: "#229971"}
+      - {name: Alpine, colour: "#00A1E8"}
+      - {name: Racing Bulls, colour: "#6B98FF"}
+      - {name: Haas, colour: "#B6BABD"}
+      - {name: Williams, colour: "#1868DB"}
+      - {name: Kick Sauber, colour: "#52E252"}
+    drivers:
+      - {code: VER, name: Max Verstappen, team: Red Bull Racing, number: 1, colour: "#3671C6"}
+      - {code: LAW, name: Liam Lawson, team: Red Bull Racing, number: 30, colour: "#3671C6"}
+      - {code: RUS, name: George Russell, team: Mercedes, number: 63, colour: "#27F4D2"}
+      - {code: ANT, name: Andrea Kimi Antonelli, team: Mercedes, number: 12, colour: "#27F4D2"}
+      - {code: LEC, name: Charles Leclerc, team: Ferrari, number: 16, colour: "#E8002D"}
+      - {code: HAM, name: Lewis Hamilton, team: Ferrari, number: 44, colour: "#E8002D"}
+      - {code: NOR, name: Lando Norris, team: McLaren, number: 4, colour: "#FF8000"}
+      - {code: PIA, name: Oscar Piastri, team: McLaren, number: 81, colour: "#FF8000"}
+      - {code: ALO, name: Fernando Alonso, team: Aston Martin, number: 14, colour: "#229971"}
+      - {code: STR, name: Lance Stroll, team: Aston Martin, number: 18, colour: "#229971"}
+      - {code: GAS, name: Pierre Gasly, team: Alpine, number: 10, colour: "#00A1E8"}
+      - {code: DOO, name: Jack Doohan, team: Alpine, number: 7, colour: "#00A1E8"}
+      - {code: TSU, name: Yuki Tsunoda, team: Racing Bulls, number: 22, colour: "#6B98FF"}
+      - {code: HAD, name: Isack Hadjar, team: Racing Bulls, number: 6, colour: "#6B98FF"}
+      - {code: HUL, name: Nico Hulkenberg, team: Kick Sauber, number: 27, colour: "#52E252"}
+      - {code: BOR, name: Gabriel Bortoleto, team: Kick Sauber, number: 5, colour: "#52E252"}
+      - {code: MAG, name: Kevin Magnussen, team: Haas, number: 20, colour: "#B6BABD"}
+      - {code: OCO, name: Esteban Ocon, team: Haas, number: 31, colour: "#B6BABD"}
+      - {code: ALB, name: Alexander Albon, team: Williams, number: 23, colour: "#1868DB"}
+      - {code: SAI, name: Carlos Sainz, team: Williams, number: 55, colour: "#1868DB"}
+  2026:
+    teams:
+      - {name: Red Bull Racing, colour: "#3671C6"}
+      - {name: Mercedes, colour: "#27F4D2"}
+      - {name: Ferrari, colour: "#E8002D"}
+      - {name: McLaren, colour: "#FF8000"}
+      - {name: Aston Martin, colour: "#229971"}
+      - {name: Alpine, colour: "#00A1E8"}
+      - {name: Williams, colour: "#1868DB"}
+      - {name: Racing Bulls, colour: "#6B98FF"}
+      - {name: Haas, colour: "#B6BABD"}
+      - {name: Audi, colour: "#E8002D"}
+    drivers:
+      - {code: VER, name: Max Verstappen, team: Red Bull Racing, number: 1, colour: "#3671C6"}
+      - {code: LAW, name: Liam Lawson, team: Red Bull Racing, number: 30, colour: "#3671C6"}
+      - {code: RUS, name: George Russell, team: Mercedes, number: 63, colour: "#27F4D2"}
+      - {code: ANT, name: Andrea Kimi Antonelli, team: Mercedes, number: 12, colour: "#27F4D2"}
+      - {code: LEC, name: Charles Leclerc, team: Ferrari, number: 16, colour: "#E8002D"}
+      - {code: HAM, name: Lewis Hamilton, team: Ferrari, number: 44, colour: "#E8002D"}
+      - {code: NOR, name: Lando Norris, team: McLaren, number: 4, colour: "#FF8000"}
+      - {code: PIA, name: Oscar Piastri, team: McLaren, number: 81, colour: "#FF8000"}
+      - {code: ALO, name: Fernando Alonso, team: Aston Martin, number: 14, colour: "#229971"}
+      - {code: STR, name: Lance Stroll, team: Aston Martin, number: 18, colour: "#229971"}
+      - {code: GAS, name: Pierre Gasly, team: Alpine, number: 10, colour: "#00A1E8"}
+      - {code: DOO, name: Jack Doohan, team: Alpine, number: 7, colour: "#00A1E8"}
+      - {code: ALB, name: Alexander Albon, team: Williams, number: 23, colour: "#1868DB"}
+      - {code: SAI, name: Carlos Sainz, team: Williams, number: 55, colour: "#1868DB"}
+      - {code: TSU, name: Yuki Tsunoda, team: Racing Bulls, number: 22, colour: "#6B98FF"}
+      - {code: HAD, name: Isack Hadjar, team: Racing Bulls, number: 6, colour: "#6B98FF"}
+      - {code: HUL, name: Nico Hulkenberg, team: Haas, number: 27, colour: "#B6BABD"}
+      - {code: BOR, name: Gabriel Bortoleto, team: Haas, number: 5, colour: "#B6BABD"}
+      - {code: ZHO, name: Zhou Guanyu, team: Audi, number: 24, colour: "#E8002D"}
+      - {code: COL, name: Franco Colapinto, team: Audi, number: 43, colour: "#E8002D"}
+
+# Used only if fastf1.get_event_schedule fails.
+fallback_schedule:
+  2024:
+    - {round: 1, name: Bahrain, circuit: Bahrain International Circuit, city: Sakhir, country: Bahrain, date: "2024-03-02", sprint: false}
+    - {round: 2, name: Saudi Arabia, circuit: Jeddah Corniche Circuit, city: Jeddah, country: Saudi Arabia, date: "2024-03-09", sprint: false}
+    - {round: 3, name: Australia, circuit: Albert Park, city: Melbourne, country: Australia, date: "2024-03-24", sprint: false}
+    - {round: 4, name: Japan, circuit: Suzuka, city: Suzuka, country: Japan, date: "2024-04-07", sprint: false}
+    - {round: 5, name: China, circuit: Shanghai International Circuit, city: Shanghai, country: China, date: "2024-04-21", sprint: true}
+    - {round: 6, name: Miami, circuit: Miami International Autodrome, city: Miami, country: United States, date: "2024-05-05", sprint: true}
+    - {round: 7, name: Emilia Romagna, circuit: Autodromo Enzo e Dino Ferrari, city: Imola, country: Italy, date: "2024-05-19", sprint: false}
+    - {round: 8, name: Monaco, circuit: Circuit de Monaco, city: Monaco, country: Monaco, date: "2024-05-26", sprint: false}
+    - {round: 9, name: Canada, circuit: Circuit Gilles-Villeneuve, city: Montreal, country: Canada, date: "2024-06-09", sprint: false}
+    - {round: 10, name: Spain, circuit: Circuit de Barcelona-Catalunya, city: Barcelona, country: Spain, date: "2024-06-23", sprint: false}
+    - {round: 11, name: Austria, circuit: Red Bull Ring, city: Spielberg, country: Austria, date: "2024-06-30", sprint: true}
+    - {round: 12, name: Britain, circuit: Silverstone, city: Silverstone, country: United Kingdom, date: "2024-07-07", sprint: false}
+    - {round: 13, name: Hungary, circuit: Hungaroring, city: Budapest, country: Hungary, date: "2024-07-21", sprint: false}
+    - {round: 14, name: Belgium, circuit: Circuit de Spa-Francorchamps, city: Spa, country: Belgium, date: "2024-07-28", sprint: true}
+    - {round: 15, name: Netherlands, circuit: Circuit Zandvoort, city: Zandvoort, country: Netherlands, date: "2024-08-25", sprint: false}
+    - {round: 16, name: Italy, circuit: Autodromo Nazionale Monza, city: Monza, country: Italy, date: "2024-09-01", sprint: false}
+    - {round: 17, name: Azerbaijan, circuit: Baku City Circuit, city: Baku, country: Azerbaijan, date: "2024-09-15", sprint: false}
+    - {round: 18, name: Singapore, circuit: Marina Bay Street Circuit, city: Singapore, country: Singapore, date: "2024-09-22", sprint: false}
+    - {round: 19, name: United States, circuit: Circuit of the Americas, city: Austin, country: United States, date: "2024-10-20", sprint: true}
+    - {round: 20, name: Mexico City, circuit: Autodromo Hermanos Rodriguez, city: Mexico City, country: Mexico, date: "2024-10-27", sprint: false}
+    - {round: 21, name: Sao Paulo, circuit: Autodromo Jose Carlos Pace, city: Sao Paulo, country: Brazil, date: "2024-11-03", sprint: true}
+    - {round: 22, name: Las Vegas, circuit: Las Vegas Strip Circuit, city: Las Vegas, country: United States, date: "2024-11-23", sprint: false}
+    - {round: 23, name: Qatar, circuit: Lusail International Circuit, city: Lusail, country: Qatar, date: "2024-12-01", sprint: true}
+    - {round: 24, name: Abu Dhabi, circuit: Yas Marina Circuit, city: Abu Dhabi, country: UAE, date: "2024-12-08", sprint: false}
+  2025:
+    - {round: 1, name: Australia, circuit: Albert Park, city: Melbourne, country: Australia, date: "2025-03-16", sprint: false}
+    - {round: 2, name: China, circuit: Shanghai International Circuit, city: Shanghai, country: China, date: "2025-03-23", sprint: true}
+    - {round: 3, name: Japan, circuit: Suzuka, city: Suzuka, country: Japan, date: "2025-04-06", sprint: false}
+    - {round: 4, name: Bahrain, circuit: Bahrain International Circuit, city: Sakhir, country: Bahrain, date: "2025-04-13", sprint: false}
+    - {round: 5, name: Saudi Arabia, circuit: Jeddah Corniche Circuit, city: Jeddah, country: Saudi Arabia, date: "2025-04-20", sprint: false}
+    - {round: 6, name: Miami, circuit: Miami International Autodrome, city: Miami, country: United States, date: "2025-05-04", sprint: true}
+    - {round: 7, name: Emilia Romagna, circuit: Autodromo Enzo e Dino Ferrari, city: Imola, country: Italy, date: "2025-05-18", sprint: false}
+    - {round: 8, name: Monaco, circuit: Circuit de Monaco, city: Monaco, country: Monaco, date: "2025-05-25", sprint: false}
+    - {round: 9, name: Spain, circuit: Circuit de Barcelona-Catalunya, city: Barcelona, country: Spain, date: "2025-06-01", sprint: false}
+    - {round: 10, name: Canada, circuit: Circuit Gilles-Villeneuve, city: Montreal, country: Canada, date: "2025-06-15", sprint: false}
+    - {round: 11, name: Austria, circuit: Red Bull Ring, city: Spielberg, country: Austria, date: "2025-06-29", sprint: true}
+    - {round: 12, name: Britain, circuit: Silverstone, city: Silverstone, country: United Kingdom, date: "2025-07-06", sprint: false}
+    - {round: 13, name: Belgium, circuit: Circuit de Spa-Francorchamps, city: Spa, country: Belgium, date: "2025-07-27", sprint: true}
+    - {round: 14, name: Hungary, circuit: Hungaroring, city: Budapest, country: Hungary, date: "2025-08-03", sprint: false}
+    - {round: 15, name: Netherlands, circuit: Circuit Zandvoort, city: Zandvoort, country: Netherlands, date: "2025-08-31", sprint: false}
+    - {round: 16, name: Italy, circuit: Autodromo Nazionale Monza, city: Monza, country: Italy, date: "2025-09-07", sprint: false}
+    - {round: 17, name: Azerbaijan, circuit: Baku City Circuit, city: Baku, country: Azerbaijan, date: "2025-09-21", sprint: false}
+    - {round: 18, name: Singapore, circuit: Marina Bay Street Circuit, city: Singapore, country: Singapore, date: "2025-10-05", sprint: false}
+    - {round: 19, name: United States, circuit: Circuit of the Americas, city: Austin, country: United States, date: "2025-10-19", sprint: true}
+    - {round: 20, name: Mexico City, circuit: Autodromo Hermanos Rodriguez, city: Mexico City, country: Mexico, date: "2025-10-26", sprint: false}
+    - {round: 21, name: Sao Paulo, circuit: Autodromo Jose Carlos Pace, city: Sao Paulo, country: Brazil, date: "2025-11-09", sprint: true}
+    - {round: 22, name: Las Vegas, circuit: Las Vegas Strip Circuit, city: Las Vegas, country: United States, date: "2025-11-22", sprint: false}
+    - {round: 23, name: Qatar, circuit: Lusail International Circuit, city: Lusail, country: Qatar, date: "2025-11-30", sprint: true}
+    - {round: 24, name: Abu Dhabi, circuit: Yas Marina Circuit, city: Abu Dhabi, country: UAE, date: "2025-12-07", sprint: false}
+  2026:
+    - {round: 1, name: Australia, circuit: Albert Park, city: Melbourne, country: Australia, date: "2026-03-15", sprint: false}
+    - {round: 2, name: Bahrain, circuit: Bahrain International Circuit, city: Sakhir, country: Bahrain, date: "2026-03-22", sprint: false}
+    - {round: 3, name: Saudi Arabia, circuit: Jeddah Corniche Circuit, city: Jeddah, country: Saudi Arabia, date: "2026-03-29", sprint: false}
+    - {round: 4, name: Japan, circuit: Suzuka, city: Suzuka, country: Japan, date: "2026-04-12", sprint: false}
+    - {round: 5, name: China, circuit: Shanghai International Circuit, city: Shanghai, country: China, date: "2026-04-26", sprint: true}
+    - {round: 6, name: Miami, circuit: Miami International Autodrome, city: Miami, country: United States, date: "2026-05-10", sprint: true}
+    - {round: 7, name: Emilia Romagna, circuit: Autodromo Enzo e Dino Ferrari, city: Imola, country: Italy, date: "2026-05-24", sprint: false}
+    - {round: 8, name: Monaco, circuit: Circuit de Monaco, city: Monaco, country: Monaco, date: "2026-05-31", sprint: false}
+    - {round: 9, name: Spain, circuit: Circuit de Barcelona-Catalunya, city: Barcelona, country: Spain, date: "2026-06-14", sprint: false}
+    - {round: 10, name: Canada, circuit: Circuit Gilles-Villeneuve, city: Montreal, country: Canada, date: "2026-06-21", sprint: false}
+    - {round: 11, name: Austria, circuit: Red Bull Ring, city: Spielberg, country: Austria, date: "2026-07-05", sprint: true}
+    - {round: 12, name: Britain, circuit: Silverstone, city: Silverstone, country: United Kingdom, date: "2026-07-12", sprint: false}
+    - {round: 13, name: Belgium, circuit: Circuit de Spa-Francorchamps, city: Spa, country: Belgium, date: "2026-07-26", sprint: true}
+    - {round: 14, name: Hungary, circuit: Hungaroring, city: Budapest, country: Hungary, date: "2026-08-02", sprint: false}
+    - {round: 15, name: Netherlands, circuit: Circuit Zandvoort, city: Zandvoort, country: Netherlands, date: "2026-08-23", sprint: true, fp1: "2026-08-21T10:30:00Z"}
+    - {round: 16, name: Italy, circuit: Autodromo Nazionale Monza, city: Monza, country: Italy, date: "2026-09-06", sprint: false}
+    - {round: 17, name: Azerbaijan, circuit: Baku City Circuit, city: Baku, country: Azerbaijan, date: "2026-09-20", sprint: false}
+    - {round: 18, name: Singapore, circuit: Marina Bay Street Circuit, city: Singapore, country: Singapore, date: "2026-10-04", sprint: false}
+    - {round: 19, name: United States, circuit: Circuit of the Americas, city: Austin, country: United States, date: "2026-10-18", sprint: true}
+    - {round: 20, name: Mexico City, circuit: Autodromo Hermanos Rodriguez, city: Mexico City, country: Mexico, date: "2026-10-25", sprint: false}
+    - {round: 21, name: Sao Paulo, circuit: Autodromo Jose Carlos Pace, city: Sao Paulo, country: Brazil, date: "2026-11-08", sprint: true}
+    - {round: 22, name: Las Vegas, circuit: Las Vegas Strip Circuit, city: Las Vegas, country: United States, date: "2026-11-21", sprint: false}
+    - {round: 23, name: Qatar, circuit: Lusail International Circuit, city: Lusail, country: Qatar, date: "2026-11-29", sprint: true}
+    - {round: 24, name: Abu Dhabi, circuit: Yas Marina Circuit, city: Abu Dhabi, country: UAE, date: "2026-12-06", sprint: false}
