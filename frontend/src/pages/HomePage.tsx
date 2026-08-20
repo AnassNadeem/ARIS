@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { apiGet } from "../api/client";
+import { apiGet, peekGet } from "../api/client";
 import type { NextRace } from "../api/types";
 import { nextRaceSchema } from "../api/types";
 import { C, T } from "../theme";
@@ -50,9 +50,11 @@ const FEATURES: [string, string][] = [
 
 export function HomePage() {
   const navigate = useNavigate();
-  const [next, setNext] = useState<NextRace | null>(null);
-  const [stats, setStats] = useState<Stats>(FALLBACK_STATS);
-  const [loading, setLoading] = useState(true);
+  const cachedNext = peekGet<NextRace>("/api/next-race");
+  const cachedStats = peekGet<Stats>("/api/aris/stats");
+  const [next, setNext] = useState<NextRace | null>(cachedNext ?? null);
+  const [stats, setStats] = useState<Stats>(cachedStats ?? FALLBACK_STATS);
+  const [loading, setLoading] = useState(!cachedNext);
 
   useEffect(() => {
     let cancelled = false;

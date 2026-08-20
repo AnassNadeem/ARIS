@@ -4,11 +4,110 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
 
 from aris.recommend import Recommendation, RecommendationResult
+
+
+@dataclass
+class FieldDriver:
+    code: str
+    name: str
+    compound: str
+    tyre_life: int
+    position: int
+    gap_to_leader: float
+
+
+@dataclass
+class RadioField:
+    """Lightweight field snapshot for radio / template chat (not Postgres FieldState)."""
+
+    drivers: list[FieldDriver]
+
+    def get_driver(self, code: str) -> FieldDriver | None:
+        needle = (code or "").upper()
+        for drv in self.drivers:
+            if drv.code.upper() == needle:
+                return drv
+        return None
+
+    def driver_at_position(self, pos: int) -> FieldDriver | None:
+        for drv in self.drivers:
+            if drv.position == pos:
+                return drv
+        return None
+
+
+def generate_template_response(
+    question: str,
+    field: RadioField | None,
+    focus_driver: str,
+    current_lap: int,
+    total_laps: int,
+) -> str:
+    q = question.lower()
+
+    if any(w in q for w in ["gap", "behind", "ahead", "leader", "front"]):
+        if field:
+            focus = field.get_driver(focus_driver)
+            leader = field.driver_at_position(1)
+            p2 = field.driver_at_position(2)
+            if leader and focus:
+                p2_txt = f"{p2.code} P2 at +{p2.gap_to_leader:.1f}s. " if p2 else ""
+                return (
+                    f"{leader.code} leads. "
+                    f"{p2_txt}"
+                    f"We are P{focus.position} at "
+                    f"+{focus.gap_to_leader:.1f}s."
+                )
+        return "Gap data not available for this lap."
+
+    if any(w in q for w in ["position", "where", "place", "running"]):
+        if field:
+            focus = field.get_driver(focus_driver)
+            if focus:
+                return (
+                    f"Currently P{focus.position}, "
+                    f"+{focus.gap_to_leader:.1f}s off the lead."
+                )
+        return "Position data unavailable."
+
+    if any(w in q for w in ["tyre", "tire", "compound", "rubber"]):
+        if field:
+            for driver in field.drivers:
+                name_l = driver.name.lower()
+                if driver.code.lower() in q or any(part and part in q for part in name_l.split()):
+                    return (
+                        f"{driver.code} is on {driver.compound}, "
+                        f"{driver.tyre_life} laps old."
+                    )
+            focus = field.get_driver(focus_driver)
+            if focus:
+                return (
+                    f"We are on {focus.compound}, "
+                    f"{focus.tyre_life} laps old."
+                )
+        return "Tyre data unavailable."
+
+    if any(w in q for w in ["lap", "remaining", "left", "to go"]):
+        remaining = total_laps - current_lap
+        return f"Lap {current_lap} of {total_laps}. {remaining} laps remaining."
+
+    if any(w in q for w in ["pit", "box", "stop"]):
+        return (
+            "Ask ARIS for a strategy recommendation using the "
+            "recommend button, or type 'should we pit?' for an analysis."
+        )
+
+    return (
+        "I don't have enough context to answer that right now. "
+        "Try asking about gaps, tyres, or positions."
+    )
+
 
 DEFAULT_MODEL = "llama3.1:8b-instruct-q5_K_M"
 DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"

@@ -80,20 +80,82 @@ from backend.models import (  # noqa: E402
 )
 
 
+CIRCUITS_TO_PREWARM = [
+    (2025, 1),
+    (2025, 2),
+    (2025, 3),
+    (2025, 4),
+    (2025, 5),
+    (2025, 6),
+    (2025, 7),
+    (2025, 8),
+    (2025, 9),
+    (2025, 10),
+    (2025, 11),
+    (2025, 12),
+    (2025, 13),
+    (2025, 14),
+    (2025, 15),
+    (2025, 16),
+    (2025, 17),
+    (2025, 18),
+    (2025, 19),
+    (2025, 20),
+    (2025, 21),
+    (2025, 22),
+    (2025, 23),
+    (2025, 24),
+    (2024, 15),
+]
+
+
 def _prewarm_calendars() -> None:
-    """Run at startup in a thread — downloads and caches all three year schedules."""
+    """Run at startup in a thread — calendars, next race, and cheap circuit profiles."""
+    keys: set[str] = set()
     for year in [2024, 2025, 2026]:
         try:
-            calendar.get_calendar(year)
-            print(f"[ARIS] Calendar {year} cached OK", flush=True)
+            cal = calendar.get_calendar(year)
+            print(f"[ARIS] Calendar {year} cached OK ({len(cal.rounds)} rounds)", flush=True)
+            for rnd in cal.rounds:
+                keys.add(rnd.circuit_key)
         except Exception as e:
             print(f"[ARIS] Calendar {year} prewarm failed: {e}", flush=True)
+    try:
+        calendar.next_race()
+        print("[ARIS] Next race cached OK", flush=True)
+    except Exception as e:
+        print(f"[ARIS] Next race prewarm failed: {e}", flush=True)
+    for key in keys:
+        try:
+            analytics.circuit_characteristics(key)
+        except Exception:
+            pass
+    if keys:
+        print(f"[ARIS] {len(keys)} circuit profiles cached OK", flush=True)
+
+
+def _prewarm_circuit_previews() -> None:
+    """Pre-compute 20-point circuit previews. Does not block startup."""
+    for year, round_num in CIRCUITS_TO_PREWARM:
+        cache_key = f"circuit_preview_{year}_{round_num}"
+        if cache.get(cache_key, ttl_seconds=86400) is not None:
+            continue
+        try:
+            preview = sessions.build_circuit_preview(year, round_num)
+            if preview.available:
+                cache.set(cache_key, preview)
+                print(f"[ARIS] Circuit preview cached: {year} R{round_num}", flush=True)
+            else:
+                print(f"[ARIS] Circuit preview unavailable: {year} R{round_num}", flush=True)
+        except Exception as e:
+            print(f"[ARIS] Circuit preview failed {year} R{round_num}: {e}", flush=True)
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     loop = asyncio.get_running_loop()
     loop.run_in_executor(executor, _prewarm_calendars)
+    loop.run_in_executor(executor, _prewarm_circuit_previews)
     yield
 
 
@@ -393,17 +455,24 @@ async def api_circuit_map(year: int, round_number: int) -> CircuitMapResponse:
 
 @app.get("/api/circuit/{year}/{round_number}/preview", response_model=CircuitMapResponse)
 async def api_circuit_preview(year: int, round_number: int) -> CircuitMapResponse:
-    key = f"circuit_map_{year}_{round_number}"
-    hit = cache.get(key, TTL_SESSION)
-    if hit is None:
-        return CircuitMapResponse(
-            year=year,
-            round_number=round_number,
-            available=False,
-            fallback=True,
-            error="Preview not cached — open the circuit detail to load the full map",
-        )
-    return sessions.circuit_preview_from_map(hit)
+    """Never triggers a live FastF1 load — cache only (startup pre-warm fills it)."""
+    preview_key = f"circuit_preview_{year}_{round_number}"
+    hit = cache.get(preview_key, TTL_SESSION)
+    if hit is not None:
+        return hit
+    map_key = f"circuit_map_{year}_{round_number}"
+    full = cache.get(map_key, TTL_SESSION)
+    if full is not None:
+        preview = sessions.circuit_preview_from_map(full)
+        cache.set(preview_key, preview)
+        return preview
+    return CircuitMapResponse(
+        year=year,
+        round_number=round_number,
+        available=False,
+        fallback=True,
+        error="Preview not cached yet",
+    )
 
 
 @app.get(
@@ -601,6 +670,8 @@ async def api_compare(
 @app.get("/api/live/status", response_model=LiveStatus)
 async def api_live_status(as_of: AsOf, replay_session_key: int | None = None) -> LiveStatus:
     try:
+        if as_of is not None and replay_session_key is None:
+            return await run_sync(live.simulated_status, as_of)
         return await _cached_await(
             f"live_status_{_as_of_key(as_of)}_{replay_session_key}",
             TTL_LIVE,
@@ -628,7 +699,9 @@ async def api_live_positions(as_of: AsOf, replay_session_key: int | None = None)
         return await _cached_await(
             f"live_positions_{_as_of_key(as_of)}_{replay_session_key}",
             TTL_LIVE,
-            lambda: live.live_positions(as_of, replay_session_key=replay_session_key),
+            lambda: live.live_positions(
+                as_of, replay_session_key=replay_session_key, simulated=as_of is not None
+            ),
         )
     except Exception:
         return LivePositionsResponse(is_live=False, positions=[])

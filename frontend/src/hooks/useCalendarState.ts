@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { apiGet, asOfFromUrl, withAsOf } from "../api/client";
+import { apiGet, asOfFromUrl, peekGet, withAsOf } from "../api/client";
 import {
   calendarSchema,
   liveStatusSchema,
@@ -61,14 +61,28 @@ function classify(next: NextRace, live: LiveStatus, calendar: CalendarResponse):
 
 export function useCalendarState(year: number) {
   const asOf = asOfFromUrl();
-  const bundle = useAsync(async () => {
-    const [next, live, calendar] = await Promise.all([
-      apiGet(withAsOf("/api/next-race", asOf), { schema: nextRaceSchema, timeout: 60_000 }),
-      apiGet(withAsOf("/api/live/status", asOf), { schema: liveStatusSchema, timeout: 60_000 }),
-      apiGet(withAsOf(`/api/calendar/${year}`, asOf), { schema: calendarSchema, timeout: 60_000 }),
-    ]);
-    return { next, live, calendar };
-  }, [year, asOf]);
+  const nextPath = withAsOf("/api/next-race", asOf);
+  const livePath = withAsOf("/api/live/status", asOf);
+  const calPath = withAsOf(`/api/calendar/${year}`, asOf);
+  const bundle = useAsync(
+    async () => {
+      const [next, live, calendar] = await Promise.all([
+        apiGet(nextPath, { schema: nextRaceSchema, timeout: 60_000 }),
+        apiGet(livePath, { schema: liveStatusSchema, timeout: 60_000 }),
+        apiGet(calPath, { schema: calendarSchema, timeout: 60_000 }),
+      ]);
+      return { next, live, calendar };
+    },
+    [year, asOf],
+    true,
+    () => {
+      const next = peekGet<NextRace>(nextPath);
+      const live = peekGet<LiveStatus>(livePath);
+      const calendar = peekGet<CalendarResponse>(calPath);
+      if (next && live && calendar) return { next, live, calendar };
+      return undefined;
+    },
+  );
 
   const state: CalendarState | undefined = useMemo(() => {
     if (bundle.status !== "ok") return undefined;

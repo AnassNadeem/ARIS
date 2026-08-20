@@ -1,4 +1,4 @@
-import { apiGet } from "../api/client";
+import { apiGet, peekGet } from "../api/client";
 import {
   constructorStandingsSchema,
   driverStandingsSchema,
@@ -8,21 +8,27 @@ import {
 import { useAsync } from "./useAsync";
 
 export function useStandings(year: number) {
+  const driversPath = `/api/standings/drivers/${year}`;
+  const constructorsPath = `/api/standings/constructors/${year}`;
   const drivers = useAsync(
     () =>
-      apiGet<DriverStandings>(`/api/standings/drivers/${year}`, {
+      apiGet<DriverStandings>(driversPath, {
         schema: driverStandingsSchema,
         timeout: 60_000,
       }),
     [year],
+    true,
+    () => peekGet<DriverStandings>(driversPath),
   );
   const constructors = useAsync(
     () =>
-      apiGet<ConstructorStandings>(`/api/standings/constructors/${year}`, {
+      apiGet<ConstructorStandings>(constructorsPath, {
         schema: constructorStandingsSchema,
         timeout: 60_000,
       }),
     [year],
+    true,
+    () => peekGet<ConstructorStandings>(constructorsPath),
   );
   return { drivers, constructors };
 }

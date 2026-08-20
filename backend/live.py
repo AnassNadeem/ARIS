@@ -265,10 +265,70 @@ def _fastf1_window_live(as_of: datetime) -> LiveStatus | None:
     return None
 
 
+def simulated_status(as_of: datetime) -> LiveStatus:
+    """Pure local asOf simulation — calendar session windows only, no OpenF1."""
+    as_of = now_utc(as_of)
+    from backend.calendar import get_calendar
+
+    years = [as_of.year]
+    if as_of.year < 2024:
+        years = [2024]
+    if as_of.year > 2026:
+        years = [2026]
+
+    for year in years:
+        if year < 2024 or year > 2026:
+            continue
+        try:
+            # Use the pre-warmed calendar (no as_of) so this is date arithmetic only.
+            cal = get_calendar(year)
+        except Exception:
+            continue
+        for rnd in cal.rounds:
+            for sess in rnd.sessions:
+                start = sess.date_start
+                end = sess.date_end
+                if start.tzinfo is None:
+                    start = start.replace(tzinfo=timezone.utc)
+                if end.tzinfo is None:
+                    end = end.replace(tzinfo=timezone.utc)
+                if start <= as_of <= end:
+                    elapsed = max(0, int((as_of - start).total_seconds()))
+                    return LiveStatus(
+                        is_live=True,
+                        year=year,
+                        round_number=rnd.round_number,
+                        session_type=sess.type,
+                        session_name=sess.type,
+                        gp_name=rnd.name,
+                        circuit=rnd.circuit_name,
+                        session_elapsed_seconds=elapsed,
+                        last_success_utc=_STATE.get("last_success"),
+                        replay_mode=False,
+                        simulated=True,
+                        as_of=as_of,
+                        session={
+                            "session_type": sess.type,
+                            "session_name": sess.type,
+                            "year": year,
+                            "round_number": rnd.round_number,
+                            "circuit": rnd.circuit_name,
+                        },
+                    )
+    return LiveStatus(
+        is_live=False,
+        session=None,
+        simulated=True,
+        as_of=as_of,
+        last_success_utc=_STATE.get("last_success"),
+    )
+
+
 async def live_status(
     as_of: datetime | None = None,
     *,
     replay_session_key: int | None = None,
+    simulated: bool = False,
 ) -> LiveStatus:
     as_of = now_utc(as_of)
     if replay_session_key:
@@ -281,6 +341,9 @@ async def live_status(
             last_success_utc=_STATE.get("last_success"),
             session={"session_key": replay_session_key, "session_type": "Replay"},
         )
+    if simulated:
+        return await run_sync(simulated_status, as_of)
+
     openf1_error: str | None = None
     try:
         local = await run_sync(_fastf1_window_live, as_of)
@@ -465,11 +528,33 @@ async def live_timing(
 
 
 async def live_positions(
-    as_of: datetime | None = None, replay_session_key: int | None = None
+    as_of: datetime | None = None, replay_session_key: int | None = None, simulated: bool = False
 ) -> LivePositionsResponse:
-    status = await live_status(as_of, replay_session_key=replay_session_key)
+    from backend.models import CircuitPathXY
+    from backend.sessions import circuit_map, compute_path_distance
+
+    status = await live_status(as_of, replay_session_key=replay_session_key, simulated=simulated)
+    circuit_path = None
+    bounds = None
+    path_x: list[float] = []
+    path_y: list[float] = []
+    if status.year and status.round_number:
+        try:
+            cmap = await run_sync(circuit_map, status.year, status.round_number)
+            if cmap.available and cmap.x and cmap.y:
+                circuit_path = CircuitPathXY(x=cmap.x, y=cmap.y)
+                bounds = cmap.bounds
+                path_x, path_y = cmap.x, cmap.y
+        except Exception:
+            pass
+
     if not status.is_live or status.session_key is None:
-        return LivePositionsResponse(is_live=False, positions=[], last_success_utc=status.last_success_utc)
+        return LivePositionsResponse(
+            is_live=bool(status.is_live),
+            positions=[],
+            last_success_utc=status.last_success_utc,
+            circuit_path=circuit_path,
+        )
     codes = await _driver_code_map(status.session_key)
     try:
         loc = await _openf1("location", {"session_key": status.session_key})
@@ -482,18 +567,36 @@ async def live_positions(
             if num is None:
                 continue
             latest[int(num)] = row
-    positions = [
-        LivePosition(
-            driver_code=codes.get(num, f"D{num}"),
-            x=float(row.get("x") or 0),
-            y=float(row.get("y") or 0),
+    positions: list[LivePosition] = []
+    for num, row in latest.items():
+        raw_x = float(row.get("x") or 0)
+        raw_y = float(row.get("y") or 0)
+        if bounds is not None:
+            from backend.sessions import _apply_bounds
+
+            px, py = _apply_bounds(raw_x, raw_y, bounds)
+        else:
+            px, py = raw_x, raw_y
+        frac = 0.0
+        if path_x and path_y:
+            try:
+                frac = float(compute_path_distance(px, py, path_x, path_y))
+            except Exception:
+                frac = 0.0
+        positions.append(
+            LivePosition(
+                driver_code=codes.get(num, f"D{num}"),
+                x=px,
+                y=py,
+                path_frac=frac,
+                team_colour=None,
+            )
         )
-        for num, row in latest.items()
-    ]
     return LivePositionsResponse(
         is_live=True,
         positions=positions,
         last_success_utc=_STATE.get("last_success"),
+        circuit_path=circuit_path,
     )
 
 

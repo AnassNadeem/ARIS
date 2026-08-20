@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from typing import Any, Callable, TypeVar
 
-_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="aris-sync")
+_executor = ThreadPoolExecutor(max_workers=6, thread_name_prefix="aris-sync")
 executor = _executor
 
 T = TypeVar("T")

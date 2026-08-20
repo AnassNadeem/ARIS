@@ -1,5 +1,5 @@
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts";
-import { apiGet } from "../api/client";
+import { apiGet, peekGet } from "../api/client";
 import type { SessionConfig } from "../api/types";
 import { useAsync } from "../hooks/useAsync";
 import { C, T } from "../theme";
@@ -53,13 +53,12 @@ export function DebriefView({
   onRestart: () => void;
   onBack: () => void;
 }) {
+  const path = `/api/aris/debrief?year=${config.year}&round_number=${config.round.round_number}&driver_code=${config.driver}`;
   const data = useAsync(
-    () =>
-      apiGet<Debrief>(
-        `/api/aris/debrief?year=${config.year}&round_number=${config.round.round_number}&driver_code=${config.driver}`,
-        { timeout: 60_000 },
-      ),
+    () => apiGet<Debrief>(path, { timeout: 60_000 }),
     [config.year, config.round.round_number, config.driver],
+    true,
+    () => peekGet<Debrief>(path),
   );
 
   return (

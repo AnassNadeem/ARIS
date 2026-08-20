@@ -14,6 +14,7 @@ from backend.models import (
     CircuitMapBounds,
     CircuitMapResponse,
     CircuitMarker,
+    CircuitPathXY,
     CircuitPathPoint,
     CircuitPathResponse,
     CommentaryEvent,
@@ -655,6 +656,78 @@ def _apply_bounds(
     )
 
 
+def point_at_path_frac(path_x: list[float], path_y: list[float], frac: float) -> tuple[float, float]:
+    n = min(len(path_x), len(path_y))
+    if n < 2:
+        return 220.0, 140.0
+    f = (frac % 1.0 + 1.0) % 1.0
+    total = 0.0
+    segs: list[tuple[float, float, float, float, float]] = []
+    for i in range(n - 1):
+        dx = path_x[i + 1] - path_x[i]
+        dy = path_y[i + 1] - path_y[i]
+        ln = (dx * dx + dy * dy) ** 0.5
+        if ln <= 0:
+            continue
+        segs.append((path_x[i], path_y[i], path_x[i + 1], path_y[i + 1], ln))
+        total += ln
+    if total <= 0 or not segs:
+        return path_x[0], path_y[0]
+    target = f * total
+    acc = 0.0
+    for x0, y0, x1, y1, ln in segs:
+        if acc + ln >= target:
+            t = (target - acc) / ln if ln else 0.0
+            t = max(0.0, min(1.0, t))
+            return x0 + t * (x1 - x0), y0 + t * (y1 - y0)
+        acc += ln
+    return path_x[-1], path_y[-1]
+
+
+def compute_path_distance(
+    car_x: float,
+    car_y: float,
+    path_x: list[float],
+    path_y: list[float],
+) -> float:
+    """Nearest-point projection of (car_x, car_y) onto the circuit polyline.
+
+    Returns a fraction 0.0–1.0 of total path length.
+    """
+    import numpy as np
+
+    if len(path_x) < 2 or len(path_y) < 2:
+        return 0.0
+    n = min(len(path_x), len(path_y))
+    path = np.array(list(zip(path_x[:n], path_y[:n])), dtype=float)
+    car = np.array([car_x, car_y], dtype=float)
+    total_length = 0.0
+    segs: list[tuple[np.ndarray, np.ndarray, float]] = []
+    for i in range(len(path) - 1):
+        a = path[i]
+        b = path[i + 1]
+        seg_len = float(np.linalg.norm(b - a))
+        if seg_len <= 0:
+            continue
+        segs.append((a, b, seg_len))
+        total_length += seg_len
+    if total_length <= 0 or not segs:
+        return 0.0
+    min_dist = float("inf")
+    best_frac = 0.0
+    cumulative = 0.0
+    for a, b, seg_len in segs:
+        ab = b - a
+        t = float(np.clip(np.dot(car - a, ab) / (seg_len ** 2), 0.0, 1.0))
+        proj = a + t * ab
+        dist = float(np.linalg.norm(car - proj))
+        if dist < min_dist:
+            min_dist = dist
+            best_frac = (cumulative + t * seg_len) / total_length
+        cumulative += seg_len
+    return float(best_frac)
+
+
 def _nearest_index(distances: list[float], target: float) -> int:
     if not distances:
         return 0
@@ -668,7 +741,7 @@ def _nearest_index(distances: list[float], target: float) -> int:
     return best_i
 
 
-def circuit_map(year: int, round_number: int) -> CircuitMapResponse:
+def circuit_map(year: int, round_number: int, *, _fallback: bool = True) -> CircuitMapResponse:
     """Track outline, corners, DRS and sector markers from FastF1."""
     empty = CircuitMapResponse(
         year=year,
@@ -677,11 +750,19 @@ def circuit_map(year: int, round_number: int) -> CircuitMapResponse:
         fallback=True,
         error="Corner data unavailable for this circuit",
     )
+
+    def _unavailable() -> CircuitMapResponse:
+        if _fallback and year == 2026:
+            fb = circuit_map(2025, round_number, _fallback=False)
+            if fb.available:
+                return fb.model_copy(update={"year": year, "round_number": round_number})
+        return empty
+
     try:
         sess = load_session(year, round_number, "R", telemetry=True)
         laps = sess.laps
         if laps is None or laps.empty:
-            return empty
+            return _unavailable()
         pos = None
         try:
             fast = laps.pick_fastest()
@@ -695,20 +776,20 @@ def circuit_map(year: int, round_number: int) -> CircuitMapResponse:
             if drivers:
                 pos = pos_data[drivers[0]]
             else:
-                return empty
+                return _unavailable()
         if pos is None or getattr(pos, "empty", True) or "X" not in pos.columns:
-            return empty
+            return _unavailable()
         raw_x = [float(v) for v in pos["X"].dropna().tolist()]
         raw_y = [float(v) for v in pos["Y"].dropna().tolist()]
         if not raw_x or not raw_y:
-            return empty
+            return _unavailable()
         if max(raw_x) - min(raw_x) == 0 or max(raw_y) - min(raw_y) == 0:
-            return empty
+            return _unavailable()
         step = max(1, len(raw_x) // 400)
         raw_x, raw_y = raw_x[::step], raw_y[::step]
         bounds, nx, ny = _bounds_and_norm(raw_x, raw_y)
         if bounds is None or len(nx) < 2:
-            return empty
+            return _unavailable()
 
         npts = max(len(nx) - 1, 1)
         corners: list[CircuitCorner] = []
@@ -800,6 +881,10 @@ def circuit_map(year: int, round_number: int) -> CircuitMapResponse:
         )
     except Exception as extra:
         _log.warning("circuit_map failed for %s R%s: %s", year, round_number, extra)
+        if _fallback and year == 2026:
+            fb = circuit_map(2025, round_number, _fallback=False)
+            if fb.available:
+                return fb.model_copy(update={"year": year, "round_number": round_number})
         return empty
 
 
@@ -944,8 +1029,8 @@ def circuit_preview_from_map(full: CircuitMapResponse) -> CircuitMapResponse:
     return CircuitMapResponse(
         year=full.year,
         round_number=full.round_number,
-        x=xs,
-        y=ys,
+        x=xs[:21],
+        y=ys[:21],
         corners=[],
         markers=[],
         drs_segments=[],
@@ -954,6 +1039,48 @@ def circuit_preview_from_map(full: CircuitMapResponse) -> CircuitMapResponse:
         fallback=False,
         view_box=full.view_box,
     )
+
+
+def build_circuit_preview(year: int, round_number: int) -> CircuitMapResponse:
+    """20-point Quali outline for the circuits index. Used by startup pre-warm only."""
+    empty = CircuitMapResponse(
+        year=year,
+        round_number=round_number,
+        available=False,
+        fallback=True,
+        error="Circuit preview unavailable",
+    )
+    try:
+        sess = load_session(year, round_number, "Q", telemetry=True, weather=False, messages=False)
+        laps = sess.laps
+        if laps is None or laps.empty:
+            return empty
+        fast = laps.pick_fastest()
+        pos = fast.get_pos_data()
+        if pos is None or getattr(pos, "empty", True) or "X" not in pos.columns:
+            return empty
+        x = pos["X"].dropna().values
+        y = pos["Y"].dropna().values
+        if len(x) < 10:
+            return empty
+        indices = [int(i * (len(x) - 1) / 19) for i in range(20)]
+        raw_x = [float(x[i]) for i in indices]
+        raw_y = [float(y[i]) for i in indices]
+        bounds, nx, ny = _bounds_and_norm(raw_x, raw_y)
+        if bounds is None or len(nx) < 2:
+            return empty
+        return CircuitMapResponse(
+            year=year,
+            round_number=round_number,
+            x=nx,
+            y=ny,
+            bounds=bounds,
+            available=True,
+            fallback=False,
+        )
+    except Exception as extra:
+        _log.warning("circuit preview failed for %s R%s: %s", year, round_number, extra)
+        return empty
 
 
 def session_positions_all(
@@ -1038,6 +1165,17 @@ def session_positions_all(
                 except Exception:
                     continue
                 px, py = _apply_bounds(rx, ry, bounds) if bounds else (rx, ry)
+                path_frac = 0.0
+                if cmap.x and cmap.y:
+                    try:
+                        path_frac = compute_path_distance(px, py, cmap.x, cmap.y)
+                    except Exception:
+                        path_frac = 0.0
+                speed_ms = None
+                if not this.empty and "LapTime" in this.columns:
+                    lt = this.iloc[0].get("LapTime")
+                    if lt is not None and pd.notna(lt) and hasattr(lt, "total_seconds"):
+                        speed_ms = float(lt.total_seconds())
                 laps_out[str(lap_no)].append(
                     SessionCarPosition(
                         driver_code=code,
@@ -1046,14 +1184,51 @@ def session_positions_all(
                         team_colour=team_by_code.get(code),
                         is_pitted=bool(pitted),
                         is_dnf=last_for_driver < max_lap and lap_no > last_for_driver,
+                        path_frac=path_frac,
+                        speed_ms=speed_ms,
                     )
                 )
+
+        if cmap.x and cmap.y and not any(laps_out.values()):
+            for lap_no in range(1, max_lap + 1):
+                field = (
+                    laps_df[laps_df["LapNumber"] == lap_no]
+                    if "LapNumber" in laps_df.columns
+                    else laps_df.iloc[0:0]
+                )
+                if field.empty:
+                    continue
+                ordered = field.sort_values("Position") if "Position" in field.columns else field
+                for i, rec in ordered.iterrows():
+                    code = str(rec.get("Driver") or "")[:3].upper()
+                    if not code:
+                        continue
+                    pos = rec.get("Position")
+                    try:
+                        p = float(pos) if pos is not None and pd.notna(pos) else float(i + 1)
+                    except (TypeError, ValueError):
+                        p = float(i + 1)
+                    frac = ((p - 1.0) * 0.012) % 1.0
+                    px, py = point_at_path_frac(cmap.x, cmap.y, frac)
+                    last_for_driver = last_lap_by_code.get(code, max_lap)
+                    laps_out[str(lap_no)].append(
+                        SessionCarPosition(
+                            driver_code=code,
+                            x=px,
+                            y=py,
+                            team_colour=team_by_code.get(code),
+                            is_pitted=False,
+                            is_dnf=last_for_driver < max_lap and lap_no > last_for_driver,
+                            path_frac=frac,
+                        )
+                    )
 
         return SessionPositionsAllResponse(
             year=year,
             round_number=round_number,
             session_type=session_type.upper(),
             laps=laps_out,
+            circuit_path=CircuitPathXY(x=list(cmap.x), y=list(cmap.y)) if cmap.x and cmap.y else None,
         )
     except Exception as extra:
         _log.warning("session_positions_all failed for %s R%s: %s", year, round_number, extra)

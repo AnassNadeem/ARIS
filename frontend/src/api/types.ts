@@ -298,6 +298,8 @@ export type CarPosition = {
   driver_code: string;
   x: number;
   y: number;
+  path_frac?: number | null;
+  speed_ms?: number | null;
   team_colour?: string | null;
   is_pitted?: boolean;
   is_dnf?: boolean;

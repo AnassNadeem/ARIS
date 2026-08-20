@@ -12,6 +12,7 @@ from backend.cache import TTL_CALENDAR, cache as mem_cache, enable_fastf1_cache
 from backend.models import (
     CalendarResponse,
     CalendarRound,
+    CalendarSessionWindow,
     NextRaceResponse,
     RoundSessionsResponse,
     SessionInfo,
@@ -21,6 +22,65 @@ from backend.paths import BACKEND
 
 NOTES_PATH = BACKEND / "calendar_notes.yaml"
 _SCHED_MEM: dict[int, pd.DataFrame] = {}
+
+# FIA 2026 championship calendar. FastF1 currently omits at least one round;
+# merge any missing round_number from this overlay so GET /api/calendar/2026
+# always returns 24 rounds numbered 1–24.
+NOTES_OVERLAY: dict[int, list[dict[str, Any]]] = {
+    2026: [
+        {"round_number": 1, "name": "Australia", "circuit_name": "Albert Park", "country": "Australia", "city": "Melbourne", "date_race": "2026-03-15T05:00:00Z", "is_sprint_weekend": False},
+        {"round_number": 2, "name": "Bahrain", "circuit_name": "Bahrain International Circuit", "country": "Bahrain", "city": "Sakhir", "date_race": "2026-03-22T15:00:00Z", "is_sprint_weekend": False},
+        {"round_number": 3, "name": "Saudi Arabia", "circuit_name": "Jeddah Corniche Circuit", "country": "Saudi Arabia", "city": "Jeddah", "date_race": "2026-03-29T17:00:00Z", "is_sprint_weekend": False},
+        {"round_number": 4, "name": "Japan", "circuit_name": "Suzuka", "country": "Japan", "city": "Suzuka", "date_race": "2026-04-12T05:00:00Z", "is_sprint_weekend": False},
+        {"round_number": 5, "name": "China", "circuit_name": "Shanghai International Circuit", "country": "China", "city": "Shanghai", "date_race": "2026-04-26T07:00:00Z", "is_sprint_weekend": True},
+        {"round_number": 6, "name": "Miami", "circuit_name": "Miami International Autodrome", "country": "United States", "city": "Miami", "date_race": "2026-05-10T20:00:00Z", "is_sprint_weekend": True},
+        {"round_number": 7, "name": "Emilia Romagna", "circuit_name": "Imola", "country": "Italy", "city": "Imola", "date_race": "2026-05-24T13:00:00Z", "is_sprint_weekend": False},
+        {"round_number": 8, "name": "Monaco", "circuit_name": "Circuit de Monaco", "country": "Monaco", "city": "Monaco", "date_race": "2026-05-31T13:00:00Z", "is_sprint_weekend": False},
+        {"round_number": 9, "name": "Spain", "circuit_name": "Circuit de Barcelona-Catalunya", "country": "Spain", "city": "Barcelona", "date_race": "2026-06-14T13:00:00Z", "is_sprint_weekend": False},
+        {"round_number": 10, "name": "Canada", "circuit_name": "Circuit Gilles-Villeneuve", "country": "Canada", "city": "Montreal", "date_race": "2026-06-21T18:00:00Z", "is_sprint_weekend": False},
+        {"round_number": 11, "name": "Austria", "circuit_name": "Red Bull Ring", "country": "Austria", "city": "Spielberg", "date_race": "2026-07-05T13:00:00Z", "is_sprint_weekend": True},
+        {"round_number": 12, "name": "Britain", "circuit_name": "Silverstone", "country": "United Kingdom", "city": "Silverstone", "date_race": "2026-07-12T14:00:00Z", "is_sprint_weekend": False},
+        {"round_number": 13, "name": "Belgium", "circuit_name": "Circuit de Spa-Francorchamps", "country": "Belgium", "city": "Spa", "date_race": "2026-07-26T13:00:00Z", "is_sprint_weekend": True},
+        {"round_number": 14, "name": "Hungary", "circuit_name": "Hungaroring", "country": "Hungary", "city": "Budapest", "date_race": "2026-08-02T13:00:00Z", "is_sprint_weekend": False},
+        {
+            "round_number": 15,
+            "name": "Netherlands",
+            "circuit_name": "Circuit Zandvoort",
+            "circuit_key": "netherlands",
+            "country": "Netherlands",
+            "city": "Zandvoort",
+            "date_race": "2026-08-23T13:00:00Z",
+            "status": "UPCOMING",
+            "is_sprint_weekend": True,
+            "notes": ["[ADDED FROM FIA CALENDAR — FastF1 data incomplete]"],
+            "date_fp1": "2026-08-21T10:30:00Z",
+            "date_sprint_quali": "2026-08-21T14:30:00Z",
+            "date_sprint": "2026-08-22T10:00:00Z",
+            "date_quali": "2026-08-22T14:00:00Z",
+        },
+        {"round_number": 16, "name": "Italy", "circuit_name": "Autodromo Nazionale Monza", "country": "Italy", "city": "Monza", "date_race": "2026-09-06T13:00:00Z", "is_sprint_weekend": False},
+        {"round_number": 17, "name": "Azerbaijan", "circuit_name": "Baku City Circuit", "country": "Azerbaijan", "city": "Baku", "date_race": "2026-09-20T11:00:00Z", "is_sprint_weekend": False},
+        {"round_number": 18, "name": "Singapore", "circuit_name": "Marina Bay Street Circuit", "country": "Singapore", "city": "Singapore", "date_race": "2026-10-04T12:00:00Z", "is_sprint_weekend": False},
+        {"round_number": 19, "name": "United States", "circuit_name": "Circuit of the Americas", "country": "United States", "city": "Austin", "date_race": "2026-10-18T19:00:00Z", "is_sprint_weekend": True},
+        {"round_number": 20, "name": "Mexico City", "circuit_name": "Autodromo Hermanos Rodriguez", "country": "Mexico", "city": "Mexico City", "date_race": "2026-10-25T20:00:00Z", "is_sprint_weekend": False},
+        {"round_number": 21, "name": "Sao Paulo", "circuit_name": "Autodromo Jose Carlos Pace", "country": "Brazil", "city": "Sao Paulo", "date_race": "2026-11-08T17:00:00Z", "is_sprint_weekend": True},
+        {"round_number": 22, "name": "Las Vegas", "circuit_name": "Las Vegas Strip Circuit", "country": "United States", "city": "Las Vegas", "date_race": "2026-11-21T06:00:00Z", "is_sprint_weekend": False},
+        {"round_number": 23, "name": "Qatar", "circuit_name": "Lusail International Circuit", "country": "Qatar", "city": "Lusail", "date_race": "2026-11-29T16:00:00Z", "is_sprint_weekend": True},
+        {"round_number": 24, "name": "Abu Dhabi", "circuit_name": "Yas Marina Circuit", "country": "UAE", "city": "Abu Dhabi", "date_race": "2026-12-06T13:00:00Z", "is_sprint_weekend": False},
+    ]
+}
+
+FIA_2026_SPRINT_ROUNDS = {5, 6, 11, 13, 15, 19, 21, 23}
+
+_SESSION_DURATION_H = {
+    "FP1": 1.5,
+    "FP2": 1.5,
+    "FP3": 1.5,
+    "Sprint Qualifying": 1.5,
+    "Sprint": 1.0,
+    "Qualifying": 1.5,
+    "Race": 2.5,
+}
 
 SESSION_NAME_MAP = {
     "practice 1": "FP1",
@@ -98,6 +158,27 @@ def circuit_key_for(country: str, location: str, event_name: str) -> str:
         if path is not None:
             return path.stem
     return _slug(location or country or event_name or "unknown")
+
+
+_FIA_OVERLAY_NOTE = "[ADDED FROM FIA CALENDAR — FastF1 data incomplete]"
+
+
+def _annotate_overlay() -> None:
+    for rows in NOTES_OVERLAY.values():
+        for row in rows:
+            row.setdefault("status", "UPCOMING")
+            notes = row.get("notes")
+            if not notes:
+                row["notes"] = [_FIA_OVERLAY_NOTE]
+            if not row.get("circuit_key"):
+                row["circuit_key"] = circuit_key_for(
+                    str(row.get("country") or ""),
+                    str(row.get("city") or row.get("name") or ""),
+                    str(row.get("name") or ""),
+                )
+
+
+_annotate_overlay()
 
 
 def _short_name(event_name: str, country: str) -> str:
@@ -332,6 +413,221 @@ def _rounds_from_schedule(year: int, sched: pd.DataFrame, as_of: datetime) -> li
     return rounds
 
 
+def _norm_round_name(name: str) -> str:
+    return (
+        (name or "")
+        .lower()
+        .replace("grand prix", "")
+        .replace("são", "sao")
+        .replace(" ", "")
+        .replace("-", "")
+        .replace("'", "")
+    )
+
+
+def _race_anchor(race_dt: datetime | None) -> datetime | None:
+    """Sunday (or Saturday for Vegas) race start used to estimate session windows."""
+    if race_dt is None:
+        return None
+    dt = race_dt
+    if dt.hour == 0 and dt.minute == 0:
+        if dt.weekday() == 4:  # Friday listing → Sunday race
+            dt = dt + timedelta(days=2)
+        dt = dt.replace(hour=13, minute=0, second=0, microsecond=0)
+    return dt
+
+
+def _estimated_session_starts(race_dt: datetime | None, is_sprint: bool) -> dict[str, datetime]:
+    race = _race_anchor(race_dt)
+    if race is None:
+        return {}
+    friday = race - timedelta(days=2)
+    saturday = race - timedelta(days=1)
+    if is_sprint:
+        return {
+            "FP1": friday.replace(hour=10, minute=30),
+            "Sprint Qualifying": friday.replace(hour=14, minute=30),
+            "Sprint": saturday.replace(hour=10, minute=0),
+            "Qualifying": saturday.replace(hour=14, minute=0),
+            "Race": race,
+        }
+    return {
+        "FP1": friday.replace(hour=11, minute=30),
+        "FP2": friday.replace(hour=15, minute=0),
+        "FP3": saturday.replace(hour=10, minute=30),
+        "Qualifying": saturday.replace(hour=14, minute=0),
+        "Race": race,
+    }
+
+
+def _with_sessions(rnd: CalendarRound) -> CalendarRound:
+    estimated = _estimated_session_starts(rnd.date_race, rnd.is_sprint_weekend)
+    if rnd.is_sprint_weekend:
+        pairs: list[tuple[str, datetime | None]] = [
+            ("FP1", rnd.date_fp1),
+            ("Sprint Qualifying", rnd.date_sprint_quali),
+            ("Sprint", rnd.date_sprint),
+            ("Qualifying", rnd.date_quali),
+            ("Race", rnd.date_race),
+        ]
+    else:
+        pairs = [
+            ("FP1", rnd.date_fp1),
+            ("FP2", rnd.date_fp2),
+            ("FP3", rnd.date_fp3),
+            ("Qualifying", rnd.date_quali),
+            ("Race", rnd.date_race),
+        ]
+    windows: list[CalendarSessionWindow] = []
+    for typ, dt in pairs:
+        start = dt or estimated.get(typ)
+        if start is None:
+            continue
+        hours = _SESSION_DURATION_H.get(typ, 1.5)
+        windows.append(
+            CalendarSessionWindow(
+                type=typ,
+                date_start=start,
+                date_end=start + timedelta(hours=hours),
+                key=f"{rnd.round_number}-{typ}",
+            )
+        )
+    updates: dict[str, Any] = {"sessions": windows}
+    if rnd.date_fp1 is None and "FP1" in estimated:
+        updates["date_fp1"] = estimated["FP1"]
+    if rnd.date_fp2 is None and "FP2" in estimated:
+        updates["date_fp2"] = estimated["FP2"]
+    if rnd.date_fp3 is None and "FP3" in estimated:
+        updates["date_fp3"] = estimated["FP3"]
+    if rnd.date_sprint_quali is None and "Sprint Qualifying" in estimated:
+        updates["date_sprint_quali"] = estimated["Sprint Qualifying"]
+    if rnd.date_sprint is None and "Sprint" in estimated:
+        updates["date_sprint"] = estimated["Sprint"]
+    if rnd.date_quali is None and "Qualifying" in estimated:
+        updates["date_quali"] = estimated["Qualifying"]
+    if rnd.date_race is None and "Race" in estimated:
+        updates["date_race"] = estimated["Race"]
+    return rnd.model_copy(update=updates)
+
+
+def _round_from_overlay(raw: dict[str, Any], as_of: datetime, *, from_fia_gap: bool = True) -> CalendarRound:
+    race_dt = _to_dt(raw.get("date_race"))
+    fp1 = _to_dt(raw.get("date_fp1"))
+    country = str(raw.get("country") or "")
+    city = str(raw.get("city") or "")
+    name = str(raw["name"])
+    circuit = str(raw.get("circuit_name") or city or name)
+    sprint = bool(raw.get("is_sprint_weekend"))
+    first = fp1 or (race_dt - timedelta(days=2) if race_dt else None)
+    status = _round_status(
+        year=2026,
+        round_no=int(raw["round_number"]),
+        race_dt=race_dt,
+        first_dt=first,
+        as_of=as_of,
+        cancelled=None,
+        live_keys=set(),
+    )
+    notes = [str(n) for n in (raw.get("notes") or [])]
+    if from_fia_gap and _FIA_OVERLAY_NOTE not in notes:
+        notes.append(_FIA_OVERLAY_NOTE)
+    elif not from_fia_gap:
+        notes = [n for n in notes if n != _FIA_OVERLAY_NOTE]
+    return CalendarRound(
+        round_number=int(raw["round_number"]),
+        name=name,
+        circuit_name=circuit,
+        circuit_key=raw.get("circuit_key") or circuit_key_for(country, city or name, name),
+        country=country,
+        city=city,
+        date_fp1=fp1,
+        date_fp2=_to_dt(raw.get("date_fp2")),
+        date_fp3=_to_dt(raw.get("date_fp3")),
+        date_sprint_quali=_to_dt(raw.get("date_sprint_quali")),
+        date_sprint=_to_dt(raw.get("date_sprint")),
+        date_quali=_to_dt(raw.get("date_quali")),
+        date_race=race_dt,
+        status=status,  # type: ignore[arg-type]
+        is_sprint_weekend=sprint,
+        notes=notes,
+        estimated=True,
+        official_event_name=name,
+    )
+
+
+def _find_round_by_event(name: str, circuit: str, rounds: list[CalendarRound]) -> CalendarRound | None:
+    needles = {_norm_round_name(name), _norm_round_name(circuit)}
+    needles.discard("")
+    aliases = {
+        "netherlands": {"dutch", "zandvoort"},
+        "britain": {"british", "greatbritain", "silverstone"},
+        "saopaulo": {"brazil", "interlagos"},
+        "saudiarabia": {"jeddah", "saudiarabian"},
+        "emiliaromagna": {"imola"},
+        "unitedstates": {"austin", "cota", "usa"},
+        "abudhabi": {"yasmarina"},
+        "lasvegas": {"vegas"},
+        "mexicocity": {"mexico"},
+    }
+    expanded: set[str] = set(needles)
+    for n in list(needles):
+        expanded.update(aliases.get(n, set()))
+        for key, vals in aliases.items():
+            if n in vals or n == key:
+                expanded.add(key)
+                expanded.update(vals)
+    for rnd in rounds:
+        hay = {_norm_round_name(rnd.name), _norm_round_name(rnd.circuit_name), _norm_round_name(rnd.city)}
+        if hay & expanded:
+            return rnd
+        if any(n and any(n in h or h in n for h in hay if h) for n in expanded):
+            return rnd
+    return None
+
+
+def _ensure_complete_calendar(year: int, rounds: list[CalendarRound], as_of: datetime) -> list[CalendarRound]:
+    overlay = NOTES_OVERLAY.get(year) or []
+    if year == 2026 and overlay:
+        missing: list[str] = []
+        out: list[CalendarRound] = []
+        for raw in overlay:
+            n = int(raw["round_number"])
+            ff1 = _find_round_by_event(str(raw.get("name") or ""), str(raw.get("circuit_name") or ""), rounds)
+            rnd = _round_from_overlay(raw, as_of, from_fia_gap=ff1 is None)
+            if ff1 is None:
+                missing.append(f"{n}:{raw.get('name')}")
+            else:
+                rnd = rnd.model_copy(
+                    update={
+                        "estimated": False,
+                        "official_event_name": ff1.official_event_name or rnd.official_event_name,
+                        "circuit_key": rnd.circuit_key or ff1.circuit_key,
+                    }
+                )
+            rnd = rnd.model_copy(update={"is_sprint_weekend": n in FIA_2026_SPRINT_ROUNDS})
+            out.append(rnd)
+        if missing:
+            print(f"[ARIS] FastF1 calendar 2026 missing {missing} — filled from FIA overlay", flush=True)
+        return out
+
+    by_num: dict[int, CalendarRound] = {}
+    for rnd in rounds:
+        if rnd.round_number > 0:
+            by_num[rnd.round_number] = rnd
+
+    missing_n: list[int] = []
+    for raw in overlay:
+        n = int(raw["round_number"])
+        if n not in by_num:
+            missing_n.append(n)
+            by_num[n] = _round_from_overlay(raw, as_of)
+
+    if missing_n:
+        print(f"[ARIS] FastF1 calendar {year} missing round(s) {missing_n} — filled from FIA overlay", flush=True)
+
+    return [by_num[n] for n in sorted(by_num)]
+
+
 def get_calendar(year: int, as_of: datetime | None = None) -> CalendarResponse:
     wall = datetime.now(timezone.utc)
     as_of = now_utc(as_of)
@@ -348,6 +644,8 @@ def get_calendar(year: int, as_of: datetime | None = None) -> CalendarResponse:
     except Exception:
         rounds = _fallback_rounds(year, notes, as_of)
         source = "estimated"
+    rounds = _ensure_complete_calendar(year, rounds, as_of)
+    rounds = [_with_sessions(r) for r in rounds]
     result = CalendarResponse(year=year, rounds=rounds, source=source, as_of=as_of)  # type: ignore[arg-type]
     mem_cache.set(cache_key, result)
     return result

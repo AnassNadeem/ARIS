@@ -17,6 +17,13 @@ StandingsSource = Literal["jolpica", "unavailable", "estimated"]
 DriversSource = Literal["openf1", "fastf1", "estimated"]
 
 
+class CalendarSessionWindow(BaseModel):
+    type: str
+    date_start: datetime
+    date_end: datetime
+    key: str | None = None
+
+
 class CalendarRound(BaseModel):
     round_number: int
     name: str
@@ -37,6 +44,7 @@ class CalendarRound(BaseModel):
     notes: list[str] = Field(default_factory=list)
     estimated: bool = False
     official_event_name: str | None = None
+    sessions: list[CalendarSessionWindow] = Field(default_factory=list)
 
 
 class CalendarResponse(BaseModel):
@@ -378,6 +386,8 @@ class SessionCarPosition(BaseModel):
     team_colour: str | None = None
     is_pitted: bool = False
     is_dnf: bool = False
+    path_frac: float = 0.0
+    speed_ms: float | None = None
 
 
 class SessionPositionsResponse(BaseModel):
@@ -388,11 +398,17 @@ class SessionPositionsResponse(BaseModel):
     positions: list[SessionCarPosition] = Field(default_factory=list)
 
 
+class CircuitPathXY(BaseModel):
+    x: list[float] = Field(default_factory=list)
+    y: list[float] = Field(default_factory=list)
+
+
 class SessionPositionsAllResponse(BaseModel):
     year: int
     round_number: int
     session_type: str
     laps: dict[str, list[SessionCarPosition]] = Field(default_factory=dict)
+    circuit_path: CircuitPathXY | None = None
 
 
 class CommentaryEvent(BaseModel):
@@ -571,12 +587,15 @@ class LiveStatus(BaseModel):
     session_name: str | None = None
     session_key: int | None = None
     gp_name: str | None = None
+    circuit: str | None = None
     current_lap: int | None = None
     total_laps: int | None = None
     session_elapsed_seconds: int | None = None
     session_flag: SessionFlag = "UNKNOWN"
     last_success_utc: datetime | None = None
     replay_mode: bool = False
+    simulated: bool = False
+    as_of: datetime | None = None
     session: dict[str, Any] | None = None
     error: str | None = None
 
@@ -619,12 +638,15 @@ class LivePosition(BaseModel):
     team_colour: str | None = None
     is_pitted: bool = False
     is_dnf: bool = False
+    path_frac: float = 0.0
+    speed_ms: float | None = None
 
 
 class LivePositionsResponse(BaseModel):
     is_live: bool
     positions: list[LivePosition]
     last_success_utc: datetime | None = None
+    circuit_path: CircuitPathXY | None = None
 
 
 class LiveInterval(BaseModel):
@@ -729,6 +751,7 @@ class SimulateResponse(BaseModel):
     pit_cost_s: float | None = None
     wet_reduced_confidence: bool = False
     note: str | None = None
+    data_source: str | None = None
 
 
 class ChatResponse(BaseModel):

@@ -1,16 +1,18 @@
-import { apiGet } from "../api/client";
+import { apiGet, peekGet } from "../api/client";
 import { lapsSchema, liveTimingSchema, type LapsResponse, type LiveTiming } from "../api/types";
 import { useAsync } from "./useAsync";
 
 export function useSessionLaps(year: number, round: number, sessionType: string, enabled = true) {
+  const path = `/api/session/${year}/${round}/${sessionType}/laps`;
   return useAsync(
     () =>
-      apiGet<LapsResponse>(`/api/session/${year}/${round}/${sessionType}/laps`, {
+      apiGet<LapsResponse>(path, {
         schema: lapsSchema,
         timeout: 120_000,
       }),
     [year, round, sessionType],
     enabled,
+    () => peekGet<LapsResponse>(path),
   );
 }
 
@@ -21,13 +23,15 @@ export function useReplayTiming(
   lap: number,
   enabled = true,
 ) {
+  const path = `/api/session/${year}/${round}/${sessionType}/timing?lap=${lap}`;
   return useAsync(
     () =>
-      apiGet<LiveTiming>(`/api/session/${year}/${round}/${sessionType}/timing?lap=${lap}`, {
+      apiGet<LiveTiming>(path, {
         schema: liveTimingSchema,
         timeout: 120_000,
       }),
     [year, round, sessionType, lap],
     enabled,
+    () => peekGet<LiveTiming>(path),
   );
 }

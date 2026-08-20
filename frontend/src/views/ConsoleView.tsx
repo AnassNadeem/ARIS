@@ -299,6 +299,13 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
         />
       )}
       {config.arisMode === "assisted" && rec.status === "ok" && pitDecision === null && (rec.data.action === "BOX" || rec.data.action === "PIT_SOON") && (
+        <>
+          <div style={{ padding: "6px 16px", display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
+            <span style={{ fontFamily: T.mono, fontSize: 10, color: C.mist }}>
+              {(rec.data.confidence * 100).toFixed(0)}%
+            </span>
+            <DataSourceBadge source={rec.data.data_source} />
+          </div>
         <BoxBanner
           rec={rec.data}
           onBox={(compound) => {
@@ -313,6 +320,7 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
             setMessages((m) => [...m, { id: m.length + 1, type: "alert", text: "STAY OUT — user override" }]);
           }}
         />
+        </>
       )}
       {config.arisMode === "assisted" && rec.status === "ok" && pitDecision === null && rec.data.action !== "BOX" && rec.data.action !== "PIT_SOON" && (
         <div
@@ -328,8 +336,14 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
           <span style={{ fontFamily: T.mono, fontSize: 11, color: C.signal }}>
             ARIS RECOMMENDS: {rec.data.action} — {rec.data.reasoning}
           </span>
-          <div style={{ minWidth: 220 }}>
-            <ReasoningBar paceGain={rec.data.pace_gain_s} pitCost={rec.data.pit_cost_s} />
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontFamily: T.mono, fontSize: 10, color: C.mist }}>
+              {(rec.data.confidence * 100).toFixed(0)}%
+            </span>
+            <DataSourceBadge source={rec.data.data_source} />
+            <div style={{ minWidth: 220 }}>
+              <ReasoningBar paceGain={rec.data.pace_gain_s} pitCost={rec.data.pit_cost_s} />
+            </div>
           </div>
         </div>
       )}
@@ -976,7 +990,7 @@ function OpsPane() {
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
     const poll = () => {
-      apiGet<{ messages: typeof msgs }>("/api/live/race-control", { timeout: 60_000 })
+      apiGet<{ messages: typeof msgs }>("/api/live/race-control", { timeout: 60_000, cache: false })
         .then((d) => setMsgs(d.messages))
         .catch((e) => setErr(String(e)));
     };
@@ -1001,6 +1015,16 @@ function OpsPane() {
   );
 }
 
+function DataSourceBadge({ source }: { source?: string | null }) {
+  if (!source || source === "POSTGRES") return null;
+  if (source === "FASTF1_DIRECT") {
+    return <Chip tone="mist" size="xs">[FastF1]</Chip>;
+  }
+  if (source === "FASTF1_FALLBACK") {
+    return <Chip tone="signal" size="xs">[FALLBACK — limited data]</Chip>;
+  }
+  return null;
+}
 const lab: CSSProperties = { display: "flex", justifyContent: "space-between", fontFamily: T.body, fontSize: 12, color: C.mist, alignItems: "center" };
 const inp: CSSProperties = { background: C.raised, border: `1px solid ${C.border}`, color: C.paper, padding: "4px 8px", width: 80, fontFamily: T.mono };
 const sel: CSSProperties = { background: C.raised, border: `1px solid ${C.border}`, color: C.paper, padding: "4px 8px", fontFamily: T.mono, fontSize: 11 };

@@ -32,11 +32,9 @@ export function CircuitOutline({
     <>
       <ellipse cx={220} cy={140} rx={150} ry={80} fill="none" stroke={C.border} strokeWidth={10} />
       <ellipse cx={220} cy={140} rx={150} ry={80} fill="none" stroke={C.faint} strokeWidth={2} strokeDasharray="6 6" />
-      {!quietUnavailable && (
-        <text x={220} y={145} textAnchor="middle" fill={C.mist} style={{ fontFamily: T.mono, fontSize: 12 }}>
-          [CIRCUIT MAP UNAVAILABLE]
-        </text>
-      )}
+      <text x={220} y={145} textAnchor="middle" fill={C.mist} style={{ fontFamily: T.mono, fontSize: 12 }}>
+        {quietUnavailable ? "Loading…" : "[CIRCUIT MAP UNAVAILABLE]"}
+      </text>
     </>
   ) : (
     <>

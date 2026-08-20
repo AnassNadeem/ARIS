@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { apiGet } from "../api/client";
 import type { CalendarRound, CircuitMap } from "../api/types";
 import { useCalendar } from "../hooks/useCalendar";
 import { useCircuit } from "../hooks/useCircuit";
-import { useCircuitMap, useCircuitPreview } from "../hooks/useCircuitMap";
+import { useCircuitMap } from "../hooks/useCircuitMap";
 import { C, T } from "../theme";
 import { Chip, EmptyState, ErrorPanel, Panel, SkeletonPanel } from "../components/atoms";
 import { CircuitOutline } from "../components/CircuitSvg";
@@ -47,6 +48,37 @@ export function CircuitsView() {
     return [...map.values()];
   }, [cal26, cal25, cal24]);
 
+  const [previews, setPreviews] = useState<Record<string, CircuitMap>>({});
+  useEffect(() => {
+    if (slug || !rounds.length) return;
+    let cancelled = false;
+    const load = async () => {
+      const results = await Promise.allSettled(
+        rounds.map(async (r) => {
+          const p = await apiGet<CircuitMap>(`/api/circuit/${r.year}/${r.round_number}/preview`, { timeout: 8_000 });
+          return [`${r.year}-${r.round_number}`, p] as const;
+        }),
+      );
+      if (cancelled) return;
+      setPreviews((prev) => {
+        const next = { ...prev };
+        for (const result of results) {
+          if (result.status === "fulfilled") {
+            const [k, p] = result.value;
+            next[k] = p;
+          }
+        }
+        return next;
+      });
+    };
+    void load();
+    const id = window.setInterval(() => void load(), 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [rounds, slug]);
+
   if (slug) {
     const needle = slug.toLowerCase().replace(/[\s_-]/g, "");
     const hit =
@@ -71,7 +103,12 @@ export function CircuitsView() {
         {cal26.status === "error" && <ErrorPanel message={cal26.error} onRetry={cal26.retry} />}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
           {rounds.map((r) => (
-            <CircuitCard key={r.circuit_key} round={r} year={r.year} />
+            <CircuitCard
+              key={r.circuit_key}
+              round={r}
+              year={r.year}
+              preview={previews[`${r.year}-${r.round_number}`]}
+            />
           ))}
         </div>
         {rounds.length === 0 && !loading && <EmptyState title="No circuits" body="Calendar has not loaded yet." />}
@@ -80,29 +117,24 @@ export function CircuitsView() {
   );
 }
 
-function CircuitCard({ round, year }: { round: CalendarRound; year: number }) {
+function CircuitCard({ round, year, preview }: { round: CalendarRound; year: number; preview?: CircuitMap }) {
   const navigate = useNavigate();
-  const ref = useRef<HTMLButtonElement>(null);
-  const [visible, setVisible] = useState(false);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const io = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) setVisible(true);
-      },
-      { rootMargin: "120px" },
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, []);
-  const cmap = useCircuitPreview(year, round.round_number, visible);
-  const hist = useCircuit(round.circuit_key, year);
+  const hist = useCircuit(round.circuit_key, year, true);
   const last = hist.history.status === "ok" ? [...hist.history.data].sort((a, b) => b.year - a.year)[0] : null;
   const chars = hist.chars.status === "ok" ? hist.chars.data : null;
+  const map: CircuitMap =
+    preview ??
+    {
+      year,
+      round_number: round.round_number,
+      x: [],
+      y: [],
+      corners: [],
+      available: false,
+      fallback: true,
+    };
   return (
     <button
-      ref={ref}
       onClick={() => navigate(`/circuits/${round.circuit_key}`)}
       style={{
         textAlign: "left",
@@ -113,25 +145,8 @@ function CircuitCard({ round, year }: { round: CalendarRound; year: number }) {
         cursor: "pointer",
       }}
     >
-      <div style={{ height: 80, marginBottom: 8 }}>
-        <CircuitOutline
-          map={
-            cmap.status === "ok"
-              ? cmap.data
-              : {
-                  year,
-                  round_number: round.round_number,
-                  x: [],
-                  y: [],
-                  corners: [],
-                  available: false,
-                  fallback: true,
-                }
-          }
-          width="100%"
-          height={80}
-          quietUnavailable
-        />
+      <div style={{ height: 75, marginBottom: 8 }}>
+        <CircuitOutline map={map} width="100%" height={75} quietUnavailable />
       </div>
       <div style={{ fontFamily: T.display, fontSize: 18, fontWeight: 800 }}>{round.circuit_name}</div>
       <div style={{ fontFamily: T.mono, fontSize: 10, color: C.mist }}>{round.country}</div>

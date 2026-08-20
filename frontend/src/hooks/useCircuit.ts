@@ -1,21 +1,26 @@
-import { apiGet } from "../api/client";
+import { apiGet, peekGet } from "../api/client";
 import type { CircuitCharacteristics, CircuitHistoryYear } from "../api/types";
 import { useAsync } from "./useAsync";
 
-export function useCircuit(circuitKey: string | undefined, year?: number) {
-  const chars = useAsync(async () => {
-    if (!circuitKey) throw new Error("No circuit");
-    const q = year ? `?year=${year}` : "";
-    return apiGet<CircuitCharacteristics>(`/api/circuit/${circuitKey}/characteristics${q}`, {
-      timeout: 60_000,
-    });
-  }, [circuitKey, year]);
-  const history = useAsync(async () => {
-    if (!circuitKey) throw new Error("No circuit");
-    const data = await apiGet<{ years: CircuitHistoryYear[] }>(`/api/circuit/${circuitKey}/history`, {
-      timeout: 60_000,
-    });
-    return data.years;
-  }, [circuitKey]);
+export function useCircuit(circuitKey: string | undefined, year?: number, enabled = true) {
+  const q = year ? `?year=${year}` : "";
+  const charsPath = circuitKey ? `/api/circuit/${circuitKey}/characteristics${q}` : "";
+  const histPath = circuitKey ? `/api/circuit/${circuitKey}/history` : "";
+  const on = Boolean(circuitKey) && enabled;
+  const chars = useAsync(
+    () => apiGet<CircuitCharacteristics>(charsPath, { timeout: 60_000 }),
+    [charsPath],
+    on,
+    () => peekGet<CircuitCharacteristics>(charsPath),
+  );
+  const history = useAsync(
+    async () => {
+      const data = await apiGet<{ years: CircuitHistoryYear[] }>(histPath, { timeout: 60_000 });
+      return data.years;
+    },
+    [histPath],
+    on,
+    () => peekGet<{ years: CircuitHistoryYear[] }>(histPath)?.years,
+  );
   return { chars, history };
 }

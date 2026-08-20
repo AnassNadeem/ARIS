@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { apiGet, apiPost } from "../api/client";
+import { apiGet, apiPost, peekGet } from "../api/client";
 import type { RecommendResponse, SessionConfig, StratPlan } from "../api/types";
 import { useAsync } from "../hooks/useAsync";
 import { C, T, compoundLetter } from "../theme";
@@ -32,13 +32,13 @@ export function BriefingView({
   } | null>(null);
   const [rec, setRec] = useState<RecommendResponse | null>(null);
 
-  const plans = useAsync(async () => {
-    const data = await apiGet<{ plans: StratPlan[]; pit_loss_s: number | null }>(
-      `/api/aris/plans?year=${partial.year}&round_number=${partial.round.round_number}&driver_code=${partial.driver}`,
-      { timeout: 60_000 },
-    );
-    return data;
-  }, [partial.year, partial.round.round_number, partial.driver]);
+  const plansPath = `/api/aris/plans?year=${partial.year}&round_number=${partial.round.round_number}&driver_code=${partial.driver}`;
+  const plans = useAsync(
+    () => apiGet<{ plans: StratPlan[]; pit_loss_s: number | null }>(plansPath, { timeout: 60_000 }),
+    [partial.year, partial.round.round_number, partial.driver],
+    true,
+    () => peekGet<{ plans: StratPlan[]; pit_loss_s: number | null }>(plansPath),
+  );
 
   useEffect(() => {
     if (plans.status === "ok") {

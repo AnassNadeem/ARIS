@@ -1,4 +1,5 @@
 import { type ZodType } from "zod";
+import { calendarSchema, driversSchema, nextRaceSchema, type CalendarResponse } from "./types";
 
 const DEFAULT_TIMEOUT = 60_000;
 
@@ -70,32 +71,106 @@ export function apiUrl(path: string): string {
 
 const FIRST_LOAD_MSG = "This may take a moment on first load as data is being cached.";
 
-export async function apiGet<T>(
-  path: string,
-  opts?: { timeout?: number; schema?: ZodType<T> },
-): Promise<T> {
-  const ctrl = new AbortController();
-  const timeout = opts?.timeout ?? DEFAULT_TIMEOUT;
-  const timer = setTimeout(() => ctrl.abort(), timeout);
-  const url = apiUrl(path);
-  beginTraffic();
-  try {
-    const res = await fetch(url, { signal: ctrl.signal });
-    return await parseOrThrow(res, path, opts?.schema);
-  } catch (err) {
-    if (err instanceof ApiError) {
-      throw err;
-    }
-    const aborted = err instanceof DOMException && err.name === "AbortError";
-    throw new ApiError(
-      aborted ? FIRST_LOAD_MSG : `Could not reach the ARIS backend. ${FIRST_LOAD_MSG}`,
-      aborted ? 408 : null,
-      path,
-    );
-  } finally {
-    endTraffic();
-    clearTimeout(timer);
+type CacheEntry = { data: unknown; expiresAt: number };
+
+const memory = new Map<string, CacheEntry>();
+const inflight = new Map<string, Promise<unknown>>();
+let reloadDepth = 0;
+
+export type GetOpts<T> = { timeout?: number; schema?: ZodType<T>; cache?: number | false };
+
+function pathTtlMs(path: string, override?: number | false): number {
+  if (override === false) return 0;
+  if (typeof override === "number") return override;
+  const p = path.split("?")[0];
+  if (p.includes("/api/live/status")) return 10_000;
+  if (p.includes("/api/live/")) return 0;
+  if (p.includes("/api/aris/recommend")) return 0;
+  if (p.includes("/api/circuit/") && (p.endsWith("/map") || p.endsWith("/preview"))) return 30 * 60_000;
+  if (p.includes("/api/circuit/")) return 30 * 60_000;
+  if (p.includes("/api/calendar/")) return 10 * 60_000;
+  if (p.includes("/api/drivers/") || p.includes("/api/teams/")) return 10 * 60_000;
+  if (p.includes("/api/standings/")) return 5 * 60_000;
+  if (p.includes("/api/next-race")) return 60_000;
+  if (p.includes("/api/aris/stats")) return 30 * 60_000;
+  if (p.includes("/api/session/")) return 30 * 60_000;
+  if (p.includes("/api/aris/")) return 5 * 60_000;
+  return 60_000;
+}
+
+export function peekGet<T>(path: string): T | undefined {
+  const hit = memory.get(path);
+  if (!hit) return undefined;
+  if (Date.now() > hit.expiresAt) {
+    memory.delete(path);
+    return undefined;
   }
+  return hit.data as T;
+}
+
+export function withReload<T>(fn: () => Promise<T>): Promise<T> {
+  reloadDepth += 1;
+  return Promise.resolve()
+    .then(fn)
+    .finally(() => {
+      reloadDepth -= 1;
+    });
+}
+
+function remember<T>(path: string, data: T, ttl: number) {
+  if (ttl <= 0) return;
+  memory.set(path, { data, expiresAt: Date.now() + ttl });
+}
+
+export async function apiGet<T>(path: string, opts?: GetOpts<T>): Promise<T> {
+  const ttl = pathTtlMs(path, opts?.cache);
+  const skipCache = reloadDepth > 0 || opts?.cache === false;
+  if (!skipCache && ttl > 0) {
+    const cached = peekGet<T>(path);
+    if (cached !== undefined) {
+      if (opts?.schema) {
+        const parsed = opts.schema.safeParse(cached);
+        if (parsed.success) return parsed.data;
+        memory.delete(path);
+      } else {
+        return cached;
+      }
+    }
+  }
+
+  const existing = inflight.get(path);
+  if (existing) return existing as Promise<T>;
+
+  const promise = (async () => {
+    const ctrl = new AbortController();
+    const timeout = opts?.timeout ?? DEFAULT_TIMEOUT;
+    const timer = setTimeout(() => ctrl.abort(), timeout);
+    const url = apiUrl(path);
+    beginTraffic();
+    try {
+      const res = await fetch(url, { signal: ctrl.signal });
+      const data = await parseOrThrow(res, path, opts?.schema);
+      remember(path, data, ttl);
+      return data;
+    } catch (err) {
+      if (err instanceof ApiError) {
+        throw err;
+      }
+      const aborted = err instanceof DOMException && err.name === "AbortError";
+      throw new ApiError(
+        aborted ? FIRST_LOAD_MSG : `Could not reach the ARIS backend. ${FIRST_LOAD_MSG}`,
+        aborted ? 408 : null,
+        path,
+      );
+    } finally {
+      endTraffic();
+      clearTimeout(timer);
+      inflight.delete(path);
+    }
+  })();
+
+  inflight.set(path, promise);
+  return promise;
 }
 
 export async function apiPost<T>(
@@ -147,4 +222,31 @@ export function replaySessionKeyFromUrl(): number | null {
   if (!raw) return null;
   const n = Number(raw);
   return Number.isFinite(n) ? n : null;
+}
+
+function swallow(p: Promise<unknown>) {
+  void p.catch(() => undefined);
+}
+
+/** Kick off stable catalog fetches as soon as the app boots — not when a tab mounts. */
+export function prefetchAppData() {
+  const asOf = asOfFromUrl();
+  swallow(apiGet(withAsOf("/api/next-race", asOf), { schema: nextRaceSchema }));
+  swallow(apiGet(withAsOf("/api/live/status", asOf)));
+  swallow(apiGet("/api/aris/stats"));
+  for (const year of [2024, 2025, 2026]) {
+    swallow(apiGet(`/api/drivers/${year}`, { schema: driversSchema }));
+    swallow(apiGet(`/api/standings/drivers/${year}`));
+    swallow(apiGet(`/api/standings/constructors/${year}`));
+    swallow(
+      apiGet<CalendarResponse>(withAsOf(`/api/calendar/${year}`, asOf), { schema: calendarSchema }).then((cal) => {
+        const seen = new Set<string>();
+        for (const round of cal.rounds) {
+          if (seen.has(round.circuit_key)) continue;
+          seen.add(round.circuit_key);
+          swallow(apiGet(`/api/circuit/${round.circuit_key}/characteristics?year=${year}`));
+        }
+      }),
+    );
+  }
 }

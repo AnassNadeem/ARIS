@@ -23,8 +23,8 @@ export function useLiveTiming(active: boolean) {
         const statusPath = withAsOf(`/api/live/status${q}`, asOf);
         const timingPath = withAsOf(`/api/live/timing${q}`, asOf);
         const [st, tm] = await Promise.all([
-          apiGet(statusPath, { schema: liveStatusSchema, timeout: 60_000 }),
-          apiGet(timingPath, { schema: liveTimingSchema, timeout: 60_000 }),
+          apiGet(statusPath, { schema: liveStatusSchema, timeout: 60_000, cache: false }),
+          apiGet(timingPath, { schema: liveTimingSchema, timeout: 60_000, cache: false }),
         ]);
         if (cancelled) return;
         setStatus(st);
