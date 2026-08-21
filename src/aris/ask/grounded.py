@@ -72,6 +72,10 @@ def answer_question(
     hits = _prefer_shipped_model(hits)
     usable = [h for h in hits if h.cosine >= MIN_COSINE or h.doc.source in {"session", "memory"}]
     if not usable:
+        # Lap tokens like "lap 2" lose to "lap 21"/"lap 32" in hashing retrieval.
+        # Exact fact match on the indexed documents is still grounded — not a guess.
+        usable = _exact_decision_hits(store, query, extra=ephemeral)
+    if not usable:
         return ABSTAIN
     if memory:
         memory.remember_decision_hits([h.doc for h in usable])
@@ -120,6 +124,40 @@ def _query_constraints(question: str) -> dict[str, Any]:
         "drivers": drivers,
         "q_lower": q.lower(),
     }
+
+
+def _exact_decision_hits(
+    store: AskIndex,
+    question: str,
+    *,
+    extra: list[AskDocument],
+) -> list[Hit]:
+    """Look up a logged decision by year/driver/lap when vector top-k missed it."""
+    cons = _query_constraints(question)
+    if cons["lap"] is None or not cons["drivers"]:
+        return []
+    q_lower = cons["q_lower"]
+    matches: list[Hit] = []
+    for doc in [*store.documents, *extra]:
+        if doc.source != "decision":
+            continue
+        facts = doc.facts
+        if facts.get("lap") != cons["lap"]:
+            continue
+        code = str(facts.get("driver_code") or "").upper()
+        if code and code not in cons["drivers"]:
+            continue
+        if cons["year"] is not None and facts.get("year") not in (None, cons["year"]):
+            continue
+        if cons["round_no"] is not None and facts.get("round_no") not in (None, cons["round_no"]):
+            continue
+        country = str(facts.get("country") or "").lower()
+        if country and country not in q_lower and not cons["round_no"]:
+            # Allow round-disambiguated questions that omit the country name.
+            if country.replace(" ", "") not in q_lower.replace(" ", ""):
+                continue
+        matches.append(Hit(doc=doc, cosine=1.0, score=1.0))
+    return _prefer_shipped_model(matches)
 
 
 def _apply_constraints(question: str, hits: list[Hit]) -> list[Hit]:
@@ -211,7 +249,36 @@ def _compose(question: str, hits: list[Hit]) -> str:
     clipped = ". ".join(sentences[:3])
     if clipped and not clipped.endswith("."):
         clipped += "."
-    return clipped or body
+    prose = clipped or body
+    # Exact JSON numbers + Cited: must sit after the 3-sentence clip so
+    # periods inside floats / event ids are not dropped.
+    extras = [_grounding_numbers(primary), _cited_block(primary)]
+    return " ".join(x for x in (prose, *extras) if x)
+
+
+def _grounding_numbers(doc: AskDocument) -> str:
+    f = doc.facts
+    parts: list[str] = []
+    if f.get("delta_vs_stay_out_s") is not None:
+        parts.append(f"delta_vs_stay_out_s {json_number(f.get('delta_vs_stay_out_s'))}")
+    if f.get("mean_race_time_s") is not None:
+        parts.append(f"mean_race_time_s {json_number(f.get('mean_race_time_s'))}")
+    return " ".join(parts)
+
+
+def _cited_block(doc: AskDocument) -> str:
+    event_id = doc.facts.get("event_id")
+    citation = (doc.citation or "").strip()
+    if event_id:
+        token = f"event_id={event_id}"
+        if token in citation:
+            return f"Cited: {citation}"
+        if citation:
+            return f"Cited: {token} {citation}"
+        return f"Cited: {token}"
+    if citation:
+        return f"Cited: {citation}"
+    return ""
 
 
 def _decision_answer(doc: AskDocument) -> str:
@@ -224,11 +291,7 @@ def _decision_answer(doc: AskDocument) -> str:
     year = f.get("year") or ""
     parts = [f"{driver} at {country} {year}, lap {lap}: {label}.".replace("  ", " ")]
     if delta is not None:
-        try:
-            d = float(delta)
-            parts.append(f"Net vs staying out: {d:+.1f}s.")
-        except (TypeError, ValueError):
-            pass
+        parts.append("Net vs staying out is copied from the logged record.")
     compound = f.get("pit_compound")
     pit_lap = f.get("pit_lap")
     if compound:
