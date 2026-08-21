@@ -1,8 +1,7 @@
 # Model status — where ARIS actually stands
 
-Interview-ready account of the predictive / decision core as of the
-Final Pre-Event Consolidation (2026-08-17), four days before the
-21–23 August 2026 Dutch GP.
+Interview-ready account of the predictive / decision core as of
+Tier 2 (2026-08-20), the day before the 21–23 August 2026 Dutch GP.
 This page supersedes scattered phase docs as the one place to point
 someone asking **how good is this, really**. Those phase docs remain
 the evidence trail. Public-facing numbers in `README.md` match this
@@ -10,7 +9,9 @@ page. Wet races are out of scope (see below) — same class of named
 limit as G1.5 and the physics-offset close.
 
 Every number is aimed vs actual. Overlay env
-`ARIS_TRUE_COMPOUND_SLOPES` is **unset**. G1.5 is locked.
+`ARIS_TRUE_COMPOUND_SLOPES` is **unset**. G1.5 slopes stay the tyre
+prior. Circuit-conditioned OLS (`ARIS_USE_CIRCUIT_DEG`) is **off**
+until it clears its own gate.
 
 ---
 
@@ -28,14 +29,14 @@ sensor. The Zandvoort demo identity is unchanged.
 | Question | Aimed | Actual | Honest reading |
 |---|---|---|---|
 | One-step lap time vs MA(2) | beat baseline | E3 2024 blend **0.583 s** vs MA(2) **0.522** | closest stack; **does not beat** |
-| Mid-race match-rate vs stay-out | > 0.276 | **0.322** (28/87) | **beats** never-box; 2025 by one extra match |
+| Mid-race match-rate vs stay-out | > 0.276 | **0.345** (30/87) | **beats** never-box; T2 default (G1.5 + SC pit cost + dynamic undercut + approach trigger). G1.5-only was 0.322 (28/87) |
 | Lights-out position-delta (all 48) | ≤ 0 | **−1.73** | identity-safe; not FIA points |
 | Same, clean races only | report, don't hide | **−1.49** (n=35) | both numbers required |
 | Same, disrupted (red or SC run ≥ 5) | report, don't hide | **−2.38** (n=13) | more negative, not a cherry-pick |
 | Absolute `team_sim − actual` | a stable intercept | mean **+989 s**, std **544** | **closed** — do not subtract |
-| Tyre slopes from lap time | physical C1<…<C5 | G2/G3/G4 all miss the gate | **G1.5 locked** |
+| Tyre slopes from lap time | physical C1<…<C5 | G2/G3/G4 miss; T2-A identity **moved** | **G1.5 locked**; `ARIS_USE_CIRCUIT_DEG` stays off |
 | Wet / rain-affected races | a wet strategy | **none** — **0.356** (48/135) inflections excluded | **out of scope**, not an eval choice |
-| Zandvoort recommend identity | Pit 33 HARD / Pit 30 HARD / Stay out | same, every phase since E4.1 | demo path **untouched** |
+| Zandvoort recommend identity | Pit 33 HARD / Pit 30 HARD / Stay out | same on the **default** path | demo path **untouched** unless T2-A is forced on |
 
 ---
 
@@ -104,10 +105,14 @@ match-rate.
 
 | Attempt | Combined match-rate | vs stay-out 0.276 | vs G1.5 0.322 |
 |---|---|---|---|
-| **G1.5 (shipped)** | **0.322** (28/87) | beat | — |
+| **G1.5 (shipped tyre prior)** | **0.322** (28/87) | beat | — |
 | G2 unconstrained C-code | 0.195 (17/87) | lose | lose |
 | G3 isotonic PAVA | 0.299 (26/87) | beat | lose |
 | G4 pooled GBT | 0.264 (23/87) | lose | lose |
+| T2-A circuit OLS (flagged) | not default | — | Zandvoort identity **moved**; keep `ARIS_USE_CIRCUIT_DEG` off |
+
+T2-B/D/C (not a tyre overlay) raise the **default** combined match-rate to
+**0.345** (30/87) on the same 87 inflections, still using G1.5 slopes.
 
 Lap time is not a tyre sensor. FastF1 has no C1–C6 and no temp /
 pressure / energy. HARD stints run in freer air than SOFT (median
@@ -130,17 +135,18 @@ wet-strategy gap below, not a way to dress the 87-event match-rate.
 
 Always-stay-out matches every non-pit inflection and misses every pit.
 
-| Year | Aimed (beat stay-out) | Actual | Stay-out |
-|---|---|---|---|
-| 2024 | > **0.250** (10/40) | **0.325** (13/40) | 10/40 |
-| 2025 | > **0.298** (14/47) | **0.319** (15/47) | 14/47 |
-| Combined | > **0.276** (24/87) | **0.322** (28/87) | 24/87 |
+| Year | Aimed (beat stay-out) | Actual (T2 default) | Stay-out | G1.5-only |
+|---|---|---|---|---|
+| 2024 | > **0.250** (10/40) | **0.375** (15/40) | 10/40 | 0.325 (13/40) |
+| 2025 | > **0.298** (14/47) | **0.319** (15/47) | 14/47 | 0.319 (15/47) |
+| Combined | > **0.276** (24/87) | **0.345** (30/87) | 24/87 | 0.322 (28/87) |
 
-2025 clears the floor by **one extra match**. That is still a pass on
-the rule that was written down. It is not a large margin.
+T2-B/D/C add **two** combined matches on the same 87 inflections. 2025
+is unchanged vs G1.5 (still one extra match over stay-out). 2024 is
+the gain. T2-A is **not** in this table.
 
 This metric is `recommend()` at real pit/SC/compound inflections, not
-the lights-out prewrite. Match-rate is unchanged by R.2 / R.2.1 / R.2.2.
+the lights-out prewrite.
 
 ---
 
@@ -262,7 +268,7 @@ as match or mismatch.
 | 2025 (G1.5) | report | **0.365** (27/74) | 47 scored remain |
 | Combined 2024+2025 | ~1/3 | **0.356** (48/135) | 87 scored remain |
 
-The 87-event match-rate (**0.322** vs stay-out **0.276**) is computed
+The 87-event match-rate (**0.345** T2 default / **0.322** G1.5-only vs stay-out **0.276**) is computed
 on what is left after that cut. The cut reflects a missing model, not
 an evaluation convenience. Spain 2024’s race was dry but FastF1’s
 `rainfall` bit can fire on any session moisture; Monaco 2024 was
@@ -274,7 +280,7 @@ the 48. See `docs/strategy-backtest.md` and
 
 ## What the Zandvoort demo actually shows
 
-Locked since E4.1, re-confirmed every phase including this one:
+Locked since E4.1, re-confirmed on the T2 **default** path (T2-A off):
 
 - 2025 Netherlands session 123, VER, 72 laps, pit-loss 18.5, slopes
   0.08 / 0.05 / 0.03
@@ -283,23 +289,54 @@ Locked since E4.1, re-confirmed every phase including this one:
 - What-if is G1.4 (**−11.92 s**), not E4.1 −13.00 s, because physics-
   delta stays. MC bands are unseeded.
 
-This phase touched eval scoring only (`OutcomeScore.major_disruption`,
-clean/disrupted split). `simulate()` / `recommend()` / `tires.py` were
-not edited.
+Forcing `ARIS_USE_CIRCUIT_DEG=1` **moves** the labels (Pit 26/27 SOFT).
+That path is not shipped.
+
+---
+
+## Tier 2 (2026-08-20)
+
+Search-based increments on the G1.5 + G1.4 path. No learned policy.
+Walk-forward: `scripts/backtest.py --years 2024 2025` →
+`results/backtest/t2/`.
+
+| Change | Default? | Combined match-rate | Notes |
+|---|---|---|---|
+| T2-B SC/VSC current-lap pit loss (0.35 / 0.55) | **yes** | part of 0.345 | Future `PIT_LAP` stops still pay green YAML loss |
+| T2-D dynamic undercut bonus (cap −0.8 s) | **yes** | part of 0.345 | Stay-out remains in top-3 |
+| T2-C approaching-window trigger (stable key) | **yes** | part of 0.345 | Denominator still **87** inflections |
+| T2-A circuit OLS slopes 2018–2023 | **no** — `ARIS_USE_CIRCUIT_DEG` | not scored as default | Flag-on Zandvoort identity **moved** to Pit 26/27 SOFT |
+| T2-E background Postgres ingest | ops only | n/a | `recommend`/`plans` no longer block; `INGESTING` badge |
+
+**Gate vs locked G1.5 0.322 (28/87):** default T2 combined **0.345 (30/87)**.
+2024 **0.375 (15/40)** (≥ 0.325). 2025 **0.319 (15/47)** (≥ 0.319).
+Lights-out all-48 **−1.73** (clean **−1.49** n=35 / disrupted **−2.38** n=13).
+
+Do **not** claim 0.340 from T2-A + T2-B as a shipped tyre model. T2-A
+failed the un-flag rule: Netherlands OLS SOFT **−0.057** / MEDIUM
+**0.001** / HARD **0.009** vs G1.5 0.08 / 0.05 / 0.03, and the demo
+labels moved. Unset / `0` / `false` keeps G1.5. File:
+`models/circuit_deg_slopes.json` (`meta.max_year` 2023).
+
+One-step blend MAE was not re-measured here: FastF1 season schedule
+APIs failed (`Failed to load any schedule data`), and T2 default does
+not change the residual/blend predictor. Last calendar figure remains
+E3 **0.583 s** (aimed ≤ 0.620 s).
+
+Zandvoort identity on the default path (L25, MEDIUM, tyre_life 2,
+`mc_draws=0`): **Pit lap 33 for HARD; Pit lap 30 for HARD; Stay out**.
 
 ---
 
 ## Research window — closed until after the event
 
 No further model-accuracy research will be attempted before 21–23
-August 2026. That includes the cornering-load bounded next step from
+August 2026. Tier 2 search-based work is in; T2-A stays flagged.
+Cornering-load (R1.4) remains queued, not abandoned — see
 [`docs/PHASE-R1-CORNERING-LOAD-SUMMARY.md`](./PHASE-R1-CORNERING-LOAD-SUMMARY.md)
-(R1.4: one opt-in G4 swap on cache-complete years). It is **queued,
-not abandoned**. Work resumes after the Dutch GP on the
-`research/cornering-load` thread, starting from that R1.4
-recommendation and
+and
 [`docs/future-research-cornering-load.md`](./future-research-cornering-load.md).
-G1.5 stays shipped through the event.
+G1.5 stays the tyre prior through the event.
 
 ---
 
@@ -308,9 +345,12 @@ G1.5 stays shipped through the event.
 - Beating MA(2) on lap time.
 - That Strat B would have scored more FIA points.
 - That −1.73 (or −1.49 clean) is a strategy edge independent of G1.5's
-  HARD slope and of SC pit-loss charged as green.
+  HARD slope.
 - That a physics intercept is "coming."
-- That a fifth lap-time tyre fit is worth the week before the event.
+- That T2-A circuit OLS is a shipped tyre sensor (Zandvoort identity
+  moved; the flag stays off).
+- That the 0.345 match-rate is a C-code / GBT overlay. It is G1.5
+  slopes plus SC pit cost, undercut bonus, and approach triggers.
 - That ARIS has a wet / rain strategy. Combined **0.356** (48/135)
   inflections are excluded because that model does not exist.
 
