@@ -8,6 +8,15 @@ import pytest
 from aris.physics.traffic import gaps_at_completed_laps, gaps_from_fastf1_laps
 
 
+def test_dirty_air_penalty():
+    from aris.physics.traffic import compute_dirty_air_penalty
+
+    assert compute_dirty_air_penalty([0.8, 0.7, 0.9]) == 0.15
+    assert compute_dirty_air_penalty([0.8, 0.7]) == 0.0
+    assert compute_dirty_air_penalty([0.8, 1.2, 1.5]) == 0.0
+    assert compute_dirty_air_penalty([]) == 0.0
+
+
 def test_three_car_adjacent_gaps():
     """Leader has no ahead; last has no behind; middle has both; min is nearest."""
     laps = pd.DataFrame(

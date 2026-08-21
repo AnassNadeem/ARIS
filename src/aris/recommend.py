@@ -7,6 +7,17 @@ import os
 from pydantic import BaseModel
 
 from aris.montecarlo import DEFAULT_DRAWS, run_mc
+from aris.physics.tires import normalize_compound
+from aris.physics.traffic import compute_dirty_air_penalty
+from aris.physics.wet import (
+    WET_RAIN_THRESHOLD_MM,
+    effective_rainfall_mm,
+    should_recommend_inter,
+    should_recommend_wet,
+    should_stay_on_wet,
+    wet_candidate_delta,
+    wet_stay_delta,
+)
 from aris.simulate import (
     ActionKind,
     StrategyAction,
@@ -229,6 +240,151 @@ def _candidate_actions(state: RaceState) -> list[StrategyAction]:
     return actions
 
 
+HOLD_WET_NARRATION = "Hold tyres — conditions still wet."
+WET_HEURISTIC_EVIDENCE = "wet heuristic (uncalibrated — reduced confidence)"
+WET_HOLD_LAPS = (3, 5, 8)
+
+
+def _laps_remaining(state: RaceState) -> int:
+    remaining = int(state.laps_remaining or 0)
+    if state.total_laps:
+        remaining = max(remaining, int(state.total_laps) - int(state.lap_number))
+    return remaining
+
+
+def _wet_stay_card(
+    state: RaceState,
+    action: StrategyAction,
+    delta: float,
+    evidence: str,
+    *,
+    wet_heuristic: bool = True,
+) -> Recommendation:
+    return Recommendation(
+        rank=0,
+        label=_label_for(action),
+        action=action,
+        delta_vs_stay_out_s=delta,
+        mean_race_time_s=0.0,
+        confidence_std_s=0.0,
+        p10_delta_s=delta,
+        p90_delta_s=delta,
+        evidence=evidence,
+        narration_context={
+            "driver": state.driver_code,
+            "lap": state.lap_number,
+            "compound": state.compound,
+            "tyre_life": state.tyre_life,
+            "laps_remaining": state.laps_remaining,
+            "position": state.position,
+            "gap_ahead_s": state.gap_ahead_s,
+            "strategy": _label_for(action),
+            "delta_s": round(delta, 2),
+            "wet_heuristic": wet_heuristic,
+        },
+        wet_heuristic=wet_heuristic,
+    )
+
+
+def _make_stay_out_card(state: RaceState) -> Recommendation:
+    return _wet_stay_card(
+        state,
+        StrategyAction(kind=ActionKind.STAY_OUT),
+        0.0,
+        "stay on current wet compound",
+        wet_heuristic=True,
+    )
+
+
+def _generate_wet_stay_candidates(
+    state: RaceState,
+    slopes: dict[str, float] | None,
+    circuit_pit_loss: float,
+) -> list[Recommendation]:
+    """Candidates when on a wet compound in rain. No SOFT/MEDIUM/HARD pits."""
+    del slopes  # wet stay is a heuristic, not G1.5 dry slopes
+    remaining = max(_laps_remaining(state), 1)
+    compound = normalize_compound(state.compound)
+    cards: list[Recommendation] = [_make_stay_out_card(state)]
+
+    for n in WET_HOLD_LAPS:
+        if int(state.lap_number) + int(n) > int(state.total_laps):
+            continue
+        cards.append(
+            _wet_stay_card(
+                state,
+                StrategyAction(
+                    kind=ActionKind.STAY_OUT,
+                    label_override=HOLD_WET_NARRATION
+                    if n == WET_HOLD_LAPS[0]
+                    else f"Hold {n} laps — conditions still wet.",
+                ),
+                0.0,
+                HOLD_WET_NARRATION,
+            )
+        )
+
+    mm = effective_rainfall_mm(state)
+    # INTER→WET only for standing water. Boolean rain (1.2 mm proxy) is not that.
+    # WET→INTER (drying) is out of scope until a forecast exists.
+    if compound in {"INTERMEDIATE", "INTER"} and mm >= WET_RAIN_THRESHOLD_MM:
+        delta = wet_candidate_delta(
+            mm, remaining, "WET", pit_loss_s=float(circuit_pit_loss)
+        )
+        cards.append(
+            _wet_stay_card(
+                state,
+                StrategyAction(kind=ActionKind.PIT_NOW, pit_compound="WET"),
+                delta,
+                WET_HEURISTIC_EVIDENCE,
+            )
+        )
+
+    if remaining <= 10:
+        delta = -wet_stay_delta(state, remaining)
+        cards.append(
+            _wet_stay_card(
+                state,
+                StrategyAction(
+                    kind=ActionKind.PIT_NOW,
+                    pit_compound=state.pit_compound or "HARD",
+                    label_override="DRY_WINDOW — pit for slick (track may be drying)",
+                ),
+                delta,
+                f"{WET_HEURISTIC_EVIDENCE} | DRY_WINDOW",
+            )
+        )
+    return cards
+
+
+def _is_pure_stay(rec: Recommendation) -> bool:
+    action = rec.action
+    if action.kind != ActionKind.STAY_OUT or action.pit_laps:
+        return False
+    return not action.label_override
+
+
+def _rank_and_trim(
+    scored: list[Recommendation],
+    state: RaceState,
+    *,
+    top_k: int,
+) -> RecommendationResult:
+    scored.sort(key=lambda r: r.delta_vs_stay_out_s)
+    stay = next((r for r in scored if _is_pure_stay(r)), None)
+    top = scored[:top_k]
+    if stay is not None and stay not in top:
+        top = top[: max(0, top_k - 1)] + [stay]
+    for i, rec in enumerate(top, start=1):
+        rec.rank = i
+    return RecommendationResult(
+        state_lap=state.lap_number,
+        driver_code=state.driver_code,
+        compound=state.compound,
+        recommendations=top,
+    )
+
+
 def _label_for(action: StrategyAction) -> str:
     if action.label_override:
         return action.label_override
@@ -307,6 +463,15 @@ def recommend(
         field_bonus = t2d
         undercut_source = "t2d"
 
+    # Rain-lock: on a wet compound in rain, suppress the dry shortlist.
+    if should_stay_on_wet(state):
+        candidates = _generate_wet_stay_candidates(
+            state, slopes or {}, circuit_pit_loss
+        )
+        if not any(_is_pure_stay(c) for c in candidates):
+            candidates.append(_make_stay_out_card(state))
+        return _rank_and_trim(candidates, state, top_k=top_k)
+
     actions = list(_candidate_actions(state))
     if field is not None and field_overcut_enabled() and estimates:
         actions.extend(
@@ -315,8 +480,12 @@ def recommend(
             )
         )
 
+    dirty_air = 0.0
+    if field_undercut_enabled():
+        dirty_air = compute_dirty_air_penalty(list(state.gap_ahead_history or []))
+
     for action in actions:
-        outcome = simulate(state, action)
+        outcome = simulate(state, action, dirty_air_penalty=dirty_air)
         baseline = outcome.total_race_time_s - outcome.delta_vs_stay_out_s
         if action.kind == ActionKind.STAY_OUT and not action.pit_laps:
             bonus = 0.0
@@ -334,7 +503,9 @@ def recommend(
         # (pit vs stay, lap, compound) is what we score, not MC bands.
         raw_delta = outcome.delta_vs_stay_out_s
         if mc_draws and mc_draws > 0:
-            mc = run_mc(state, action, n_draws=mc_draws)
+            mc = run_mc(
+                state, action, n_draws=mc_draws, dirty_air_penalty=dirty_air
+            )
             raw_delta = mc.mean_delta_vs_stay_out_s
             mean_time = mc.mean_time_s
             std_time = float(mc.std_time_s) + extra_std
@@ -417,13 +588,6 @@ def recommend(
                 extrapolation_weight=weight,
             )
         )
-
-    from aris.physics.wet import (
-        effective_rainfall_mm,
-        should_recommend_inter,
-        should_recommend_wet,
-        wet_candidate_delta,
-    )
 
     wet_on = should_recommend_inter(state, state.track_status)
     if wet_on:

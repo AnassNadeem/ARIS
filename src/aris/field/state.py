@@ -13,6 +13,39 @@ from aris.field.sectors import (
     session_sector_bests,
 )
 from aris.field.standings import StandingRow, compute_standings
+from aris.physics.tires import normalize_compound
+
+
+def stint_lap_times(
+    all_laps: pd.DataFrame,
+    driver_id: int,
+    current_lap: int,
+    compound: str | None,
+    *,
+    n: int = 5,
+) -> list[float]:
+    """Last ``n`` completed lap times on ``compound`` up to ``current_lap``, oldest first."""
+    if all_laps is None or all_laps.empty or "lap_time_s" not in all_laps.columns:
+        return []
+    drv = all_laps[all_laps["driver_id"] == int(driver_id)].sort_values("lap_number")
+    drv = drv[drv["lap_number"] <= int(current_lap)]
+    if drv.empty:
+        return []
+    want = normalize_compound(compound) if compound else None
+    times: list[float] = []
+    for row in reversed(list(drv.to_dict("records"))):
+        if want and "compound" in row:
+            got = normalize_compound(row.get("compound"))
+            if got != want:
+                break
+        lt = row.get("lap_time_s")
+        if lt is None or pd.isna(lt):
+            continue
+        times.append(float(lt))
+        if len(times) >= n:
+            break
+    times.reverse()
+    return times
 
 
 @dataclass(frozen=True)
@@ -52,6 +85,8 @@ class FieldState:
     driver_views: list[DriverSectorView] = field(default_factory=list)
     session_bests: dict[int, float] = field(default_factory=dict)
     fastest_sectors: dict[int, str] = field(default_factory=dict)
+    # Last 5 current-compound lap times per driver code, oldest first.
+    lap_times_by_code: dict[str, list[float]] = field(default_factory=dict)
 
     @classmethod
     def from_laps(
@@ -103,6 +138,12 @@ class FieldState:
                         fastest[sec] = (code, float(val))
 
         fastest_sectors = {k: v[0] for k, v in fastest.items()}
+        lap_times_by_code = {
+            str(row.code).upper(): stint_lap_times(
+                all_laps, row.driver_id, display_lap, row.compound
+            )
+            for row in standings
+        }
         return cls(
             session_id=session_id,
             index=index,
@@ -111,6 +152,7 @@ class FieldState:
             driver_views=views,
             session_bests=session_bests,
             fastest_sectors=fastest_sectors,
+            lap_times_by_code=lap_times_by_code,
         )
 
     def standing_for(self, driver_id: int) -> StandingRow | None:

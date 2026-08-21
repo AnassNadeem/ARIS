@@ -34,7 +34,7 @@ sensor. The Zandvoort demo identity is unchanged.
 | Same, disrupted (red or SC run ≥ 5) | report, don't hide | **−2.38** (n=13) | more negative, not a cherry-pick |
 | Absolute `team_sim − actual` | a stable intercept | mean **+989 s**, std **544** | **closed** — do not subtract |
 | Tyre slopes from lap time | physical C1<…<C5 | G2/G3/G4 miss; T2-A identity **moved** | **G1.5 locked**; `ARIS_USE_CIRCUIT_DEG` stays off |
-| Wet / rain-affected races | a wet strategy | heuristic only — **not calibrated**; dry 87 still **0.345**; combined **0.318 (35/110)** after rainfall-signal fix | INTER tagged `wet_heuristic`; rain from FastF1 `weather_data['Rainfall']`, not SC `4` |
+| Wet / rain-affected races | a wet strategy | heuristic only — **not calibrated**; dry 87 still **0.345**; combined **0.345 (38/110)** after T3-final wet-stay path (0.340 gate **PASSED**) | INTER tagged `wet_heuristic`; rain from FastF1 `weather_data['Rainfall']`, not SC `4`; already-on-INTER also uses session rain as fallback |
 | Zandvoort recommend identity | Pit 33 HARD / Pit 30 HARD / Stay out | same on the **default** path | demo path **untouched** unless T2-A is forced on |
 
 ---
@@ -254,8 +254,13 @@ present) or for the identity-safe ranking.
 boolean — with ≥8 laps remaining on a dry slick. The radio line includes
 `[HEURISTIC — reduced confidence in wet conditions]`. FastF1
 `track_status` `4`/`6`/`7` are SC/VSC, not rain; `5` is a red flag.
-Session-level `session_weather.rainfall` (any sample True) is **not** a
-live rain signal; it remains the walk-forward exclusion bit only.
+Session-level `session_weather.rainfall` (any sample True) is **not**
+used to fire an INTER card from slicks; that remains the walk-forward
+exclusion bit. T3-final uses it only as a fallback for
+`should_stay_on_wet` when the car is already on INTER/WET: FastF1's
+per-lap `Rainfall` boolean can stay False for an entire INTER stint
+(Interlagos 2024 LEC laps 21–42) while the session bit is True. A dry
+SC (`rainfall=False`, session bit false) still switches to slick.
 
 Minimum viable heuristic as of T3-E / T3-consolidation, calibrated
 against the T3-E INTER vs slick band (−1.5 to −3.0 s/lap; conservative
@@ -395,6 +400,71 @@ Walk artefacts (gitignored): `results/backtest/t3c-undercut-off|on`,
 
 ---
 
+## T3-final (2026-08-22)
+
+Wet stay path + observed rival deg + dirty-air stay-out penalty.
+Architecture lock held. Dry 87 and lights-out **unchanged**. Wet
+combined **clears 0.340**. Field flags **not** promoted. Zandvoort
+identity **PASS**. **Not ready for T4** — neither undercut nor overcut
+became default.
+
+Walk artefacts (gitignored): `results/backtest/t3final-dry`,
+`t3final-wet`, `t3final-undercut-off|on`, `t3final-overcut-off|on`.
+
+| Metric | T3-consol | T3-final |
+|---|---|---|
+| Dry match-rate (87 events) | **0.345 (30/87)** | **0.345 (30/87)** — 2024 **0.375 (15/40)**, 2025 **0.319 (15/47)** |
+| Combined `--include-wet` | **0.318 (35/110)** | **0.345 (38/110)** — 2024 **0.388 (19/49)**, 2025 **0.311 (19/61)** |
+| 2025 wet vs stay-out | 17/61 vs 19/61 | **19/61 = 19/61** (tied, not above) |
+| Field undercut | FLAGGED (21/56, 0 pp) | **FLAGGED** — off **21/56 (0.375)**; `ARIS_FIELD_UNDERCUT=1` **20/56 (0.357)** (−1.8 pp) |
+| Overcut | FLAGGED (16/42, 0 pp) | **FLAGGED** — **16/42 (0.381)** on or off (0 pp) |
+| Lights-out all / clean / disrupted | −1.73 / −1.49 / −2.38 | **−1.73 / −1.49 / −2.38** (same 48-race walk) |
+| Zandvoort identity | PASS | **PASS** (Pit 33 HARD / Pit 30 HARD / Stay out) |
+
+**Wet stay path (default).** `should_stay_on_wet` + `_generate_wet_stay_candidates`
+run before the dry shortlist when the car is on INTER/WET in rain
+(≥5 laps left, not red). Shortlist is stay-out, hold-N cards, optional
+INTER→WET only if `effective_rainfall_mm >= 2.0`, and a DRY_WINDOW slick
+pit only if `laps_remaining <= 10` (scored with `wet_stay_delta`). No
+SOFT/MEDIUM/HARD pits. Per-lap `rainfall` is the primary bit; session
+`weather_rainfall` is a fallback only while already on INTER/WET.
+Radio: “Hold tyres — conditions still wet.” Not a calibrated wet model.
+
+**Dirty air (flagged).** `compute_dirty_air_penalty` is 0.15 s/lap when
+the last 3 `gap_ahead_history` entries are all < 1.0 s. Applied to
+stay-out / LIFT / BRAKE scoring only, not pit schedules. Gated behind
+`field_undercut_enabled()`: putting it on the default path moved 2024
+dry **15/40 → 14/40**. Keep off.
+
+**Observed rival deg (flagged).** `RivalState.lap_times_history` (last 5)
+feeds OLS slope in `estimate_rival_pit_lap` when n ≥ 3. Confidence is
+HIGH/MEDIUM only if n ≥ 5 and slope is in [0.5×, 3×] the G1.5 prior;
+else LOW. n < 3 keeps the cliff × race_frac × 0.85 fallback. Lives
+behind the same field flags as T3-B/C.
+
+**Promotion.** Rule was ≥ +2 pp on the targeted subset **and** dry 87
+≥ 0.345. Undercut flag-on **lost** 1 event (dirty air + observed deg).
+Overcut did not move. Do not un-flag. Do not run a flag-on dry-87
+promotion walk: dirty air already failed 2024 at 14/40.
+
+Remaining wet misses are mostly team INTER pits vs ARIS stay-out
+(Australia 2025 ALB L2–4, Britain 2025 VER L11, Canada 2024 PIA L25)
+plus one late DRY_WINDOW (Australia ALB L47). Sao Paulo 2024 LEC SC
+stays now match (L27/L30/L39).
+
+### T4 readiness
+
+| Check | Aimed | Actual | Ready? |
+|---|---|---|---|
+| Dry 87 | ≥ 0.345 | **0.345 (30/87)** | **YES** |
+| Combined wet | ≥ 0.340 | **0.345 (38/110)** | **YES** |
+| Undercut or overcut default | at least one DEFAULT | both **FLAG** | **NO** |
+| Lights-out all 48 | ≤ −1.70 | **−1.73** | **YES** |
+| Zandvoort identity | PASS | PASS | **YES** |
+| **Overall** | all five | — | **NOT READY FOR T4** |
+
+---
+
 ## Research window
 
 T3 field work landed on the Dutch GP weekend. T2-A stays flagged.
@@ -427,4 +497,5 @@ Further reading: `docs/tyre-degradation-research.md`,
 `docs/strategy-backtest.md`, `docs/PHASE-G5-SUMMARY.md`,
 `docs/PHASE-R2-POSITION-DELTA-SUMMARY.md`, `docs/PHASE-R21-SUMMARY.md`,
 `docs/PHASE-R22-SUMMARY.md`, `docs/PHASE-T3-SUMMARY.md`,
-`docs/PHASE-T3-CONSOLIDATION-SUMMARY.md`.
+`docs/PHASE-T3-CONSOLIDATION-SUMMARY.md`. T3-final numbers live in
+the T3-final section above.

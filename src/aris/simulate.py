@@ -227,6 +227,7 @@ def _simulate_remainder(
     pace_noise: list[float] | None = None,
     line_delta_first_lap_s: float = 0.0,
     pit_status_by_lap: dict[int, str] | None = None,
+    dirty_air_penalty: float = 0.0,
 ) -> RemainderResult:
     """Forward-sim remaining laps.
 
@@ -319,6 +320,8 @@ def _simulate_remainder(
 
         if first_lap and line_delta_first_lap_s:
             pred += line_delta_first_lap_s
+        if dirty_air_penalty:
+            pred += float(dirty_air_penalty)
         total += pred
         recent_times.append(pred)
         if len(recent_times) > 10:
@@ -353,19 +356,28 @@ def simulate(
     action: StrategyAction,
     *,
     pace_noise: list[float] | None = None,
+    dirty_air_penalty: float = 0.0,
 ) -> PredictedOutcome:
+    penalty = float(dirty_air_penalty or 0.0)
     stay_schedule: list[tuple[int, str]] = []
     baseline = _simulate_remainder(
-        state, pit_schedule=stay_schedule, pace_noise=pace_noise
+        state,
+        pit_schedule=stay_schedule,
+        pace_noise=pace_noise,
+        dirty_air_penalty=penalty,
     )
 
     line_delta = _line_delta_s(state, action)
     schedule = _pit_schedule(action, state)
+    # Dirty air applies to stay-out (and line actions still following).
+    # A pit exits that car's wake — do not penalise pit rollouts.
+    action_penalty = 0.0 if schedule else penalty
     result = _simulate_remainder(
         state,
         pit_schedule=schedule,
         pace_noise=pace_noise,
         line_delta_first_lap_s=line_delta,
+        dirty_air_penalty=action_penalty,
     )
     evidence = result.evidence
     if action.kind == ActionKind.LIFT and action.corner_index and action.distance_m:

@@ -165,6 +165,52 @@ def should_recommend_inter(
     return True
 
 
+def should_stay_on_wet(state) -> bool:
+    """True when the car is on a wet compound in rain and should not switch to slicks.
+
+    Mirror of ``should_recommend_inter``: that fires on slicks in rain (switch
+    to wet); this fires on INTER/WET in rain (stay on wet). Track status ``4``
+    is Safety Car, not rain.
+
+    Primary rain bit is per-lap ``state.rainfall``. FastF1's weather sample is
+    sparse (~1/min); Interlagos 2024 stays INTERMEDIATE for 20+ laps with
+    ``laps.rainfall=False`` while ``session_weather.rainfall`` is True. When
+    the car is already on INTER/WET, the session bit is a fallback so we do
+    not rank a dry HARD pit. A dry SC (session bit false) still switches
+    to slick.
+    """
+    compound = normalize_compound(getattr(state, "compound", None))
+    if compound not in WET_COMPOUNDS:
+        return False
+    raining = bool(getattr(state, "rainfall", False)) or bool(
+        getattr(state, "weather_rainfall", False)
+    )
+    if not raining:
+        return False
+    remaining = int(getattr(state, "laps_remaining", 0) or 0)
+    total = int(getattr(state, "total_laps", 0) or 0)
+    lap = int(getattr(state, "lap_number", 0) or 0)
+    if remaining < 5:
+        return False
+    if total and (total - lap) < 5:
+        return False
+    if _is_red(state):
+        return False
+    return True
+
+
+def wet_stay_delta(state, laps_remaining: int) -> float:
+    """Per-remaining-lap penalty for switching to slick while it is still raining.
+
+    Positive = slick costs this many seconds vs staying on the current wet
+    compound. Conservative: INTER_VS_SLICK_ADV_LOW (light rain, slick only
+    slightly disadvantaged). ``state`` is accepted for API symmetry.
+    """
+    del state
+    slick_penalty_per_lap = abs(INTER_VS_SLICK_ADV_LOW)  # 1.5 s/lap
+    return float(slick_penalty_per_lap) * int(laps_remaining)
+
+
 def should_recommend_wet(state) -> bool:
     """Full wet only for heavy rain or already on INTER with rain still on."""
     if _is_red(state):

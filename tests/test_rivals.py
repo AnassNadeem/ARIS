@@ -152,3 +152,36 @@ def test_estimate_clamped_to_remaining_race():
     est = estimate_rival_pit_lap(rival, current_lap=70, total_laps=72, circuit_key="netherlands")
     assert est.estimated_pit_lap == 71
     assert est.laps_until_pit == 1
+
+
+def test_observed_deg_pits_sooner_than_prior():
+    rival = RivalState(
+        driver_code="VER",
+        position=1,
+        compound="MEDIUM",
+        tyre_life=10,
+        gap_to_focus=1.0,
+        gap_trend=0.0,
+        team="Red Bull",
+        last_lap_s=76.0,
+        lap_times_history=[74.0, 74.8, 75.6, 76.4, 77.2],  # 0.8 s/lap
+    )
+    prior = estimate_rival_pit_lap(
+        RivalState(
+            driver_code="VER",
+            position=1,
+            compound="MEDIUM",
+            tyre_life=10,
+            gap_to_focus=1.0,
+            gap_trend=0.0,
+            team="Red Bull",
+            last_lap_s=76.0,
+        ),
+        current_lap=20,
+        total_laps=72,
+        circuit_key="netherlands",
+    )
+    obs = estimate_rival_pit_lap(rival, current_lap=20, total_laps=72, circuit_key="netherlands")
+    assert obs.estimated_pit_lap < prior.estimated_pit_lap
+    assert "obs deg" in obs.reasoning
+    assert "G1.5 prior" in prior.reasoning

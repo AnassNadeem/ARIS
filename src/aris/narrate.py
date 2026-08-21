@@ -9,7 +9,8 @@ from typing import Any
 
 import httpx
 
-from aris.recommend import Recommendation, RecommendationResult
+from aris.recommend import HOLD_WET_NARRATION, Recommendation, RecommendationResult
+from aris.simulate import ActionKind
 
 
 @dataclass
@@ -279,10 +280,22 @@ def _fallback_narration(rec: Recommendation) -> str:
             f"build the gap, then box. Net: {delta:.1f}s in our favour."
         )
     if rec.wet_heuristic:
-        delta = rec.narration_context.get("delta_s", rec.delta_vs_stay_out_s)
         remaining = rec.narration_context.get("laps_remaining", "?")
+        label = rec.label or ""
+        if rec.action.kind == ActionKind.STAY_OUT and not rec.action.pit_laps:
+            return (
+                f"{HOLD_WET_NARRATION} "
+                f"[HEURISTIC — reduced confidence in wet conditions]"
+            )
+        if "DRY_WINDOW" in label:
+            return (
+                "Track may be drying. Box for slicks — DRY_WINDOW. "
+                "[HEURISTIC — reduced confidence in wet conditions]"
+            )
+        delta = rec.narration_context.get("delta_s", rec.delta_vs_stay_out_s)
+        compound = rec.action.pit_compound or "intermediates"
         return (
-            f"Rain affecting lap times. Box for intermediates — estimated "
+            f"Rain affecting lap times. Box for {compound.lower()} — estimated "
             f"{delta:.0f}s net gain over {remaining} laps. "
             f"[HEURISTIC — reduced confidence in wet conditions]"
         )

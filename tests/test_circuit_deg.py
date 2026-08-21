@@ -164,3 +164,12 @@ def test_zandvoort_identity_flag_off():
     assert labels[0].startswith("Pit lap 33 for HARD")
     assert any(l.startswith("Pit lap 30 for HARD") for l in labels)
     assert any(r.action.kind == ActionKind.STAY_OUT and not r.action.pit_laps for r in result.recommendations)
+
+
+def test_zandvoort_identity_with_dirty_air_history_flag_off():
+    """Dirty air is undercut-only; default ranking must ignore close-following gaps."""
+    state = _zandvoort_state().model_copy(
+        update={"gap_ahead_history": [0.8, 0.7, 0.9], "gap_ahead_s": 0.8}
+    )
+    result = recommend(state, top_k=3, mc_draws=0)
+    assert result.recommendations[0].label.startswith("Pit lap 33 for HARD")

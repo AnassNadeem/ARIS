@@ -5,8 +5,14 @@ from __future__ import annotations
 from aris.field.standings import StandingRow
 from aris.field.state import FieldState, ReplayIndex
 from aris.narrate import narrate_recommendation
-from aris.physics.wet import should_recommend_inter, should_recommend_wet
+from aris.physics.wet import (
+    should_recommend_inter,
+    should_recommend_wet,
+    should_stay_on_wet,
+    wet_stay_delta,
+)
 from aris.recommend import recommend
+from aris.simulate import ActionKind
 from tests.test_strategy import _sample_state
 
 
@@ -151,6 +157,90 @@ def test_brazil_inter_in_shortlist_slick_not_rank_one():
 def test_already_on_inter_does_not_retrigger_inter():
     state = _brazil_state(compound="INTERMEDIATE")
     assert should_recommend_inter(state) is False
+    assert should_stay_on_wet(state) is True
+
+
+def test_already_on_inter_in_rain_does_not_rank_dry_pit():
+    state = _brazil_state(
+        driver_code="LEC",
+        lap_number=28,
+        total_laps=71,
+        laps_remaining=43,
+        compound="INTERMEDIATE",
+        tyre_life=4,
+        lag1_pace=87.5,
+        lag2_pace=88.1,
+        stint_roll3=87.8,
+        gap_ahead_s=5.0,
+        track_status="1",
+        fuel_kg=61.6,
+        pit_compound="HARD",
+        rainfall=True,
+    )
+    result = recommend(state, mc_draws=0)
+    dry = {"SOFT", "MEDIUM", "HARD"}
+    top = result.recommendations[0]
+    assert top.action.pit_compound not in dry
+    assert top.action.kind == ActionKind.STAY_OUT
+
+
+def test_session_rain_on_inter_does_not_rank_dry_pit():
+    """Per-lap Rainfall can be False while the car is still on INTER in a wet session."""
+    state = _brazil_state(
+        driver_code="LEC",
+        lap_number=27,
+        total_laps=71,
+        laps_remaining=44,
+        compound="INTERMEDIATE",
+        tyre_life=8,
+        track_status="4",
+        rainfall=False,
+        weather_rainfall=True,
+    )
+    result = recommend(state, mc_draws=0)
+    dry = {"SOFT", "MEDIUM", "HARD"}
+    assert result.recommendations[0].action.pit_compound not in dry
+    assert result.recommendations[0].action.kind == ActionKind.STAY_OUT
+    state = _sample_state(
+        driver_code="VER",
+        country="Netherlands",
+        year=2025,
+        round_no=15,
+        lap_number=30,
+        total_laps=72,
+        laps_remaining=42,
+        compound="INTERMEDIATE",
+        tyre_life=5,
+        lag1_pace=81.0,
+        lag2_pace=81.5,
+        stint_roll3=81.2,
+        gap_ahead_s=3.0,
+        track_status="4",
+        fuel_kg=59.1,
+        rainfall=False,
+        weather_rainfall=False,
+        rainfall_mm_per_lap=None,
+    )
+    result = recommend(state, mc_draws=0)
+    dry = {"SOFT", "MEDIUM", "HARD"}
+    assert result.recommendations[0].action.pit_compound in dry
+
+
+def test_should_stay_on_wet_guards():
+    raining = _brazil_state(compound="INTERMEDIATE")
+    assert should_stay_on_wet(raining) is True
+    assert should_stay_on_wet(_brazil_state(compound="MEDIUM")) is False
+    assert should_stay_on_wet(
+        _brazil_state(compound="INTERMEDIATE", rainfall=False, weather_rainfall=False)
+    ) is False
+    assert should_stay_on_wet(
+        _brazil_state(compound="INTERMEDIATE", rainfall=False, weather_rainfall=True)
+    ) is True
+    assert should_stay_on_wet(_brazil_state(compound="INTERMEDIATE", track_status="5")) is False
+    assert should_stay_on_wet(
+        _brazil_state(compound="INTERMEDIATE", laps_remaining=3, lap_number=68)
+    ) is False
+    assert wet_stay_delta(raining, 10) == 15.0
 
 
 def test_dry_identity_unchanged_without_rain():

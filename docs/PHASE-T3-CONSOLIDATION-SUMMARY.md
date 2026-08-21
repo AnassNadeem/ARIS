@@ -19,6 +19,11 @@ results/backtest/t3c-wet
 
 ## Verdict (read this first)
 
+**Superseded for current numbers by T3-final in
+[`docs/model-status.md`](./model-status.md) (2026-08-22).** This page
+is the 2026-08-21 rainfall-signal / flag-walk record. T3-final wet
+combined is **0.345 (38/110)**; flags still off; still not ready for T4.
+
 **NEEDS MORE T3 WORK. Not ready for T4.**
 
 The rainfall boolean is now the live rain signal (FastF1

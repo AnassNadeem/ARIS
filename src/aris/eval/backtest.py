@@ -643,6 +643,11 @@ def resolve_calendar(year: int = 2024) -> list[dict[str, Any]]:
 
 
 def _bind_backtest_log(session: RaceEngineSession) -> None:
+    from aris.decisions.persist import decision_log_enabled
+
+    if not decision_log_enabled():
+        session.decision_queue.bind_log(None)
+        return
     log = JsonlDecisionLog.for_session(
         session_id=session.session_id,
         driver_code=session.driver_code,

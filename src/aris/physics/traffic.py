@@ -15,6 +15,30 @@ from aris.physics.tires import normalize_compound
 _SC_CODES = ("4", "6", "7")
 
 
+DIRTY_AIR_THRESHOLD_S = 1.0  # within 1 second = in dirty air
+DIRTY_AIR_PENALTY_PER_LAP = 0.15  # seconds lost per lap in dirty air
+DIRTY_AIR_LAP_THRESHOLD = 3  # must be within gap for this many laps
+
+
+def compute_dirty_air_penalty(gap_ahead_history: list[float]) -> float:
+    """Per-lap pace penalty from following in dirty air.
+
+    Active only when the last DIRTY_AIR_LAP_THRESHOLD gaps are all below
+    DIRTY_AIR_THRESHOLD_S. Not enough history, or a gap that opened, is 0.
+    Applied to stay-out scoring only — a pit exits that car's dirty air.
+    """
+    if gap_ahead_history is None:
+        return 0.0
+    if len(gap_ahead_history) < DIRTY_AIR_LAP_THRESHOLD:
+        return 0.0
+    recent = list(gap_ahead_history[-DIRTY_AIR_LAP_THRESHOLD:])
+    if any(g is None for g in recent):
+        return 0.0
+    if all(float(g) < DIRTY_AIR_THRESHOLD_S for g in recent):
+        return DIRTY_AIR_PENALTY_PER_LAP
+    return 0.0
+
+
 def gaps_at_completed_laps(
     laps: pd.DataFrame,
     *,

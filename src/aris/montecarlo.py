@@ -42,7 +42,11 @@ def _action_label(action: StrategyAction) -> str:
 
 
 def _simulate_with_draw(
-    state: RaceState, action: StrategyAction, rng: np.random.Generator
+    state: RaceState,
+    action: StrategyAction,
+    rng: np.random.Generator,
+    *,
+    dirty_air_penalty: float = 0.0,
 ) -> float:
     n_laps = max(1, state.laps_remaining)
     noise = rng.normal(0.0, PACE_SIGMA_S, size=n_laps).tolist()
@@ -51,7 +55,14 @@ def _simulate_with_draw(
         pit_noise = rng.normal(0.0, 0.5)
         if noise:
             noise[0] += pit_noise
-    total = _simulate_remainder(state, pit_schedule=schedule, pace_noise=noise).total
+    penalty = float(dirty_air_penalty or 0.0)
+    action_penalty = 0.0 if schedule else penalty
+    total = _simulate_remainder(
+        state,
+        pit_schedule=schedule,
+        pace_noise=noise,
+        dirty_air_penalty=action_penalty,
+    ).total
     return total
 
 
@@ -61,13 +72,23 @@ def run_mc(
     *,
     n_draws: int = DEFAULT_DRAWS,
     seed: int = 42,
+    dirty_air_penalty: float = 0.0,
 ) -> MCDistribution:
     rng = np.random.default_rng(seed)
-    baseline = _simulate_with_draw(state, StrategyAction(kind=ActionKind.STAY_OUT), rng)
+    baseline = _simulate_with_draw(
+        state,
+        StrategyAction(kind=ActionKind.STAY_OUT),
+        rng,
+        dirty_air_penalty=dirty_air_penalty,
+    )
 
     totals: list[float] = []
     for _ in range(n_draws):
-        totals.append(_simulate_with_draw(state, action, rng))
+        totals.append(
+            _simulate_with_draw(
+                state, action, rng, dirty_air_penalty=dirty_air_penalty
+            )
+        )
 
     arr = np.array(totals)
     return MCDistribution(
