@@ -1,5 +1,7 @@
 """Unit tests for strategy engine (no DB required)."""
 
+import pytest
+
 from aris.montecarlo import run_mc
 from aris.narrate import narrate_recommendation
 from aris.recommend import recommend
@@ -177,6 +179,67 @@ class TestExtrapolation:
         assert "lower confidence" in text
         # Both SC and (when the top action extrapolates) stint-length notes.
         assert "Safety Car-affected" in text or "beyond typical observed" in text
+
+
+class TestUndercutBonus:
+    def test_gap_21s_base_only(self):
+        from aris.recommend import compute_undercut_bonus
+
+        state = _sample_state(gap_ahead_s=21.0, gap_ahead_history=[])
+        assert compute_undercut_bonus(state) == -0.3
+
+    def test_gap_0_8s_drs_extra(self):
+        from aris.recommend import compute_undercut_bonus
+
+        state = _sample_state(gap_ahead_s=0.8, gap_ahead_history=[])
+        assert compute_undercut_bonus(state) == -0.6
+
+    def test_closing_adds_and_caps(self):
+        from aris.recommend import compute_undercut_bonus
+
+        state = _sample_state(
+            gap_ahead_s=0.8,
+            gap_ahead_history=[1.1, 0.95, 0.8],  # closing 0.3/3 = 0.1 > 0.05
+        )
+        assert compute_undercut_bonus(state) == -0.8
+
+    def test_opening_reduces_urgency(self):
+        from aris.recommend import compute_undercut_bonus
+
+        state = _sample_state(
+            gap_ahead_s=5.0,
+            gap_ahead_history=[4.7, 4.85, 5.0],  # opening -0.3/3 = -0.1
+        )
+        assert compute_undercut_bonus(state) == pytest.approx(-0.2)  # -0.3 + 0.1
+
+    def test_no_history_no_trend(self):
+        from aris.recommend import compute_undercut_bonus
+
+        state = _sample_state(gap_ahead_s=5.0, gap_ahead_history=[])
+        assert compute_undercut_bonus(state) == -0.3
+
+    def test_outside_window_zero(self):
+        from aris.recommend import compute_undercut_bonus
+
+        assert compute_undercut_bonus(_sample_state(gap_ahead_s=22.0)) == 0.0
+        assert compute_undercut_bonus(_sample_state(gap_ahead_s=0.0)) == 0.0
+        assert compute_undercut_bonus(_sample_state(gap_ahead_s=None)) == 0.0
+
+    def test_recommend_surfaces_undercut_evidence(self):
+        state = _sample_state(gap_ahead_s=0.8, gap_ahead_history=[])
+        result = recommend(state, top_k=3, mc_draws=0)
+        pit = next(
+            r
+            for r in result.recommendations
+            if r.action.kind != ActionKind.STAY_OUT or r.action.pit_laps
+        )
+        assert "undercut bonus active" in pit.evidence.lower()
+        stay = [
+            r
+            for r in result.recommendations
+            if r.action.kind == ActionKind.STAY_OUT and not r.action.pit_laps
+        ]
+        assert stay, "stay-out must remain in top-3"
 
 
 class TestMonteCarlo:

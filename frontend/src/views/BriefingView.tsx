@@ -4,6 +4,7 @@ import type { RecommendResponse, SessionConfig, StratPlan } from "../api/types";
 import { useAsync } from "../hooks/useAsync";
 import { C, T, compoundLetter } from "../theme";
 import { Chip, ErrorPanel, ReasoningBar, SectionLabel, SkeletonPanel, TyreBadge } from "../components/atoms";
+import { RaceBrief } from "../components/RaceBrief";
 import { Shell } from "../components/Shell";
 
 const COMPOUNDS = ["S", "M", "H", "I", "W"] as const;
@@ -48,20 +49,39 @@ export function BriefingView({
   }, [plans.status, plans.status === "ok" ? plans.data.plans : null]);
 
   useEffect(() => {
-    apiPost<RecommendResponse>(
-      "/api/aris/recommend",
-      {
-        year: partial.year,
-        round_number: partial.round.round_number,
-        session_type: "R",
-        driver_code: partial.driver,
-        current_lap: 1,
-        mode: "replay",
-      },
-      { timeout: 60_000 },
-    )
-      .then(setRec)
-      .catch(() => undefined);
+    let cancelled = false;
+    const started = Date.now();
+    const poll = () => {
+      apiPost<RecommendResponse>(
+        "/api/aris/recommend",
+        {
+          year: partial.year,
+          round_number: partial.round.round_number,
+          session_type: "R",
+          driver_code: partial.driver,
+          current_lap: 1,
+          mode: "replay",
+        },
+        { timeout: 60_000 },
+      )
+        .then((data) => {
+          if (cancelled) return;
+          setRec(data);
+          if (data.data_source === "POSTGRES") return;
+          if (Date.now() - started < 120_000) {
+            window.setTimeout(poll, 4_000);
+          }
+        })
+        .catch(() => {
+          if (!cancelled && Date.now() - started < 120_000) {
+            window.setTimeout(poll, 4_000);
+          }
+        });
+    };
+    poll();
+    return () => {
+      cancelled = true;
+    };
   }, [partial.year, partial.round.round_number, partial.driver]);
 
   const simulate = async () => {
@@ -103,6 +123,15 @@ export function BriefingView({
   return (
     <Shell title="STRATEGY BRIEFING">
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "28px 24px" }}>
+        <SectionLabel>TRACK & HISTORICAL BRIEF · FROM 2018</SectionLabel>
+        <div style={{ marginBottom: 28 }}>
+          <RaceBrief
+            circuitKey={partial.round.circuit_key}
+            year={partial.year}
+            circuitName={partial.round.circuit_name}
+            driver={partial.driver}
+          />
+        </div>
         <SectionLabel>ARIS CONTROL MODE</SectionLabel>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 28 }}>
           {(["auto", "assisted"] as const).map((m) => (

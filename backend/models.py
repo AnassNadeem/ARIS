@@ -517,11 +517,18 @@ class CircuitHistoryYear(BaseModel):
     fastest_lap: str | None = None
     weather: str | None = None
     incident_notes: list[str] = Field(default_factory=list)
+    winner_grid: int | None = None
+    race_name: str | None = None
 
 
 class CircuitHistoryResponse(BaseModel):
     circuit_key: str
     years: list[CircuitHistoryYear]
+    from_year: int = 2018
+    typical_stop_count: float | None = None
+    median_first_stop_lap: int | None = None
+    most_common_winner: str | None = None
+    analysis: str = ""
 
 
 class ArisCircuitNotes(BaseModel):
@@ -712,6 +719,7 @@ class RecommendResponse(BaseModel):
     reg_note_2026: bool = False
     data_source: str | None = None
     lap_note: str | None = None
+    ingest_status: str | None = None
 
 
 class CustomPitStop(BaseModel):

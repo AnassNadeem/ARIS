@@ -1288,12 +1288,28 @@ def session_events(
 
     try:
         rnd = get_round(year, round_number)
-        total = load_track_config(rnd.country, year=year, round_no=round_number).total_laps
+        cfg = load_track_config(rnd.country, year=year, round_no=round_number)
+        total = cfg.total_laps
+        pit_loss_s: float | None = cfg.pit_loss_s
     except Exception:
+        cfg = None
         total = 72
+        pit_loss_s = None
+
+    from aris.physics.tires import DEFAULT_COMPOUND_SLOPE, normalize_compound
+
+    deg_rate_s: float | None = DEFAULT_COMPOUND_SLOPE.get("MEDIUM", 0.05)
     prev = _snapshot_at_lap(year, round_number, max(1, lap - 1), total) if lap > 1 else None
     current = _snapshot_at_lap(year, round_number, lap, total)
-    msgs = events_for_transition(prev, current, focus_driver)
+    if cfg is not None:
+        focus = current.get_driver((focus_driver or "").upper())
+        if focus and focus.compound:
+            key = normalize_compound(focus.compound)
+            slopes = cfg.compound_slopes or DEFAULT_COMPOUND_SLOPE
+            deg_rate_s = float(slopes.get(key, DEFAULT_COMPOUND_SLOPE.get(key, 0.05)))
+    msgs = events_for_transition(
+        prev, current, focus_driver, pit_loss_s=pit_loss_s, deg_rate_s=deg_rate_s
+    )
     # Deduplicate identical texts in one lap (SC messages can repeat).
     seen: set[str] = set()
     events: list[CommentaryEvent] = []

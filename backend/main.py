@@ -630,7 +630,7 @@ async def api_driver_season(driver_code: str, year: int) -> DriverSeasonResponse
 @app.get("/api/circuit/{circuit_key}/history", response_model=CircuitHistoryResponse)
 async def api_circuit_history(circuit_key: str) -> CircuitHistoryResponse:
     return await _cached_sync(
-        f"circuit_history_{circuit_key}", TTL_SESSION, analytics.circuit_history, circuit_key
+        f"circuit_history_v2_{circuit_key}", TTL_SESSION, analytics.circuit_history, circuit_key
     )
 
 

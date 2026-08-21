@@ -36,6 +36,7 @@ def derive_pit_windows(
     pit_loss_s: float,
     *,
     high_deg: bool = False,
+    hist_first_stop: int | None = None,
 ) -> dict[str, list[int]]:
     """Derive Strat A/B/C pit laps from track length and pit loss.
 
@@ -60,6 +61,12 @@ def derive_pit_windows(
     b = _clamp(round(total * late_frac), a + 3, total - 8)
     c1 = _clamp(round(total * two_a_frac), 8, max(9, total // 3))
     c2 = _clamp(round(total * two_b_frac), c1 + max(6, total // 8), total - 5)
+    if hist_first_stop is not None:
+        hist = _clamp(int(hist_first_stop), 8, total - 8)
+        a = _clamp(round(0.55 * a + 0.45 * hist), 8, total - 10)
+        b = _clamp(round(0.55 * b + 0.45 * min(total - 8, hist + 6)), a + 3, total - 8)
+        c1 = _clamp(round(0.6 * c1 + 0.4 * max(8, hist - 4)), 8, max(9, total // 3))
+        c2 = _clamp(round(0.6 * c2 + 0.4 * min(total - 5, hist + 12)), c1 + max(6, total // 8), total - 5)
     return {"A": [a], "B": [b], "C": [c1, c2]}
 
 
@@ -93,6 +100,8 @@ def generate_strat_plans(
     driver_code: str,
     form: DriverForm | None = None,
     weather: dict | None = None,
+    hist_first_stop: int | None = None,
+    hist_stop_count: float | None = None,
 ) -> StratPlanSet:
     track = load_track_config(country, year=year, round_no=round_no)
     total = track.total_laps
@@ -111,7 +120,16 @@ def generate_strat_plans(
 
     high_deg = form is not None and form.deg_slope is not None and form.deg_slope > 0.05
     hot_track = weather and (weather.get("track_temp_c") or 0) > 40
-    windows = derive_pit_windows(total, track.pit_loss_s, high_deg=high_deg)
+    windows = derive_pit_windows(
+        total, track.pit_loss_s, high_deg=high_deg, hist_first_stop=hist_first_stop
+    )
+    hist_note = ""
+    if hist_first_stop is not None:
+        stops = f"{hist_stop_count:g}-stop" if hist_stop_count is not None else "historical"
+        hist_note = (
+            f" 2018–present at this circuit: typical {stops}, "
+            f"median first stop lap {hist_first_stop}."
+        )
 
     plans = [
         StratPlan(
@@ -123,6 +141,7 @@ def generate_strat_plans(
             description=(
                 f"Box ~lap {windows['A'][0]} ({total}-lap race) when deg is "
                 "high from FP long runs"
+                + hist_note
             ),
         ),
         StratPlan(
@@ -134,6 +153,7 @@ def generate_strat_plans(
             description=(
                 f"Extend first stint to ~lap {windows['B'][0]} when mediums "
                 "hold from quali pace"
+                + hist_note
             ),
         ),
         StratPlan(
@@ -145,6 +165,7 @@ def generate_strat_plans(
             description=(
                 f"Two-stop ~laps {windows['C'][0]}/{windows['C'][1]} when "
                 "track temp is high and deg is steep"
+                + hist_note
             ),
         ),
     ]

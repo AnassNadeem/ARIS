@@ -49,6 +49,9 @@ export function LapTimeChart({
     return [...byLap.values()].sort((a, b) => a.lap - b.lap);
   }, [laps, upTo, shown]);
 
+  const lastLap = rows.length ? Number(rows[rows.length - 1].lap) : upTo;
+  const chartWidth = Math.max(560, lastLap * 36);
+
   const toggle = (code: string) => {
     setVisible((cur) => {
       const base = cur ?? allCodes;
@@ -59,17 +62,24 @@ export function LapTimeChart({
   return (
     <Panel
       title="LAP TIME TREND"
-      right={
-        <span style={{ fontFamily: T.mono, fontSize: 9, color: C.faint }}>FILTER DRIVERS</span>
-      }
+      right={<span style={{ fontFamily: T.mono, fontSize: 9, color: C.faint }}>SCROLL →</span>}
     >
       {laps.status === "loading" && (
         <SkeletonPanel rows={8} label="Loading laps — this may take a moment on first load as data is being cached..." />
       )}
       {laps.status === "error" && <PanelError message={laps.error || ""} onRetry={laps.retry} />}
       {laps.status === "ok" && (
-        <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, padding: "6px 8px" }}>
+        <div style={{ height: "100%", minHeight: 0, display: "flex", flexDirection: "column" }}>
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "nowrap",
+              gap: 4,
+              padding: "6px 8px",
+              overflowX: "auto",
+              flexShrink: 0,
+            }}
+          >
             <button onClick={() => setVisible(allCodes)} style={chip(true)}>
               ALL
             </button>
@@ -88,6 +98,7 @@ export function LapTimeChart({
                     background: on ? col : "transparent",
                     border: `1px solid ${col}`,
                     color: on ? C.ink : col,
+                    flexShrink: 0,
                   }}
                 >
                   {code}
@@ -95,38 +106,47 @@ export function LapTimeChart({
               );
             })}
           </div>
-          <div style={{ flex: 1, minHeight: 140 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={rows} margin={{ top: 8, right: 12, left: -10, bottom: 0 }}>
-                <CartesianGrid stroke={C.ghost} strokeDasharray="2 4" vertical={false} />
-                <XAxis dataKey="lap" tick={{ fill: C.faint, fontSize: 9 }} axisLine={false} tickLine={false} />
-                <YAxis
-                  tick={{ fill: C.faint, fontSize: 9 }}
-                  domain={["dataMin - 0.3", "dataMax + 0.5"]}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <Tooltip contentStyle={{ background: C.panel2, border: `1px solid ${C.border}`, fontSize: 10 }} />
-                {scRanges.map(([a, b], i) => (
-                  <ReferenceArea key={i} x1={a} x2={b} fill={C.ghost} fillOpacity={0.45} />
-                ))}
-                {pitLaps.map((lap) => (
-                  <ReferenceLine key={lap} x={lap} stroke={C.signal} strokeDasharray="4 4" />
-                ))}
-                {shown.map((code) => (
-                  <Line
-                    key={code}
-                    type="monotone"
-                    dataKey={code}
-                    stroke={colourBy.get(code) || C.signal}
-                    strokeWidth={code === focus ? 2.2 : 1.2}
-                    dot={false}
-                    isAnimationActive={false}
-                    connectNulls
+          <div style={{ flex: 1, minHeight: 120, overflowX: "auto", overflowY: "hidden" }}>
+            <div style={{ width: chartWidth, height: "100%", minHeight: 120 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={rows} margin={{ top: 8, right: 28, left: 4, bottom: 12 }}>
+                  <CartesianGrid stroke={C.ghost} strokeDasharray="2 4" vertical={false} />
+                  <XAxis
+                    dataKey="lap"
+                    tick={{ fill: C.faint, fontSize: 9 }}
+                    axisLine={false}
+                    tickLine={false}
+                    interval={Math.max(0, Math.floor(lastLap / 20))}
                   />
-                ))}
-              </LineChart>
-            </ResponsiveContainer>
+                  <YAxis
+                    tick={{ fill: C.faint, fontSize: 9 }}
+                    domain={["dataMin - 0.3", "dataMax + 0.5"]}
+                    axisLine={false}
+                    tickLine={false}
+                    width={42}
+                  />
+                  <Tooltip contentStyle={{ background: C.panel2, border: `1px solid ${C.border}`, fontSize: 10 }} />
+                  {scRanges.map(([a, b], i) => (
+                    <ReferenceArea key={i} x1={a} x2={b} fill={C.ghost} fillOpacity={0.45} />
+                  ))}
+                  {pitLaps.map((lap) => (
+                    <ReferenceLine key={lap} x={lap} stroke={C.signal} strokeDasharray="4 4" />
+                  ))}
+                  {shown.map((code) => (
+                    <Line
+                      key={code}
+                      type="monotone"
+                      dataKey={code}
+                      stroke={colourBy.get(code) || C.signal}
+                      strokeWidth={code === focus ? 2.2 : 1.2}
+                      dot={false}
+                      isAnimationActive={false}
+                      connectNulls
+                    />
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
           </div>
         </div>
       )}

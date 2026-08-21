@@ -5,11 +5,35 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from aris.simulate import get_pit_loss
+
 
 @dataclass
 class CommentaryMessage:
     type: str
     text: str
+
+
+def _sc_pit_window_text(
+    pit_loss_s: float | None,
+    *,
+    track_status: str,
+    virtual: bool = False,
+) -> str:
+    if pit_loss_s is None or pit_loss_s <= 0:
+        if virtual:
+            return "VIRTUAL SAFETY CAR. Hold position."
+        return "SAFETY CAR DEPLOYED. Pit window opens."
+    effective = get_pit_loss(float(pit_loss_s), track_status)
+    if virtual:
+        return (
+            f"VSC deployed. Pit loss now ~{effective:.0f}s. "
+            f"Window open if gap to pit exit > {effective:.0f}s."
+        )
+    return (
+        f"SC deployed. Pit loss now ~{effective:.0f}s. "
+        f"Window open if gap to pit exit > {effective:.0f}s."
+    )
 
 
 @dataclass
@@ -78,6 +102,7 @@ class CommentaryEngine:
         self.prev_field: FieldSnapshot | None = None
         self.prev_fastest_lap_holder: str | None = None
         self.announced_milestones: set[int] = set()
+        self.announced_approach: set[float] = set()
         self.last_track_status: str = "1"
 
     def generate(
@@ -87,6 +112,9 @@ class CommentaryEngine:
         lap: int,
         total_laps: int,
         race_control_messages: list[dict[str, Any]] | None = None,
+        *,
+        pit_loss_s: float | None = None,
+        deg_rate_s: float | None = None,
     ) -> list[CommentaryMessage]:
         messages: list[CommentaryMessage] = []
         rc = race_control_messages if race_control_messages is not None else current_field.messages
@@ -161,9 +189,19 @@ class CommentaryEngine:
         for rc_msg in rc:
             blob = f"{rc_msg.get('flag') or ''} {rc_msg.get('category') or ''} {rc_msg.get('message') or ''}".upper()
             if "SAFETY CAR" in blob or rc_msg.get("flag") == "SC":
-                messages.append(CommentaryMessage(type="ALERT", text="SAFETY CAR DEPLOYED. Pit window opens."))
+                messages.append(
+                    CommentaryMessage(
+                        type="ALERT",
+                        text=_sc_pit_window_text(pit_loss_s, track_status="4"),
+                    )
+                )
             elif "VIRTUAL" in blob or rc_msg.get("flag") == "VSC":
-                messages.append(CommentaryMessage(type="ALERT", text="VIRTUAL SAFETY CAR. Hold position."))
+                messages.append(
+                    CommentaryMessage(
+                        type="ALERT",
+                        text=_sc_pit_window_text(pit_loss_s, track_status="6", virtual=True),
+                    )
+                )
             elif "CLEAR" in blob or rc_msg.get("flag") == "GREEN":
                 messages.append(CommentaryMessage(type="INFO", text="Track is green. Normal racing resumes."))
 
@@ -173,6 +211,27 @@ class CommentaryEngine:
                 self.announced_milestones.add(m)
                 messages.append(CommentaryMessage(type="INFO", text=f"{m} laps remaining."))
 
+        focus_snap = current_field.get_driver(focus) if focus else None
+        if focus_snap is not None and focus_snap.tyre_life is not None:
+            rate = float(deg_rate_s) if deg_rate_s is not None else 0.05
+            for frac in (0.25, 0.50, 0.75):
+                threshold_laps = int(frac * total_laps)
+                if (
+                    threshold_laps - 5 <= focus_snap.tyre_life < threshold_laps
+                    and frac not in self.announced_approach
+                ):
+                    self.announced_approach.add(frac)
+                    n = threshold_laps - focus_snap.tyre_life
+                    messages.append(
+                        CommentaryMessage(
+                            type="INFO",
+                            text=(
+                                f"Pit window opens in ~{n} laps. "
+                                f"Current deg rate {rate:.3f}s/lap."
+                            ),
+                        )
+                    )
+
         self.prev_field = current_field
         return messages
 
@@ -181,6 +240,9 @@ def events_for_transition(
     prev: FieldSnapshot | None,
     current: FieldSnapshot,
     focus_driver: str,
+    *,
+    pit_loss_s: float | None = None,
+    deg_rate_s: float | None = None,
 ) -> list[CommentaryMessage]:
     engine = CommentaryEngine()
     engine.prev_field = prev
@@ -188,10 +250,20 @@ def events_for_transition(
         engine.prev_fastest_lap_holder = prev.fastest_lap_holder()
     remaining = current.total_laps - current.lap
     engine.announced_milestones = {m for m in (20, 10, 5, 3, 1) if remaining < m}
+    focus = (focus_driver or "").upper()
+    snap = current.get_driver(focus) if focus else None
+    if snap is not None and snap.tyre_life is not None:
+        engine.announced_approach = {
+            frac
+            for frac in (0.25, 0.50, 0.75)
+            if snap.tyre_life > int(frac * current.total_laps) - 5
+        }
     return engine.generate(
         current,
         focus_driver,
         current.lap,
         current.total_laps,
         current.messages,
+        pit_loss_s=pit_loss_s,
+        deg_rate_s=deg_rate_s,
     )

@@ -1,0 +1,421 @@
+{
+  "meta": {
+    "train_years": [
+      2018,
+      2019,
+      2020,
+      2021,
+      2022,
+      2023
+    ],
+    "max_year": 2023,
+    "fit_utc": "2026-08-20T17:18:44Z",
+    "method": "ols_tyre_age_lap_time",
+    "min_stints": 3,
+    "skipped_sessions": 7,
+    "fitted_sessions": 95
+  },
+  "abu_dhabi": {
+    "HARD": {
+      "slope": -0.014143,
+      "n_stints": 117,
+      "std": 0.061748
+    },
+    "MEDIUM": {
+      "slope": 0.013374,
+      "n_stints": 89,
+      "std": 0.113065
+    },
+    "SOFT": {
+      "slope": 0.0224,
+      "n_stints": 25,
+      "std": 0.11101
+    }
+  },
+  "australia": {
+    "HARD": {
+      "slope": -0.066948,
+      "n_stints": 46,
+      "std": 0.127896
+    },
+    "MEDIUM": {
+      "slope": -0.00534,
+      "n_stints": 32,
+      "std": 0.067383
+    },
+    "SOFT": {
+      "slope": -0.04287,
+      "n_stints": 30,
+      "std": 0.04824
+    }
+  },
+  "austria": {
+    "HARD": {
+      "slope": 0.010142,
+      "n_stints": 118,
+      "std": 0.048488
+    },
+    "MEDIUM": {
+      "slope": -0.024665,
+      "n_stints": 95,
+      "std": 0.067242
+    },
+    "SOFT": {
+      "slope": -0.04043,
+      "n_stints": 44,
+      "std": 0.121457
+    }
+  },
+  "azerbaijan": {
+    "HARD": {
+      "slope": -0.063431,
+      "n_stints": 67,
+      "std": 0.135353
+    },
+    "MEDIUM": {
+      "slope": -0.051105,
+      "n_stints": 61,
+      "std": 0.10592
+    },
+    "SOFT": {
+      "slope": 0.030547,
+      "n_stints": 47,
+      "std": 0.330111
+    }
+  },
+  "bahrain": {
+    "HARD": {
+      "slope": 0.047854,
+      "n_stints": 87,
+      "std": 0.067471
+    },
+    "MEDIUM": {
+      "slope": 0.073139,
+      "n_stints": 109,
+      "std": 0.098249
+    },
+    "SOFT": {
+      "slope": 0.07913,
+      "n_stints": 129,
+      "std": 0.114809
+    }
+  },
+  "belgium": {
+    "HARD": {
+      "slope": 0.028938,
+      "n_stints": 29,
+      "std": 0.109735
+    },
+    "MEDIUM": {
+      "slope": 0.076718,
+      "n_stints": 90,
+      "std": 0.170677
+    },
+    "SOFT": {
+      "slope": 0.007253,
+      "n_stints": 71,
+      "std": 0.154529
+    }
+  },
+  "brazil": {
+    "HARD": {
+      "slope": 0.047815,
+      "n_stints": 5,
+      "std": 0.026354
+    },
+    "MEDIUM": {
+      "slope": 0.004984,
+      "n_stints": 35,
+      "std": 0.076321
+    },
+    "SOFT": {
+      "slope": -0.053112,
+      "n_stints": 48,
+      "std": 0.146633
+    }
+  },
+  "britain": {
+    "HARD": {
+      "slope": -0.05492,
+      "n_stints": 70,
+      "std": 0.067885
+    },
+    "MEDIUM": {
+      "slope": -0.074878,
+      "n_stints": 104,
+      "std": 0.097823
+    },
+    "SOFT": {
+      "slope": -0.04461,
+      "n_stints": 71,
+      "std": 0.142097
+    }
+  },
+  "canada": {
+    "HARD": {
+      "slope": -0.021296,
+      "n_stints": 78,
+      "std": 0.047941
+    },
+    "MEDIUM": {
+      "slope": -0.06406,
+      "n_stints": 53,
+      "std": 0.097504
+    },
+    "SOFT": {
+      "slope": 0.070058,
+      "n_stints": 5,
+      "std": 0.169359
+    }
+  },
+  "china": {
+    "HARD": {
+      "slope": 0.03644,
+      "n_stints": 17,
+      "std": 0.038481
+    },
+    "MEDIUM": {
+      "slope": 0.038535,
+      "n_stints": 33,
+      "std": 0.070367
+    },
+    "SOFT": {
+      "slope": -0.044627,
+      "n_stints": 28,
+      "std": 0.116834
+    }
+  },
+  "hungary": {
+    "HARD": {
+      "slope": 0.005953,
+      "n_stints": 83,
+      "std": 0.049324
+    },
+    "MEDIUM": {
+      "slope": -0.016374,
+      "n_stints": 118,
+      "std": 0.076903
+    },
+    "SOFT": {
+      "slope": 0.038422,
+      "n_stints": 55,
+      "std": 0.119282
+    }
+  },
+  "imola": {
+    "HARD": {
+      "slope": -0.036533,
+      "n_stints": 16,
+      "std": 0.039218
+    },
+    "MEDIUM": {
+      "slope": -0.125075,
+      "n_stints": 46,
+      "std": 0.191321
+    },
+    "SOFT": {
+      "slope": -0.189717,
+      "n_stints": 28,
+      "std": 0.228286
+    }
+  },
+  "italy": {
+    "HARD": {
+      "slope": -0.009153,
+      "n_stints": 54,
+      "std": 0.049837
+    },
+    "MEDIUM": {
+      "slope": -0.023107,
+      "n_stints": 96,
+      "std": 0.088429
+    },
+    "SOFT": {
+      "slope": -0.014221,
+      "n_stints": 44,
+      "std": 0.039984
+    }
+  },
+  "japan": {
+    "HARD": {
+      "slope": 0.077505,
+      "n_stints": 30,
+      "std": 0.089887
+    },
+    "MEDIUM": {
+      "slope": 0.02457,
+      "n_stints": 51,
+      "std": 0.057194
+    },
+    "SOFT": {
+      "slope": 0.032612,
+      "n_stints": 39,
+      "std": 0.120591
+    }
+  },
+  "las_vegas": {
+    "HARD": {
+      "slope": -0.105654,
+      "n_stints": 29,
+      "std": 0.09436
+    },
+    "MEDIUM": {
+      "slope": -0.216668,
+      "n_stints": 14,
+      "std": 0.168741
+    }
+  },
+  "mexico": {
+    "HARD": {
+      "slope": 0.010738,
+      "n_stints": 67,
+      "std": 0.081296
+    },
+    "MEDIUM": {
+      "slope": -0.00469,
+      "n_stints": 83,
+      "std": 0.065653
+    },
+    "SOFT": {
+      "slope": -0.008669,
+      "n_stints": 21,
+      "std": 0.09056
+    }
+  },
+  "miami": {
+    "HARD": {
+      "slope": -0.039985,
+      "n_stints": 39,
+      "std": 0.032733
+    },
+    "MEDIUM": {
+      "slope": -0.059042,
+      "n_stints": 37,
+      "std": 0.044547
+    },
+    "SOFT": {
+      "slope": -0.083103,
+      "n_stints": 3,
+      "std": 0.127467
+    }
+  },
+  "monaco": {
+    "HARD": {
+      "slope": -0.023457,
+      "n_stints": 46,
+      "std": 0.076557
+    },
+    "MEDIUM": {
+      "slope": -0.022515,
+      "n_stints": 45,
+      "std": 0.175711
+    },
+    "SOFT": {
+      "slope": -0.023564,
+      "n_stints": 33,
+      "std": 0.113118
+    }
+  },
+  "netherlands": {
+    "HARD": {
+      "slope": 0.009216,
+      "n_stints": 30,
+      "std": 0.085975
+    },
+    "MEDIUM": {
+      "slope": 0.001222,
+      "n_stints": 47,
+      "std": 0.039905
+    },
+    "SOFT": {
+      "slope": -0.05658,
+      "n_stints": 79,
+      "std": 0.247231
+    }
+  },
+  "qatar": {
+    "HARD": {
+      "slope": -0.038402,
+      "n_stints": 40,
+      "std": 0.071629
+    },
+    "MEDIUM": {
+      "slope": -0.101217,
+      "n_stints": 59,
+      "std": 0.117506
+    },
+    "SOFT": {
+      "slope": -0.069104,
+      "n_stints": 13,
+      "std": 0.094941
+    }
+  },
+  "saudi_arabia": {
+    "HARD": {
+      "slope": -0.111377,
+      "n_stints": 49,
+      "std": 0.095216
+    },
+    "MEDIUM": {
+      "slope": -0.113823,
+      "n_stints": 62,
+      "std": 0.164074
+    },
+    "SOFT": {
+      "slope": -0.035202,
+      "n_stints": 3,
+      "std": 0.097442
+    }
+  },
+  "singapore": {
+    "HARD": {
+      "slope": -0.017197,
+      "n_stints": 36,
+      "std": 0.084392
+    },
+    "MEDIUM": {
+      "slope": -0.117175,
+      "n_stints": 44,
+      "std": 0.233995
+    },
+    "SOFT": {
+      "slope": -0.037048,
+      "n_stints": 31,
+      "std": 0.373462
+    }
+  },
+  "spain": {
+    "HARD": {
+      "slope": 0.019874,
+      "n_stints": 28,
+      "std": 0.050872
+    },
+    "MEDIUM": {
+      "slope": 0.011996,
+      "n_stints": 137,
+      "std": 0.120528
+    },
+    "SOFT": {
+      "slope": 0.001387,
+      "n_stints": 165,
+      "std": 0.144842
+    }
+  },
+  "usa": {
+    "HARD": {
+      "slope": 0.026898,
+      "n_stints": 96,
+      "std": 0.150793
+    },
+    "MEDIUM": {
+      "slope": -0.024153,
+      "n_stints": 100,
+      "std": 0.134835
+    },
+    "SOFT": {
+      "slope": 0.054423,
+      "n_stints": 35,
+      "std": 0.211947
+    }
+  }
+}

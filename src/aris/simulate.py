@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from aris.models.features import estimate_fuel_kg
 from aris.models.predict import predict_lap_time, predict_physics
 from aris.physics.bicycle import Car, approach_delta_s
-from aris.state import RaceState
+from aris.state import RaceState, sc_vsc_pit_multiplier
 from aris.tracks import load_track_config
 
 PACE_SIGMA_S = 0.35
@@ -118,6 +118,24 @@ def _pit_loss_s(state: RaceState) -> float:
     ).pit_loss_s
 
 
+def get_pit_loss(
+    circuit_pit_loss: float,
+    track_status: str | None,
+    circuit_key: str | None = None,
+) -> float:
+    """Effective pit loss given current track conditions.
+
+    SC/VSC reduce net pit cost because the field is already slowed. Applied
+    only to a pit on the *current* lap — later stops in the same rollout
+    still pay the green-flag loss (SC periods are short) unless the caller
+    passes ``pit_status_by_lap`` into ``simulate_full_race`` (analysis).
+    """
+    mult = sc_vsc_pit_multiplier(track_status, circuit_key=circuit_key)
+    if mult is None:
+        return float(circuit_pit_loss)
+    return float(circuit_pit_loss) * mult
+
+
 def _track_for(state: RaceState):
     return load_track_config(
         state.country, year=state.year, round_no=state.round_no
@@ -204,6 +222,7 @@ def _simulate_remainder(
     pit_schedule: list[tuple[int, str]],
     pace_noise: list[float] | None = None,
     line_delta_first_lap_s: float = 0.0,
+    pit_status_by_lap: dict[int, str] | None = None,
 ) -> RemainderResult:
     """Forward-sim remaining laps.
 
@@ -230,7 +249,7 @@ def _simulate_remainder(
     if state.lag2_pace is not None:
         recent_times.insert(0, state.lag2_pace)
     pit_map = dict(pit_schedule)
-    pit_loss = _pit_loss_s(state)
+    green_pit_loss = _pit_loss_s(state)
     track = _track_for(state)
     noise_idx = 0
     first_lap = True
@@ -270,6 +289,20 @@ def _simulate_remainder(
             # Green-pace on old tyres + track pit_loss once.
             # (Do not also set pit_lap=True — that would double-count pit_loss
             # inside physics when track is passed.)
+            # SC/VSC discount applies only to a pit on the snapshot lap
+            # unless analysis passes pit_status_by_lap (flagged T2-B replay).
+            if lap == state.lap_number:
+                pit_loss = get_pit_loss(
+                    green_pit_loss, state.track_status, circuit_key=state.country
+                )
+            elif pit_status_by_lap is not None:
+                pit_loss = get_pit_loss(
+                    green_pit_loss,
+                    pit_status_by_lap.get(lap),
+                    circuit_key=state.country,
+                )
+            else:
+                pit_loss = green_pit_loss
             total += pred + pit_loss
             recent_times.append(pred)
             prev_physics = physics
@@ -375,8 +408,13 @@ def simulate_full_race(
     pit_laps: list[int],
     pit_compounds: list[str],
     start_lap: int = 1,
+    pit_status_by_lap: dict[int, str] | None = None,
 ) -> float:
-    """Forward sim from race start for pre-race planning."""
+    """Forward sim from race start for pre-race planning.
+
+    ``pit_status_by_lap`` is analysis-only (T2-B flagged replay). Default
+    None keeps today's lights-out path: future pits pay full YAML green.
+    """
     start = RaceState(
         **{
             **state.model_dump(),
@@ -391,4 +429,6 @@ def simulate_full_race(
         }
     )
     schedule = list(zip(pit_laps, pit_compounds, strict=False))
-    return _simulate_remainder(start, pit_schedule=schedule).total
+    return _simulate_remainder(
+        start, pit_schedule=schedule, pit_status_by_lap=pit_status_by_lap
+    ).total

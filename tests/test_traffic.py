@@ -28,6 +28,8 @@ def test_three_car_adjacent_gaps():
     assert lap1.loc[1, "gap_behind_s"] == 1.0
     assert lap1.loc[1, "min_nearby_s"] == 1.0
     assert lap1.loc[2, "gap_ahead_s"] == 1.0
+    assert lap1.loc[2, "ahead_driver"] == 1
+    assert lap1.loc[2, "behind_driver"] == 3
     assert lap1.loc[2, "gap_behind_s"] == 2.0
     assert lap1.loc[2, "min_nearby_s"] == 1.0
     assert lap1.loc[3, "gap_ahead_s"] == 2.0

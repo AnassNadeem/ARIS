@@ -8,6 +8,7 @@ import { useStandings } from "../hooks/useStandings";
 import { useCircuit } from "../hooks/useCircuit";
 import { C, T } from "../theme";
 import { Chip, ErrorPanel, initials, ReasoningBar, SkeletonPanel, TyreBadge } from "../components/atoms";
+import { RaceBrief } from "../components/RaceBrief";
 import { ConsoleView } from "../views/ConsoleView";
 import { useFlow } from "../session/FlowContext";
 import { compoundLetter } from "../theme";
@@ -161,15 +162,25 @@ function StateB({ next }: { next: NextRace }) {
         />
       )}
       {driver && (
-        <InitialStrategy
-          circuitKey={next.circuit_key}
-          year={2026}
-          round={next.round_number}
-          driver={driver}
-          historyN={circuit.history.status === "ok" ? circuit.history.data.length : 0}
-          circuitName={next.circuit_name}
-          sessions={next.sessions_this_weekend}
-        />
+        <>
+          <div style={{ marginTop: 28 }}>
+            <RaceBrief
+              circuitKey={next.circuit_key}
+              year={next.year}
+              circuitName={next.circuit_name}
+              driver={driver}
+            />
+          </div>
+          <InitialStrategy
+            circuitKey={next.circuit_key}
+            year={2026}
+            round={next.round_number}
+            driver={driver}
+            historyN={circuit.history.status === "ok" ? circuit.history.data.years.length : 0}
+            circuitName={next.circuit_name}
+            sessions={next.sessions_this_weekend}
+          />
+        </>
       )}
     </div>
   );
@@ -209,12 +220,22 @@ function LiveDriverGate({
       {drivers.status === "ok" && (
         <DriverPicker drivers={drivers.data.drivers} standings={pts} selected={driver} onSelect={setDriver} />
       )}
+      {driver && (
+        <div style={{ marginTop: 24 }}>
+          <RaceBrief
+            circuitKey={next.circuit_key}
+            year={next.year}
+            circuitName={next.circuit_name}
+            driver={driver}
+          />
+        </div>
+      )}
       <button
         disabled={!driver}
         onClick={() => driver && onEnter(round, driver)}
         style={{ ...cta(!!driver), marginTop: 20 }}
       >
-        ENTER LIVE CONSOLE →
+        {driver ? "LOCK BRIEF & ENTER LIVE CONSOLE →" : "SELECT DRIVER TO CONTINUE"}
       </button>
     </div>
   );

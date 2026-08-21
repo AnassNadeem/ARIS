@@ -100,7 +100,7 @@ function Shell() {
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body, #root { height: 100%; background: ${C.void}; color: ${C.paper}; }
     body { font-family: ${T.body}; }
-    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar { width: 6px; height: 8px; }
     ::-webkit-scrollbar-track { background: ${C.void}; }
     ::-webkit-scrollbar-thumb { background: ${C.border}; }
     @keyframes ping { 75%, 100% { transform: scale(2); opacity: 0; } }

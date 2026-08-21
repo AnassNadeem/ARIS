@@ -38,6 +38,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="ARIS 2024 walk-forward backtest")
     parser.add_argument("--year", type=int, default=2024)
     parser.add_argument(
+        "--years",
+        type=int,
+        nargs="+",
+        default=None,
+        help="Run multiple years then --combine (e.g. --years 2024 2025)",
+    )
+    parser.add_argument(
         "--limit",
         type=int,
         default=0,
@@ -66,18 +73,29 @@ def main() -> int:
     if args.combine:
         return combine_years(out_dir)
 
-    calendar = resolve_calendar(args.year)
-    if args.limit > 0:
-        calendar = calendar[: args.limit]
+    years = list(args.years) if args.years else [args.year]
+    for year in years:
+        rc = walk_year(year, limit=args.limit, mc_draws=args.mc_draws, out_dir=out_dir)
+        if rc:
+            return rc
+    if len(years) > 1:
+        return combine_years(out_dir)
+    return 0
+
+
+def walk_year(year: int, *, limit: int, mc_draws: int, out_dir: Path) -> int:
+    calendar = resolve_calendar(year)
+    if limit > 0:
+        calendar = calendar[:limit]
         print(
-            f"WARN: --limit {args.limit} — official Phase G run uses the full "
-            f"{args.year} held-out list",
+            f"WARN: --limit {limit} — official Phase G run uses the full "
+            f"{year} held-out list",
             flush=True,
         )
 
     print(
-        f"=== Walk-forward backtest {args.year}: {len(calendar)} races, "
-        f"mc_draws={args.mc_draws} ===",
+        f"=== Walk-forward backtest {year}: {len(calendar)} races, "
+        f"mc_draws={mc_draws} ===",
         flush=True,
     )
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -91,7 +109,7 @@ def main() -> int:
             flush=True,
         )
         started = time.perf_counter()
-        result = score_race(meta, mc_draws=args.mc_draws)
+        result = score_race(meta, mc_draws=mc_draws)
         elapsed = time.perf_counter() - started
         races.append(result)
         n_dec = len(result.decisions)
@@ -139,9 +157,9 @@ def main() -> int:
     split = position_delta_split([r.outcome for r in races if r.outcome is not None])
 
     summary = {
-        "year": args.year,
+        "year": year,
         "n_races": len(races),
-        "mc_draws": args.mc_draws,
+        "mc_draws": mc_draws,
         "elapsed_s": time.perf_counter() - t0,
         "reference_driver": "classified P5 (nearest classified if P5 missing)",
         "overall_match_rate": overall_match,
@@ -200,9 +218,9 @@ def main() -> int:
         ],
     }
 
-    summary_path = out_dir / f"{args.year}_summary.json"
+    summary_path = out_dir / f"{year}_summary.json"
     summary_path.write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")
-    full_path = out_dir / f"{args.year}_full.json"
+    full_path = out_dir / f"{year}_full.json"
     full_path.write_text(
         json.dumps([dataclass_to_jsonable(r) for r in races], indent=2, default=str),
         encoding="utf-8",

@@ -159,10 +159,10 @@ function WeekendBody({
           )}
           {circuit.history.status === "ok" && (
             <div style={{ padding: 12 }}>
-              {circuit.history.data.length === 0 && (
+              {circuit.history.data.years.length === 0 && (
                 <EmptyState title="No history yet" body="Winners appear after FastF1 results load for prior years." />
               )}
-              {circuit.history.data.map((h) => (
+              {circuit.history.data.years.map((h) => (
                 <div key={h.year} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0" }}>
                   <span style={{ fontFamily: T.mono, fontSize: 12, color: C.mist }}>{h.year}</span>
                   <span style={{ fontFamily: T.mono, fontSize: 12, color: C.paper }}>

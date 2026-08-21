@@ -19,6 +19,7 @@ class DecisionKind(StrEnum):
     TACTICAL = "tactical"
     SC = "safety_car"
     MANUAL_PIT = "manual_pit"
+    APPROACHING_WINDOW = "approaching_window"
 
 
 class DecisionOption(BaseModel):

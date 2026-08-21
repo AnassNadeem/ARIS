@@ -41,13 +41,31 @@ class RecommendationResult(BaseModel):
     recommendations: list[Recommendation]
 
 
-def _undercut_bonus(state: RaceState, action: StrategyAction) -> float:
-    if action.kind == ActionKind.STAY_OUT:
-        return 0.0
+def compute_undercut_bonus(state: RaceState) -> float:
+    """Dynamic undercut bonus. Negative = faster (encourages pit). Cap -0.8s."""
     gap_ahead = state.gap_ahead_s
-    if gap_ahead is not None and 0 < gap_ahead < UNDERCUT_WINDOW_S:
-        return -0.3
-    return 0.0
+    if gap_ahead is None or not (0 < gap_ahead < UNDERCUT_WINDOW_S):
+        return 0.0
+    bonus = -0.3
+    if gap_ahead < 3.0:
+        bonus -= 0.3
+    hist = list(state.gap_ahead_history or [])
+    if len(hist) >= 3:
+        recent = hist[-3:]
+        closing_rate = (recent[0] - recent[-1]) / 3.0
+        if closing_rate > 0.05:
+            bonus -= 0.2
+        elif closing_rate < -0.05:
+            bonus += 0.1
+    return max(bonus, -0.8)
+
+
+def _undercut_bonus(state: RaceState, action: StrategyAction) -> float:
+    if action.kind == ActionKind.STAY_OUT and not action.pit_laps:
+        return 0.0
+    if action.kind in (ActionKind.LIFT, ActionKind.BRAKE):
+        return 0.0
+    return compute_undercut_bonus(state)
 
 
 def _candidate_actions(state: RaceState) -> list[StrategyAction]:
@@ -161,6 +179,10 @@ def recommend(
         evidence = outcome.evidence
         if state.confidence_caveat and state.confidence_caveat not in evidence:
             evidence = f"{evidence} | caveat: {state.confidence_caveat}"
+        if bonus < 0 and state.gap_ahead_s is not None:
+            note = f"Gap {state.gap_ahead_s:.1f}s — undercut bonus active."
+            if note not in evidence:
+                evidence = f"{evidence} | {note}"
         scored.append(
             Recommendation(
                 rank=0,
@@ -180,6 +202,7 @@ def recommend(
                     "laps_remaining": state.laps_remaining,
                     "position": state.position,
                     "gap_ahead_s": state.gap_ahead_s,
+                    "undercut_bonus_s": round(bonus, 3),
                     "strategy": _label_for(action),
                     "delta_s": round(delta, 2),
                     "raw_delta_s": round(raw_delta, 2),

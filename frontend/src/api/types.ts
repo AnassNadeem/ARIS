@@ -219,6 +219,7 @@ export const recommendSchema = z
     reg_note_2026: z.boolean().optional(),
     data_source: z.string().nullable().optional(),
     lap_note: z.string().nullable().optional(),
+    ingest_status: z.string().nullable().optional(),
   })
   .passthrough();
 
@@ -269,6 +270,18 @@ export type CircuitHistoryYear = {
   fastest_lap: string | null;
   weather?: string | null;
   incident_notes: string[];
+  winner_grid?: number | null;
+  race_name?: string | null;
+};
+
+export type CircuitHistoryResponse = {
+  circuit_key: string;
+  years: CircuitHistoryYear[];
+  from_year?: number;
+  typical_stop_count?: number | null;
+  median_first_stop_lap?: number | null;
+  most_common_winner?: string | null;
+  analysis?: string;
 };
 
 export type CircuitMap = {

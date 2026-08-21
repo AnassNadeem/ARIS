@@ -50,11 +50,59 @@ def test_gap_alert_when_car_behind_under_1_5s():
     assert any("closing" in m.text.lower() or "mirror" in m.text.lower() for m in msgs)
 
 
+def test_sc_message_includes_reduced_pit_loss():
+    prev = _snap(10, [DriverSnap(code="NOR", position=1, gap_to_leader_s=0)])
+    curr = _snap(
+        11,
+        [DriverSnap(code="NOR", position=1, gap_to_leader_s=0)],
+    )
+    curr.messages = [{"flag": "SC", "category": "SafetyCar", "message": "SAFETY CAR DEPLOYED"}]
+    msgs = events_for_transition(prev, curr, "NOR", pit_loss_s=18.5)
+    sc = [m for m in msgs if "SC deployed" in m.text or "SAFETY CAR" in m.text]
+    assert sc, msgs
+    assert "Pit loss now ~6s" in sc[0].text
+    assert sc[0].text.count("SC deployed") == 1
+
+
 def test_countdown_fires_once_at_10_to_go():
     prev = _snap(61, [DriverSnap(code="NOR", position=1, gap_to_leader_s=0)], total=72)
     curr = _snap(62, [DriverSnap(code="NOR", position=1, gap_to_leader_s=0)], total=72)
     msgs = events_for_transition(prev, curr, "NOR")
     assert any("10 laps remaining" in m.text for m in msgs)
+
+
+def test_approaching_window_at_tyre_life_13():
+    from aris.commentary import CommentaryEngine
+
+    prev = _snap(
+        13,
+        [DriverSnap(code="NOR", position=1, gap_to_leader_s=0, tyre_life=12, compound="MEDIUM")],
+        total=72,
+    )
+    curr = _snap(
+        14,
+        [DriverSnap(code="NOR", position=1, gap_to_leader_s=0, tyre_life=13, compound="MEDIUM")],
+        total=72,
+    )
+    msgs = events_for_transition(prev, curr, "NOR", deg_rate_s=0.05)
+    hits = [m for m in msgs if "Pit window opens in ~5 laps" in m.text]
+    assert hits, msgs
+    assert "Current deg rate 0.050s/lap." in hits[0].text
+
+    later = _snap(
+        15,
+        [DriverSnap(code="NOR", position=1, gap_to_leader_s=0, tyre_life=14, compound="MEDIUM")],
+        total=72,
+    )
+    skipped = events_for_transition(curr, later, "NOR", deg_rate_s=0.05)
+    assert not any("Pit window opens" in m.text for m in skipped)
+
+    engine = CommentaryEngine()
+    engine.prev_field = prev
+    first = engine.generate(curr, "NOR", 14, 72, [], deg_rate_s=0.05)
+    second = engine.generate(later, "NOR", 15, 72, [], deg_rate_s=0.05)
+    assert sum("Pit window opens" in m.text for m in first) == 1
+    assert not any("Pit window opens" in m.text for m in second)
 
 
 def test_resolve_alpha_code_no_lookup():

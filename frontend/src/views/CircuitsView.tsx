@@ -120,7 +120,7 @@ export function CircuitsView() {
 function CircuitCard({ round, year, preview }: { round: CalendarRound; year: number; preview?: CircuitMap }) {
   const navigate = useNavigate();
   const hist = useCircuit(round.circuit_key, year, true);
-  const last = hist.history.status === "ok" ? [...hist.history.data].sort((a, b) => b.year - a.year)[0] : null;
+  const last = hist.history.status === "ok" ? [...hist.history.data.years].sort((a, b) => b.year - a.year)[0] : null;
   const chars = hist.chars.status === "ok" ? hist.chars.data : null;
   const map: CircuitMap =
     preview ??
@@ -232,7 +232,7 @@ function CircuitDetail({
             </div>
           </Panel>
         )}
-        <Panel title="RACE HISTORY" style={{ marginTop: 12 }}>
+        <Panel title={`RACE HISTORY · FROM 2018`} style={{ marginTop: 12 }}>
           {circuit.history.status === "loading" && <SkeletonPanel rows={4} label="Loading history…" />}
           {circuit.history.status === "ok" && (
             <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: T.mono, fontSize: 12 }}>
@@ -244,8 +244,8 @@ function CircuitDetail({
                 </tr>
               </thead>
               <tbody>
-                {circuit.history.data.map((h) => (
-                  <tr key={h.year} style={{ borderBottom: `1px solid ${C.border}40` }}>
+                {circuit.history.data.years.map((h) => (
+                  <tr key={`${h.year}-${h.race_name || ""}`} style={{ borderBottom: `1px solid ${C.border}40` }}>
                     <td style={{ padding: "8px 10px" }}>{h.year}</td>
                     <td style={{ padding: "8px 10px" }}>{h.winner ?? "—"}</td>
                     <td style={{ padding: "8px 10px" }}>{h.winner_team ?? "—"}</td>

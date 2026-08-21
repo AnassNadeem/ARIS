@@ -132,6 +132,43 @@ def test_estimate_position_can_gain_or_lose():
     assert estimate_position(field, "HAM", 5030.0) == 3
 
 
+def test_project_aris_finish_does_not_invent_p1():
+    from aris.eval.postrace import project_aris_finish
+
+    field = {
+        "VER": 5000.0,
+        "NOR": 5010.0,
+        "LEC": 5020.0,
+        "PIA": 5030.0,
+        "SAI": 5040.0,
+        "HAM": 5050.0,
+    }
+    # Equal sims must keep classified P6, not jump to P1.
+    pos = project_aris_finish(
+        field,
+        "HAM",
+        actual_time_s=5050.0,
+        aris_sim_s=6120.0,
+        team_sim_s=6120.0,
+        classified_pos=6,
+    )
+    assert pos == 6
+
+
+def test_project_aris_finish_falls_back_to_classified_without_sims():
+    from aris.eval.postrace import project_aris_finish
+
+    pos = project_aris_finish(
+        {},
+        "HAM",
+        actual_time_s=None,
+        aris_sim_s=None,
+        team_sim_s=None,
+        classified_pos=6,
+    )
+    assert pos == 6
+
+
 def test_bias_cancel_identity_zero_when_sims_equal():
     """R2.3: ARIS_sim == team_sim must yield position-delta 0 on the time-rank field."""
     from aris.eval.postrace import bias_cancelled_delta

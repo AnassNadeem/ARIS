@@ -7,6 +7,13 @@ from aris.engine.clock import SectorEvent
 from aris.engine.session import RaceEngineSession
 from aris.io import db
 
+APPROACHING_OFFSET = 5
+APPROACHING_FRACS = (0.25, 0.50, 0.75)
+
+
+def approaching_key(frac: float) -> str:
+    return f"approaching_{frac:.2f}"
+
 
 def check_triggers(session: RaceEngineSession, event: SectorEvent) -> DecisionKind | None:
     """Return a decision kind if ARIS should propose now."""
@@ -43,7 +50,20 @@ def check_triggers(session: RaceEngineSession, event: SectorEvent) -> DecisionKi
         session.triggered_laps.add(lap)
         return DecisionKind.SC
 
-    life_pct = state.tyre_life / max(state.total_laps, 1)
+    total = max(state.total_laps, 1)
+    if "APPROACHING" not in session.fired_this_lap:
+        for frac in APPROACHING_FRACS:
+            threshold_laps = int(frac * total)
+            key = approaching_key(frac)
+            if (
+                threshold_laps - APPROACHING_OFFSET <= state.tyre_life < threshold_laps
+                and key not in session.fired_triggers
+            ):
+                session.fired_triggers.add(key)
+                session.fired_this_lap.add("APPROACHING")
+                return DecisionKind.APPROACHING_WINDOW
+
+    life_pct = state.tyre_life / total
     thresholds = (0.25, 0.5, 0.75)
     for thr in thresholds:
         key = int(thr * 1000) + lap

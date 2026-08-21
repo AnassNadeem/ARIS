@@ -25,6 +25,10 @@ _SC_VSC_CODES = ("4", "6", "7")
 SC_PACE_CAVEAT = (
     "based on Safety Car-affected recent pace — lower confidence"
 )
+# Effective pit-loss vs green-flag YAML pit_loss. SC delta is ~40s/lap so net
+# stop cost is ~6–7s (6.5/18.5 ≈ 0.35). VSC delta is smaller (~10/18.5 ≈ 0.55).
+SC_PIT_LOSS_MULT = 0.35
+VSC_PIT_LOSS_MULT = 0.55
 
 
 def track_status_is_sc_vsc(status: str | None) -> bool:
@@ -35,6 +39,35 @@ def track_status_is_sc_vsc(status: str | None) -> bool:
     if not s or s in ("1", "None", "nan"):
         return False
     return any(code in s for code in _SC_VSC_CODES)
+
+
+def sc_vsc_pit_multiplier(
+    status: str | None, circuit_key: str | None = None
+) -> float | None:
+    """Pit-loss multiplier for the current lap, or None on green.
+
+    FastF1 may emit multi-code strings (``24`` = yellow + SC). Prefer SC (4)
+    over VSC (6) / VSC-ending (7) when both appear.
+
+    Default is the napkin 0.35 / 0.55 (UNSOURCED). Measured FastF1 ratios
+    apply only when ``ARIS_USE_MEASURED_SC_PIT_LOSS`` is an explicit opt-in
+    and ``results/t2b/sc_vsc_pit_loss.json`` is readable; otherwise this
+    returns the napkin. Missing file with the flag on also falls back.
+    """
+    if not track_status_is_sc_vsc(status):
+        return None
+    s = str(status)
+    kind = "sc" if "4" in s else "vsc"
+    napkin = SC_PIT_LOSS_MULT if kind == "sc" else VSC_PIT_LOSS_MULT
+    try:
+        from aris.eval.sc_pit_loss import measured_multiplier
+
+        measured = measured_multiplier(kind, circuit_key)
+        if measured is not None:
+            return measured
+    except Exception:
+        pass
+    return napkin
 
 
 class RaceStateOverrides(BaseModel):
@@ -81,12 +114,35 @@ class RaceState(BaseModel):
     recent_sc_pace: bool = False
     confidence_caveat: str | None = None
     lap_note: str | None = None
+    gap_ahead_history: list[float] = []
 
     def with_overrides(self, overrides: RaceStateOverrides) -> RaceState:
         data = self.model_dump()
         for key, val in overrides.model_dump(exclude_none=True).items():
             data[key] = val
         return RaceState(**data)
+
+
+def _gap_ahead_history(
+    session_id: int, driver_id: int, lap_number: int, *, n: int = 5
+) -> list[float]:
+    """Last ``n`` completed-lap gaps ahead for the focus driver (causal)."""
+    try:
+        from aris.field.standings import compute_standings
+
+        all_laps = db.fetch_all_laps(session_id)
+    except Exception:
+        return []
+    if all_laps.empty:
+        return []
+    out: list[float] = []
+    start = max(1, int(lap_number) - n + 1)
+    for lap in range(start, int(lap_number) + 1):
+        rows = compute_standings(all_laps, lap_number=lap, sector_idx=3)
+        mine = next((r for r in rows if int(r.driver_id) == int(driver_id)), None)
+        if mine is not None and mine.gap_ahead_s is not None:
+            out.append(float(mine.gap_ahead_s))
+    return out
 
 
 def _pace_lags(
@@ -217,6 +273,7 @@ def build_race_state(
         recent_sc_pace=sc_pace,
         confidence_caveat=SC_PACE_CAVEAT if sc_pace else None,
         lap_note=lap_note,
+        gap_ahead_history=_gap_ahead_history(session_id, driver_id, requested),
     )
     if overrides:
         state = state.with_overrides(overrides)

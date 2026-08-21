@@ -26,6 +26,8 @@ import { CarFilter } from "../components/CarFilter";
 import { CommsPanel, type CommMsg } from "../components/CommsPanel";
 import { BoxBanner } from "../components/BoxBanner";
 import { LapTimeChart } from "../components/LapTimeChart";
+import { LightsOut } from "../components/LightsOut";
+import { RaceBrief } from "../components/RaceBrief";
 import { CircuitOutline } from "../components/CircuitSvg";
 import { useCircuitMap } from "../hooks/useCircuitMap";
 import { useDrivers } from "../hooks/useDrivers";
@@ -304,7 +306,7 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
             <span style={{ fontFamily: T.mono, fontSize: 10, color: C.mist }}>
               {(rec.data.confidence * 100).toFixed(0)}%
             </span>
-            <DataSourceBadge source={rec.data.data_source} />
+            <DataSourceBadge source={rec.data.data_source} ingestStatus={rec.data.ingest_status} />
           </div>
         <BoxBanner
           rec={rec.data}
@@ -340,7 +342,7 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
             <span style={{ fontFamily: T.mono, fontSize: 10, color: C.mist }}>
               {(rec.data.confidence * 100).toFixed(0)}%
             </span>
-            <DataSourceBadge source={rec.data.data_source} />
+            <DataSourceBadge source={rec.data.data_source} ingestStatus={rec.data.ingest_status} />
             <div style={{ minWidth: 220 }}>
               <ReasoningBar paceGain={rec.data.pace_gain_s} pitCost={rec.data.pit_cost_s} />
             </div>
@@ -352,6 +354,7 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
         <TabBar
           tabs={[
             ["race", "RACE CONSOLE"],
+            ["brief", "RACE BRIEF"],
             ["analytics", "ANALYTICS"],
             ["strategy", "STRATEGY SIM"],
             ["telemetry", "TELEMETRY"],
@@ -369,14 +372,15 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
             style={{
               height: "100%",
               display: "grid",
-              gridTemplateColumns: "1fr 280px 280px",
-              gridTemplateRows: "1fr 180px",
+              gridTemplateColumns: "minmax(0, 1.6fr) 250px 250px",
+              gridTemplateRows: "minmax(0, 1fr) 210px",
               gap: 8,
               padding: 10,
             }}
           >
             <Panel title="TRACK MAP" style={{ gridRow: "1 / 2" }}>
-              <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+              <div style={{ height: "100%", display: "flex", flexDirection: "column", position: "relative" }}>
+                <LightsOut play={lap <= 1} />
                 <div style={{ flex: 1, minHeight: 0 }}>
                   <TrackMap
                     year={config.year}
@@ -396,6 +400,7 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
                     onToggle={(code) =>
                       setHiddenCars((h) => (h.includes(code) ? h.filter((x) => x !== code) : [...h, code]))
                     }
+                    onSetHidden={setHiddenCars}
                   />
                 )}
               </div>
@@ -453,6 +458,17 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
                 </div>
               </div>
             </Panel>
+          </div>
+        )}
+
+        {mainTab === "brief" && (
+          <div style={{ height: "100%", overflow: "auto", padding: 14 }}>
+            <RaceBrief
+              circuitKey={config.round.circuit_key}
+              year={config.year}
+              circuitName={config.round.circuit_name}
+              driver={config.driver}
+            />
           </div>
         )}
 
@@ -1015,7 +1031,16 @@ function OpsPane() {
   );
 }
 
-function DataSourceBadge({ source }: { source?: string | null }) {
+function DataSourceBadge({
+  source,
+  ingestStatus,
+}: {
+  source?: string | null;
+  ingestStatus?: string | null;
+}) {
+  if (ingestStatus === "INGESTING" && source !== "POSTGRES") {
+    return <Chip tone="signal" size="xs">ARIS LEARNING...</Chip>;
+  }
   if (!source || source === "POSTGRES") return null;
   if (source === "FASTF1_DIRECT") {
     return <Chip tone="mist" size="xs">[FastF1]</Chip>;

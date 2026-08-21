@@ -30,6 +30,7 @@ data/processed/*
 !data/processed/.gitkeep
 models/*
 !models/.gitkeep
+!models/circuit_deg_slopes.json
 results/*
 !results/.gitkeep
 !results/wk2-baseline-mae.csv

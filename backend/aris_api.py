@@ -118,7 +118,12 @@ def _field_gaps(year: int, round_number: int, driver_code: str, lap: int) -> dic
     }
 
 
-def _fallback_recommend(req: RecommendRequest, reasoning: str | None = None) -> RecommendResponse:
+def _fallback_recommend(
+    req: RecommendRequest,
+    reasoning: str | None = None,
+    *,
+    ingest_status: str | None = None,
+) -> RecommendResponse:
     lap = req.current_lap
     return RecommendResponse(
         action="STAY_OUT",
@@ -131,6 +136,7 @@ def _fallback_recommend(req: RecommendRequest, reasoning: str | None = None) -> 
         decision_record_id=f"DR-{req.year}-R{req.round_number}-L{lap}-STAY_OUT",
         alternatives=[],
         data_source="FALLBACK_NO_STATE",
+        ingest_status=ingest_status,
     )
 
 
@@ -262,6 +268,7 @@ def build_race_state_from_fastf1_session(session, driver_code: str, current_lap:
             lag2_pace=None,
             stint_roll3=None,
             track_status="1",
+            gap_ahead_history=[],
         )
 
     last = prior_laps.iloc[-1]
@@ -285,6 +292,13 @@ def build_race_state_from_fastf1_session(session, driver_code: str, current_lap:
 
     field_at_lap = laps[laps["LapNumber"] == current_lap - 1] if "LapNumber" in laps.columns else laps.iloc[0:0]
     gap_ahead = compute_gap_ahead(field_at_lap, driver_code) or 5.0
+    hist: list[float] = []
+    start = max(1, current_lap - 4)
+    for hist_lap in range(start, current_lap + 1):
+        field = laps[laps["LapNumber"] == hist_lap] if "LapNumber" in laps.columns else laps.iloc[0:0]
+        g = compute_gap_ahead(field, driver_code)
+        if g is not None:
+            hist.append(float(g))
 
     position = None
     gap_to_leader = None
@@ -319,6 +333,7 @@ def build_race_state_from_fastf1_session(session, driver_code: str, current_lap:
         lag2_pace=lag2,
         stint_roll3=roll3,
         track_status=str(last.get("TrackStatus") or "1"),
+        gap_ahead_history=hist,
     )
 
 
@@ -351,20 +366,30 @@ def build_race_state_with_fallback(
     return None, "NONE"
 
 
-def _recommend_from_state(req: RecommendRequest, state, data_source: str) -> RecommendResponse:
+def _recommend_from_state(
+    req: RecommendRequest, state, data_source: str, *, ingest_status: str | None = None
+) -> RecommendResponse:
     from aris.recommend import recommend as aris_recommend
     from aris.tracks import load_track_config
 
     if state.lag1_pace is None and req.current_lap <= 1:
-        rec = _fallback_recommend(req)
-        return rec.model_copy(update={"lap_note": state.lap_note, "data_source": "FASTF1_FALLBACK"})
+        rec = _fallback_recommend(req, ingest_status=ingest_status)
+        return rec.model_copy(update={"lap_note": state.lap_note, "data_source": "FASTF1_FALLBACK", "ingest_status": ingest_status})
 
     result = aris_recommend(state, top_k=3, mc_draws=0)
     recs = result.recommendations
     if not recs:
-        return _fallback_recommend(req)
+        return _fallback_recommend(req, ingest_status=ingest_status)
     top = recs[0]
-    pit_loss = load_track_config(state.country or state.track_name, year=req.year, round_no=req.round_number).pit_loss_s
+    from aris.simulate import get_pit_loss
+
+    green_pit = load_track_config(
+        state.country or state.track_name, year=req.year, round_no=req.round_number
+    ).pit_loss_s
+    # Cost of boxing *now*. Future PIT_LAP stops still pay green loss in simulate().
+    pit_loss = get_pit_loss(
+        green_pit, state.track_status, circuit_key=state.country or state.track_name
+    )
     net = float(top.delta_vs_stay_out_s)
     pace_gain = max(0.0, -net + pit_loss) if net < 0 else max(0.0, pit_loss + net)
     action = _action_label(top.action.kind.value, top.action.pit_lap, req.current_lap)
@@ -401,24 +426,18 @@ def _recommend_from_state(req: RecommendRequest, state, data_source: str) -> Rec
         reg_note_2026=req.year == 2026,
         lap_note=state.lap_note,
         data_source=src,
+        ingest_status=ingest_status,
     )
 
 
 def _resolve_ids(year: int, round_number: int, session_type: str, driver_code: str) -> tuple[int, int, str]:
     from aris.io import db
-    from aris.io.ingest import ingest_session
 
     sid = db.fetch_race_session_id(year, round_number) if session_type.upper() == "R" else None
     if sid is None:
-        try:
-            ingest_session(year, round_number, session_type.upper())
-        except Exception as exc:
-            raise RuntimeError(
-                f"Strategy engine requires an ingested session ({year} R{round_number} {session_type}): {exc}"
-            ) from exc
-        sid = db.fetch_race_session_id(year, round_number)
-    if sid is None:
-        raise RuntimeError("Session ingest did not produce a race session_id")
+        raise RuntimeError(
+            f"Strategy engine has no ingested session ({year} R{round_number} {session_type})"
+        )
     drv = db.fetch_driver_by_code(sid, driver_code.upper())
     if drv is None:
         raise RuntimeError(f"Driver {driver_code} not in ingested session {sid}")
@@ -437,15 +456,23 @@ def recommend(req: RecommendRequest) -> RecommendResponse:
     code = resolve_driver_code(req.year, req.driver_code, req.round_number)
     req = req.model_copy(update={"driver_code": code})
 
+    ingest_status = None
+    try:
+        from backend.ingest_jobs import ensure_session_ingested
+
+        ingest_status = ensure_session_ingested(req.year, req.round_number, "R")
+    except Exception:
+        ingest_status = "UNAVAILABLE"
+
     state, source = build_race_state_with_fallback(req.year, req.round_number, code, req.current_lap)
     if state is None or source == "NONE":
-        return _fallback_recommend(req)
+        return _fallback_recommend(req, ingest_status=ingest_status)
 
     try:
-        return _recommend_from_state(req, state, source)
+        return _recommend_from_state(req, state, source, ingest_status=ingest_status)
     except Exception as extra:
         _log.warning("recommend engine failed: %s", extra)
-        return _fallback_recommend(req)
+        return _fallback_recommend(req, ingest_status=ingest_status)
 
 
 
@@ -487,7 +514,10 @@ def simulate(req: SimulateRequest) -> SimulateResponse:
         actual_pos = mine.position if mine else None
     except Exception:
         actual_pos = None
-    shift = int(round(-delta / 2.0)) if delta else 0
+    shift = 0
+    if delta:
+        # Do not treat stay-out delta as ~2s/place (that invented P1 from P6).
+        shift = max(-2, min(2, int(round(-delta / 8.0))))
     projected = None
     if actual_pos is not None:
         projected = max(1, min(22, actual_pos - shift))
@@ -821,12 +851,48 @@ def chat(
 
 
 def plans(year: int, round_number: int, driver_code: str) -> StratPlansResponse:
+    from aris.io import db
     from aris.plan.prewrite import generate_strat_plans
     from aris.tracks import load_track_config
+    from backend.ingest_jobs import ensure_session_ingested
 
+    ensure_session_ingested(year, round_number, "R")
     code = resolve_driver_code(year, driver_code, round_number)
-    sid, did, country = _resolve_ids(year, round_number, "R", code)
-    track = load_track_config(country or driver_code, year=year, round_no=round_number)
+    sid, did, country = 0, 0, ""
+    try:
+        found = db.fetch_race_session_id(year, round_number)
+        if found is not None:
+            sid = int(found)
+            drv = db.fetch_driver_by_code(sid, code)
+            if drv is not None:
+                did = int(drv["driver_id"])
+            races = db.fetch_races(year)
+            if not races.empty:
+                hit = races[races["round_no"] == round_number]
+                if not hit.empty:
+                    country = str(hit.iloc[0]["country"])
+    except Exception:
+        sid, did = 0, 0
+    if not country:
+        try:
+            from backend.calendar import get_round
+
+            country = str(get_round(year, round_number).country)
+        except Exception:
+            country = ""
+    track = load_track_config(country or code, year=year, round_no=round_number)
+    hist_first = None
+    hist_stops = None
+    try:
+        from backend.analytics import circuit_history
+        from backend.calendar import get_round
+
+        rnd = get_round(year, round_number)
+        hist = circuit_history(rnd.circuit_key)
+        hist_first = hist.median_first_stop_lap
+        hist_stops = hist.typical_stop_count
+    except Exception:
+        pass
     result = generate_strat_plans(
         sid,
         did,
@@ -834,6 +900,8 @@ def plans(year: int, round_number: int, driver_code: str) -> StratPlansResponse:
         round_no=round_number,
         country=country or track.country,
         driver_code=code,
+        hist_first_stop=hist_first,
+        hist_stop_count=hist_stops,
     )
     out: list[StratPlanOut] = []
     for plan in result.plans:
@@ -860,6 +928,33 @@ def plans(year: int, round_number: int, driver_code: str) -> StratPlansResponse:
         plans=out,
         pit_loss_s=track.pit_loss_s,
     )
+
+
+def _expand_compound(raw: str | None) -> str:
+    if not raw:
+        return "MEDIUM"
+    u = str(raw).upper()
+    mapping = {"S": "SOFT", "M": "MEDIUM", "H": "HARD", "I": "INTERMEDIATE", "W": "WET"}
+    if u in mapping:
+        return mapping[u]
+    if u in {"SOFT", "MEDIUM", "HARD", "INTERMEDIATE", "WET"}:
+        return u
+    return "MEDIUM"
+
+
+def _field_race_times_s(year: int, round_number: int) -> dict[str, float]:
+    from backend.sessions import session_laps
+
+    times: dict[str, float] = {}
+    try:
+        laps = session_laps(year, round_number, "R").laps
+    except Exception:
+        return times
+    for lap in laps:
+        if lap.lap_time_ms is None:
+            continue
+        times[lap.driver_code] = times.get(lap.driver_code, 0.0) + lap.lap_time_ms / 1000.0
+    return times
 
 
 def debrief(year: int, round_number: int, driver_code: str) -> DebriefResponse:
@@ -923,20 +1018,54 @@ def debrief(year: int, round_number: int, driver_code: str) -> DebriefResponse:
             )
         )
 
-    aris_pos = mine.position if mine else None
-    if rec_last and rec_last.net_delta_s is not None and mine and mine.position:
-        shift = int(round(-rec_last.net_delta_s / 2.0))
-        aris_pos = max(1, min(22, mine.position - shift))
-    optimal_pos = min(aris_pos, mine.position) if aris_pos and mine and mine.position else aris_pos
-
+    actual_pos = mine.position if mine else None
     try:
         rec_plans = plans(year, round_number, code)
         rec_plan = next((p for p in rec_plans.plans if p.recommended), rec_plans.plans[0] if rec_plans.plans else None)
     except Exception:
         rec_plan = None
 
+    aris_pos = actual_pos
+    try:
+        from aris.eval.postrace import PitSchedule, project_aris_finish, simulate_schedule
+
+        field_times = _field_race_times_s(year, round_number)
+        actual_time = field_times.get(code)
+        start_compound = _expand_compound(pits[0].compound if pits else None)
+        team_sched = PitSchedule(
+            pit_laps=[int(s.lap_start) for s in pits[1:]],
+            pit_compounds=[_expand_compound(s.compound) for s in pits[1:]],
+            start_compound=start_compound,
+        )
+        if rec_plan is not None:
+            aris_sched = PitSchedule(
+                pit_laps=list(rec_plan.pit_laps),
+                pit_compounds=[_expand_compound(c) for c in rec_plan.pit_compounds],
+                start_compound=_expand_compound(rec_plan.start_compound),
+            )
+        else:
+            aris_sched = team_sched
+        state, _src = build_race_state_with_fallback(year, round_number, code, 1)
+        aris_sim = team_sim = None
+        if state is not None:
+            aris_sim = simulate_schedule(state, aris_sched)
+            team_sim = simulate_schedule(state, team_sched)
+        aris_pos = project_aris_finish(
+            field_times,
+            code,
+            actual_time_s=actual_time,
+            aris_sim_s=aris_sim,
+            team_sim_s=team_sim,
+            classified_pos=actual_pos,
+        )
+    except Exception as extra:
+        _log.warning("debrief position rank failed: %s", extra)
+        aris_pos = actual_pos
+    ranked_pos = [p for p in (aris_pos, actual_pos) if p is not None]
+    optimal_pos = min(ranked_pos) if ranked_pos else None
+
     aris_col = StrategyColumn(
-        label="ARIS STRATEGY",
+        label="ARIS PROJECTED",
         position=aris_pos,
         plan_name=rec_plan.name if rec_plan else "Plan A",
         pits=[ProjectedPit(lap=lap, compound=c or "?") for lap, c in zip(rec_plan.pit_laps, rec_plan.pit_compounds)]
@@ -944,9 +1073,9 @@ def debrief(year: int, round_number: int, driver_code: str) -> DebriefResponse:
         else [],
     )
     actual_col = StrategyColumn(
-        label="ACTUAL TEAM",
+        label="CLASSIFIED RESULT",
         position=mine.position if mine else None,
-        plan_name="classified stints",
+        plan_name="actual finish",
         pits=[ProjectedPit(lap=s.lap_start, compound=s.compound or "?") for s in pits[1:]],
     )
     opt_col = StrategyColumn(
@@ -1031,20 +1160,18 @@ def debrief(year: int, round_number: int, driver_code: str) -> DebriefResponse:
         pass
 
     actual = mine.position if mine else None
-    summary = "ARIS vs team comparison from ingested session + FastF1 classification."
+    summary = "Classified result from the session. ARIS projected finish is ranked on the field, not a seconds-to-places guess."
     if aris_pos is not None and actual is not None:
-        ahead = actual - aris_pos
-        hindsight = (actual - (optimal_pos or actual)) if optimal_pos is not None else 0
-        if ahead == 0:
+        if aris_pos == actual:
             summary = (
-                f"ARIS matched the actual result. "
-                f"Hindsight optimal would have been {abs(hindsight)} position(s) better."
+                f"{code} classified P{actual}. ARIS projected the same result "
+                f"on its recommended plan."
             )
         else:
-            word = "ahead" if ahead > 0 else "behind"
+            word = "better" if aris_pos < actual else "worse"
             summary = (
-                f"ARIS was {abs(ahead)} position(s) {word} the actual result. "
-                f"Hindsight optimal would have been {abs(hindsight)} position(s) better."
+                f"{code} classified P{actual}. ARIS projected P{aris_pos} "
+                f"({word} than the actual finish) if its recommended plan had been run."
             )
     podium = [r for r in results if r.position is not None and r.position <= 3]
     return DebriefResponse(

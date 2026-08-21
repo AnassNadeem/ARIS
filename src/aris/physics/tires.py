@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import json
+import logging
+import os
+from functools import lru_cache
+from pathlib import Path
 from typing import Final
 
 import numpy as np
 import pandas as pd
 
 from aris.models.blend import inverse_variance_blend
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_COMPOUND_SLOPE: Final[dict[str, float]] = {
     "SOFT": 0.08,
@@ -20,6 +27,48 @@ DEFAULT_COMPOUND_SLOPE: Final[dict[str, float]] = {
 OUT_LAP_PENALTY_S: Final[float] = 1.5
 _MIN_SLOPE_VAR: Final[float] = 1e-6
 _FALLBACK_SLOPE_VAR: Final[float] = 0.01
+
+CIRCUIT_DEG_ENV = "ARIS_USE_CIRCUIT_DEG"
+CIRCUIT_DEG_PATH = Path(__file__).resolve().parents[3] / "models" / "circuit_deg_slopes.json"
+_DRY_COMPOUNDS = frozenset({"SOFT", "MEDIUM", "HARD"})
+_CIRCUIT_DEG_ALIASES: Final[dict[str, str]] = {
+    "zandvoort": "netherlands",
+    "dutch": "netherlands",
+    "monza": "italy",
+    "spa": "belgium",
+    "francorchamps": "belgium",
+    "silverstone": "britain",
+    "greatbritain": "britain",
+    "imola": "imola",
+    "emiliaromagna": "imola",
+    "emilia_romagna": "imola",
+    "interlagos": "brazil",
+    "saopaulo": "brazil",
+    "sao_paulo": "brazil",
+    "jeddah": "saudi_arabia",
+    "saudiarabia": "saudi_arabia",
+    "melbourne": "australia",
+    "suzuka": "japan",
+    "shanghai": "china",
+    "austin": "usa",
+    "unitedstates": "usa",
+    "cota": "usa",
+    "vegas": "las_vegas",
+    "lasvegas": "las_vegas",
+    "yasmarina": "abu_dhabi",
+    "abudhabi": "abu_dhabi",
+    "sakhir": "bahrain",
+    "baku": "azerbaijan",
+    "montecarlo": "monaco",
+    "montreal": "canada",
+    "catalunya": "spain",
+    "barcelona": "spain",
+    "spielberg": "austria",
+    "redbullring": "austria",
+    "hungaroring": "hungary",
+    "mexicocity": "mexico",
+    "lusail": "qatar",
+}
 
 
 def normalize_compound(compound: str | None) -> str:
@@ -141,3 +190,89 @@ def fit_track_compound_slopes(
         elif len(comp_grp) >= min_stints_prior:
             out[str(compound)] = float(comp_grp["DegSlope"].mean())
     return out
+
+
+def circuit_deg_enabled(raw: str | bool | None = None) -> bool:
+    """True only for explicit opt-in. ``0`` / ``false`` / unset are off."""
+    if raw is True:
+        return True
+    if raw is False:
+        return False
+    if raw is None:
+        raw = os.getenv(CIRCUIT_DEG_ENV, "")
+    token = str(raw).strip().lower()
+    return token in ("1", "true", "yes", "on")
+
+
+def _normalize_circuit_key(circuit_key: str) -> str:
+    token = (
+        str(circuit_key)
+        .strip()
+        .lower()
+        .replace(" ", "_")
+        .replace("-", "_")
+    )
+    compact = token.replace("_", "")
+    if token in _CIRCUIT_DEG_ALIASES:
+        return _CIRCUIT_DEG_ALIASES[token]
+    if compact in _CIRCUIT_DEG_ALIASES:
+        return _CIRCUIT_DEG_ALIASES[compact]
+    return token
+
+
+@lru_cache(maxsize=4)
+def _load_circuit_deg_file(path_str: str) -> dict:
+    path = Path(path_str)
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as extra:
+        logger.warning("circuit deg JSON unreadable (%s): %s", path, extra)
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def clear_circuit_deg_cache() -> None:
+    _load_circuit_deg_file.cache_clear()
+
+
+def get_compound_slopes(circuit_key: str, year: int) -> dict[str, float]:
+    """Per-circuit OLS slopes when ``ARIS_USE_CIRCUIT_DEG`` is on; else G1.5 defaults.
+
+    Falls back to ``DEFAULT_COMPOUND_SLOPE`` when the flag is off, the file is
+    missing, ``meta.max_year >= year`` (train-year leakage), the circuit is
+    absent, or a compound pair has ``n_stints < 3``. Never applies INTERMEDIATE/WET.
+    """
+    prior = dict(DEFAULT_COMPOUND_SLOPE)
+    if not circuit_deg_enabled():
+        return prior
+    data = _load_circuit_deg_file(str(CIRCUIT_DEG_PATH))
+    if not data:
+        return prior
+    meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
+    max_year = meta.get("max_year")
+    try:
+        if max_year is not None and int(max_year) >= int(year):
+            return prior
+    except (TypeError, ValueError):
+        return prior
+    key = _normalize_circuit_key(circuit_key)
+    circuit = data.get(key)
+    if not isinstance(circuit, dict):
+        return prior
+    out = dict(prior)
+    for compound, rec in circuit.items():
+        name = normalize_compound(compound)
+        if name not in _DRY_COMPOUNDS or not isinstance(rec, dict):
+            continue
+        try:
+            n_stints = int(rec.get("n_stints", 0))
+            slope = float(rec["slope"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        if n_stints < 3 or not np.isfinite(slope):
+            continue
+        out[name] = slope
+    return out
+

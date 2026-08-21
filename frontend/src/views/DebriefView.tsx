@@ -104,14 +104,21 @@ function Col({ s }: { s?: Debrief["aris_strategy"] }) {
 
 function DebriefBody({ d, driver }: { d: Debrief; driver: string }) {
   const stats = d.stats;
+  const classified = d.actual_position ?? d.actual_strategy?.position ?? null;
   return (
     <>
+      <div style={{ marginBottom: 16, padding: "14px 16px", background: C.panel, border: `1px solid ${C.signal}55`, borderRadius: 4 }}>
+        <div style={{ fontFamily: T.mono, fontSize: 10, color: C.faint, letterSpacing: "0.1em" }}>CLASSIFIED FINISH · {driver}</div>
+        <div style={{ fontFamily: T.display, fontSize: 48, fontWeight: 900, color: C.signal, lineHeight: 1 }}>
+          {classified != null ? `P${classified}` : "—"}
+        </div>
+        <p style={{ fontFamily: T.body, fontSize: 13, color: C.mist, marginTop: 8 }}>{d.summary}</p>
+      </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
         <Col s={d.aris_strategy} />
         <Col s={d.actual_strategy} />
         <Col s={d.optimal_strategy} />
       </div>
-      <p style={{ fontFamily: T.body, fontSize: 13, color: C.mist, marginBottom: 20 }}>{d.summary}</p>
       <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
         {d.podium.map((p) => (
           <Chip key={p.driver_code} tone={p.position === 1 ? "signal" : "mist"}>

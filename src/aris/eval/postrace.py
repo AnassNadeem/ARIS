@@ -120,13 +120,19 @@ def aris_schedule(session: RaceEngineSession, start_compound: str) -> PitSchedul
     return PitSchedule(pit_laps=[], pit_compounds=[], start_compound=start_compound)
 
 
-def simulate_schedule(state: RaceState, schedule: PitSchedule) -> float:
+def simulate_schedule(
+    state: RaceState,
+    schedule: PitSchedule,
+    *,
+    pit_status_by_lap: dict[int, str] | None = None,
+) -> float:
     start = state.model_copy(update={"compound": schedule.start_compound})
     return float(
         simulate_full_race(
             start,
             pit_laps=schedule.pit_laps,
             pit_compounds=schedule.pit_compounds,
+            pit_status_by_lap=pit_status_by_lap,
         )
     )
 
@@ -165,6 +171,39 @@ def estimate_position(
         if code == driver_code:
             return i
     return None
+
+
+def project_aris_finish(
+    field_times: dict[str, float],
+    driver_code: str,
+    *,
+    actual_time_s: float | None,
+    aris_sim_s: float | None,
+    team_sim_s: float | None,
+    classified_pos: int | None,
+) -> int | None:
+    """Rank ARIS on the race field. Never invent a win from a stay-out delta.
+
+    If sims are missing, return the classified finish — that is the result
+    that actually happened.
+    """
+    if classified_pos is None and not field_times:
+        return None
+    if (
+        actual_time_s is None
+        or aris_sim_s is None
+        or team_sim_s is None
+        or not field_times
+    ):
+        return classified_pos
+    aris_pos, _, _ = bias_cancelled_delta(
+        field_times,
+        driver_code,
+        actual_time_s=actual_time_s,
+        aris_sim_s=aris_sim_s,
+        team_sim_s=team_sim_s,
+    )
+    return aris_pos if aris_pos is not None else classified_pos
 
 
 def bias_cancelled_delta(

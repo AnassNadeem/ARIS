@@ -184,23 +184,34 @@ def load_track_config(
     ``ARIS_TRUE_COMPOUND_SLOPES`` is an explicit opt-in (``1`` /
     ``isotonic`` / ``pooled``). Passing ``year`` alone does **not** apply
     the overlay — that was G2's shipped-path regression.
+
+    Circuit-conditioned OLS slopes (T2-A) apply only when
+    ``ARIS_USE_CIRCUIT_DEG`` is an explicit opt-in and the C-code overlay
+    is off. Unset / ``0`` / ``false`` keeps G1.5 (or YAML) slopes.
     """
     cfg = _load_yaml_track_config(country)
-    if year is None:
-        return cfg
     from aris.physics.compounds import (
         event_relative_slopes,
         parse_true_compound_mode,
     )
 
     mode = parse_true_compound_mode(use_true_compound)
-    if mode == "off":
+    if mode != "off":
+        if year is None:
+            return cfg
+        overlay, _meta = event_relative_slopes(
+            int(year), country, round_no=round_no, mode=mode
+        )
+        if overlay:
+            cfg = replace(cfg, compound_slopes=overlay)
         return cfg
-    overlay, _meta = event_relative_slopes(
-        int(year), country, round_no=round_no, mode=mode
-    )
-    if overlay:
-        cfg = replace(cfg, compound_slopes=overlay)
+
+    from aris.physics.tires import circuit_deg_enabled, get_compound_slopes
+
+    if circuit_deg_enabled() and year is not None:
+        path = _match_track_file(country)
+        circuit_key = path.stem if path is not None else country
+        cfg = replace(cfg, compound_slopes=get_compound_slopes(circuit_key, int(year)))
     return cfg
 
 

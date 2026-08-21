@@ -46,6 +46,13 @@ class TestPrewrite:
         assert b["A"][0] <= 14
         assert m["C"][1] > b["C"][1]
 
+    def test_windows_blend_historical_first_stop(self):
+        base = derive_pit_windows(72, 18.5)
+        blended = derive_pit_windows(72, 18.5, hist_first_stop=22)
+        assert blended["A"][0] != base["A"][0]
+        # Pulled toward the 2018–present median first stop.
+        assert abs(blended["A"][0] - 22) < abs(base["A"][0] - 22)
+
     def test_generate_differs_monaco_vs_belgium(self):
         clear_track_config_cache()
         monaco = generate_strat_plans(

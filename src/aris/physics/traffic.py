@@ -74,12 +74,18 @@ def gaps_at_completed_laps(
             if track_status_col and track_status_col in valid.columns:
                 track = str(r.get(track_status_col) or "")
             sc = any(c in track for c in _SC_CODES)
+            ahead_driver = valid.iloc[i - 1][driver_col] if i > 0 else None
+            behind_driver = (
+                valid.iloc[i + 1][driver_col] if i + 1 < len(valid) else None
+            )
             row: dict[str, Any] = {
                 driver_col: r[driver_col],
                 lap_col: int(lap) if pd.notna(lap) else lap,
                 "gap_ahead_s": ahead,
                 "gap_behind_s": behind,
                 "min_nearby_s": nearby,
+                "ahead_driver": ahead_driver,
+                "behind_driver": behind_driver,
                 "pit": bool(r["_pit"]),
                 "sc": sc,
                 "position": i + 1,

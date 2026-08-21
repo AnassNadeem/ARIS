@@ -1,5 +1,5 @@
 import { apiGet, peekGet } from "../api/client";
-import type { CircuitCharacteristics, CircuitHistoryYear } from "../api/types";
+import type { CircuitCharacteristics, CircuitHistoryResponse } from "../api/types";
 import { useAsync } from "./useAsync";
 
 export function useCircuit(circuitKey: string | undefined, year?: number, enabled = true) {
@@ -14,13 +14,10 @@ export function useCircuit(circuitKey: string | undefined, year?: number, enable
     () => peekGet<CircuitCharacteristics>(charsPath),
   );
   const history = useAsync(
-    async () => {
-      const data = await apiGet<{ years: CircuitHistoryYear[] }>(histPath, { timeout: 60_000 });
-      return data.years;
-    },
+    () => apiGet<CircuitHistoryResponse>(histPath, { timeout: 90_000 }),
     [histPath],
     on,
-    () => peekGet<{ years: CircuitHistoryYear[] }>(histPath)?.years,
+    () => peekGet<CircuitHistoryResponse>(histPath),
   );
   return { chars, history };
 }
