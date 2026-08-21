@@ -34,7 +34,7 @@ sensor. The Zandvoort demo identity is unchanged.
 | Same, disrupted (red or SC run ≥ 5) | report, don't hide | **−2.38** (n=13) | more negative, not a cherry-pick |
 | Absolute `team_sim − actual` | a stable intercept | mean **+989 s**, std **544** | **closed** — do not subtract |
 | Tyre slopes from lap time | physical C1<…<C5 | G2/G3/G4 miss; T2-A identity **moved** | **G1.5 locked**; `ARIS_USE_CIRCUIT_DEG` stays off |
-| Wet / rain-affected races | a wet strategy | heuristic only — **not calibrated**; dry 87 still **0.345** | INTER tagged `wet_heuristic`; `--include-wet` is eval-only |
+| Wet / rain-affected races | a wet strategy | heuristic only — **not calibrated**; dry 87 still **0.345**; combined **0.318 (35/110)** after rainfall-signal fix | INTER tagged `wet_heuristic`; rain from FastF1 `weather_data['Rainfall']`, not SC `4` |
 | Zandvoort recommend identity | Pit 33 HARD / Pit 30 HARD / Stay out | same on the **default** path | demo path **untouched** unless T2-A is forced on |
 
 ---
@@ -250,10 +250,18 @@ present) or for the identity-safe ranking.
 ## Wet / rain-affected races — heuristic, not calibrated
 
 `recommend()` can emit INTER (and WET under heavy rain) when
-`rainfall_mm_per_lap > 0.5`, session `weather_rainfall` is true, or a
-field car is already on intermediates. The radio line includes
+`state.rainfall` is True — the per-lap FastF1 `weather_data['Rainfall']`
+boolean — with ≥8 laps remaining on a dry slick. The radio line includes
 `[HEURISTIC — reduced confidence in wet conditions]`. FastF1
 `track_status` `4`/`6`/`7` are SC/VSC, not rain; `5` is a red flag.
+Session-level `session_weather.rainfall` (any sample True) is **not** a
+live rain signal; it remains the walk-forward exclusion bit only.
+
+Minimum viable heuristic as of T3-E / T3-consolidation, calibrated
+against the T3-E INTER vs slick band (−1.5 to −3.0 s/lap; conservative
+default −1.5). 2024 Brazil has no slick laps (INTER/WET only), so it
+cannot anchor the delta. Rainfall signal from FastF1
+`weather_data['Rainfall']`. Not a fitted wet model.
 
 Default walk-forward still excludes rainfall / wet-compound / red-flag
 inflections as `divergence_insufficient_info`. `--include-wet` scores
@@ -344,12 +352,46 @@ Lights-out all-48 **−1.73**, clean **−1.49** (n=35), disrupted
 | T3-D FIELD comms board | yes | Lap 1 / every 10 / estimate shift > 3. Not a DecisionQueue propose |
 | T3-B field-aware undercut | **no** — `ARIS_FIELD_UNDERCUT` | Cap −1.2 s vs car ahead; T2-D fallback if no estimate. Gate ≥ 0.355 not cleared as default |
 | T3-C overcut `OVERCUT_{code}_{N}L` | **no** — `ARIS_FIELD_OVERCUT` | Eligibility via physics-delta window; ranking still `simulate()` vs stay-out. Default off so the 87 cannot regress |
-| T3-E INTER/WET heuristic | live when rain signals fire | Uncalibrated. `--include-wet` **0.327 (36/110)** misses 0.340. Status `4` is SC, not rain; `5` is red |
+| T3-E INTER/WET heuristic | live when `state.rainfall` is True | Uncalibrated. T3 `--include-wet` was **0.327 (36/110)**; after rainfall-signal fix **0.318 (35/110)** — both miss 0.340. Status `4` is SC, not rain; `5` is red |
 
 `--include-wet` scores INTER/WET inflections (no red) and still excludes
 Spain-style session-rainfall dry events from the 87. Combined wet slice
-**0.327 (36/110)** — below the 0.340 target; uncalibrated; not the
+after T3-consolidation **0.318 (35/110)** (was **0.327 (36/110)** before
+the rainfall-signal fix) — below the 0.340 target; uncalibrated; not the
 headline. Dry 87 remains **0.345 (30/87)**.
+
+---
+
+## T3 consolidation (2026-08-21)
+
+Targeted flag walks plus rainfall-signal fix. Architecture lock held.
+Flags **not** promoted. Wet combined **regressed** 36/110 → 35/110.
+Zandvoort identity **PASS**. **Not ready for T4.**
+
+| Metric | Before T3-consol | After T3-consol |
+|---|---|---|
+| Dry match-rate (87 events) | **0.345 (30/87)** | **0.345 (30/87)** (unchanged by construction: no per-lap rain on session-dry races) |
+| Combined match-rate | **0.327 (36/110)** | **0.318 (35/110)** |
+| Field undercut | FLAGGED | **FLAGGED** — targeted 21/56 = 0.375 with or without `ARIS_FIELD_UNDERCUT` (0 pp) |
+| Overcut | FLAGGED | **FLAGGED** — targeted 16/42 = 0.381 with or without `ARIS_FIELD_OVERCUT` (0 pp) |
+| Wet rainfall signal | session any() / not SC-as-rain in code, but live INTER still keyed off session boolean | **FIXED** — `state.rainfall` from `weather_data['Rainfall']`; SC `4` does not fire INTER |
+| Zandvoort identity | PASS | **PASS** (Pit 33 HARD / Pit 30 HARD / Stay out) |
+
+Targeted subsets (`scripts/backtest.py --undercut-events-only` /
+`--overcut-events-only`, 2024+2025): promotion needed ≥ +2 pp **and**
+87-event ≥ 0.345. Neither flag moved rank-1 on its subset. Keep
+`ARIS_FIELD_UNDERCUT` / `ARIS_FIELD_OVERCUT` off. Not a confirmed
+worsening — a confirmed non-improvement on the events they were built for.
+
+`--include-wet` 2024 **0.367 (18/49)** (same as T3-E); 2025 **0.279
+(17/61)** (was 0.295). Systematic wet misses: already on INTERMEDIATE,
+ARIS still ranks a dry HARD pit (`should_recommend_inter` refuses to
+re-fire; dry `simulate()` prefers HARD). Sao Paulo 2024 LEC, Australia
+2025 ALB, Britain 2025 VER, Belgium 2025 RUS.
+
+Walk artefacts (gitignored): `results/backtest/t3c-undercut-off|on`,
+`t3c-overcut-off|on`, `t3c-wet`. Write-up:
+[`docs/PHASE-T3-CONSOLIDATION-SUMMARY.md`](./PHASE-T3-CONSOLIDATION-SUMMARY.md).
 
 ---
 
@@ -384,4 +426,5 @@ Further reading: `docs/tyre-degradation-research.md`,
 `docs/physics-calibration-research.md`, `docs/how-recommend-works.md`,
 `docs/strategy-backtest.md`, `docs/PHASE-G5-SUMMARY.md`,
 `docs/PHASE-R2-POSITION-DELTA-SUMMARY.md`, `docs/PHASE-R21-SUMMARY.md`,
-`docs/PHASE-R22-SUMMARY.md`.
+`docs/PHASE-R22-SUMMARY.md`, `docs/PHASE-T3-SUMMARY.md`,
+`docs/PHASE-T3-CONSOLIDATION-SUMMARY.md`.

@@ -7,7 +7,6 @@ from aris.field.state import FieldState, ReplayIndex
 from aris.narrate import narrate_recommendation
 from aris.physics.wet import should_recommend_inter, should_recommend_wet
 from aris.recommend import recommend
-from aris.simulate import ActionKind
 from tests.test_strategy import _sample_state
 
 
@@ -23,6 +22,7 @@ def _brazil_state(**kwargs):
         tyre_life=8,
         lag1_pace=75.0,
         track_status="1",
+        rainfall=True,
         weather_rainfall=True,
         rainfall_mm_per_lap=1.2,
     )
@@ -40,10 +40,52 @@ def test_should_not_treat_sc_status_as_wet():
         compound="MEDIUM",
         laps_remaining=40,
         track_status="4",
+        rainfall=False,
         weather_rainfall=False,
         rainfall_mm_per_lap=None,
     )
-    assert should_recommend_inter(state) is False
+    assert should_recommend_inter(state, "4") is False
+
+
+def test_dry_sc_does_not_recommend_inter_card():
+    state = _sample_state(
+        country="Netherlands",
+        year=2025,
+        round_no=15,
+        lap_number=30,
+        total_laps=72,
+        laps_remaining=42,
+        compound="MEDIUM",
+        tyre_life=15,
+        lag1_pace=73.0,
+        lag2_pace=73.2,
+        stint_roll3=73.1,
+        gap_ahead_s=3.0,
+        track_status="4",
+        rainfall=False,
+    )
+    result = recommend(state, top_k=3, mc_draws=0)
+    compounds = [r.action.pit_compound or "-" for r in result.recommendations]
+    assert "INTERMEDIATE" not in compounds
+    assert not any(r.wet_heuristic for r in result.recommendations)
+
+
+def test_wet_race_recommends_inter_card():
+    state = _brazil_state(
+        lap_number=40,
+        total_laps=71,
+        laps_remaining=31,
+        tyre_life=20,
+        lag1_pace=82.0,
+        lag2_pace=82.5,
+        stint_roll3=82.2,
+        track_status="1",
+        rainfall=True,
+    )
+    result = recommend(state, top_k=3, mc_draws=0)
+    compounds = [r.action.pit_compound or "-" for r in result.recommendations]
+    assert "INTERMEDIATE" in compounds
+    assert result.recommendations[0].wet_heuristic is True
 
 
 def test_should_not_treat_red_flag_as_wet():
@@ -52,10 +94,11 @@ def test_should_not_treat_red_flag_as_wet():
     assert should_recommend_wet(state) is False
 
 
-def test_field_car_on_inter_triggers_heuristic():
+def test_field_car_on_inter_is_not_a_rain_signal():
     state = _sample_state(
         compound="SOFT",
         laps_remaining=30,
+        rainfall=False,
         weather_rainfall=False,
         rainfall_mm_per_lap=None,
         track_status="1",
@@ -90,7 +133,7 @@ def test_field_car_on_inter_triggers_heuristic():
             )
         ],
     )
-    assert should_recommend_inter(state, field) is True
+    assert should_recommend_inter(state, field=field) is False
 
 
 def test_brazil_inter_in_shortlist_slick_not_rank_one():

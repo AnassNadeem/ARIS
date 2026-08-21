@@ -210,6 +210,7 @@ def build_race_state_from_fastf1_session(session, driver_code: str, current_lap:
     """Build a RaceState from a FastF1 session object (laps only)."""
     import pandas as pd
     from aris.models.features import estimate_fuel_kg
+    from aris.physics.wet import nearest_rainfall
     from aris.state import RaceState
     from aris.tracks import load_track_config
 
@@ -217,6 +218,18 @@ def build_race_state_from_fastf1_session(session, driver_code: str, current_lap:
     driver_laps = laps[laps["Driver"] == driver_code].copy()
     if driver_laps.empty:
         return None
+
+    def _rainfall_for_lap(lap_number: int) -> bool:
+        weather = getattr(session, "weather_data", None)
+        row = driver_laps[driver_laps["LapNumber"] == lap_number]
+        if row.empty:
+            row = driver_laps[driver_laps["LapNumber"] < lap_number].sort_values("LapNumber")
+            if row.empty:
+                return nearest_rainfall(weather, None)
+            start = row.iloc[-1].get("LapStartTime") if "LapStartTime" in row.columns else None
+            return nearest_rainfall(weather, start)
+        start = row.iloc[0].get("LapStartTime") if "LapStartTime" in row.columns else None
+        return nearest_rainfall(weather, start)
 
     try:
         event = session.event
@@ -269,6 +282,7 @@ def build_race_state_from_fastf1_session(session, driver_code: str, current_lap:
             stint_roll3=None,
             track_status="1",
             gap_ahead_history=[],
+            rainfall=_rainfall_for_lap(current_lap),
         )
 
     last = prior_laps.iloc[-1]
@@ -334,6 +348,7 @@ def build_race_state_from_fastf1_session(session, driver_code: str, current_lap:
         stint_roll3=roll3,
         track_status=str(last.get("TrackStatus") or "1"),
         gap_ahead_history=hist,
+        rainfall=_rainfall_for_lap(current_lap),
     )
 
 
@@ -356,7 +371,7 @@ def build_race_state_with_fallback(
     try:
         from backend.sessions import load_session
 
-        session = load_session(year, round_number, "R", telemetry=False, weather=False, messages=False)
+        session = load_session(year, round_number, "R", telemetry=False, weather=True, messages=False)
         state = build_race_state_from_fastf1_session(session, driver_code, current_lap)
         if state is not None:
             return state, "FASTF1_DIRECT"

@@ -50,6 +50,17 @@ def get_session() -> Session:
 _LAPS_QUERY = text(
     """
     SELECT lap_number, lap_time_s, compound, tyre_life, stint,
+           sector_1_s, sector_2_s, sector_3_s, track_status, pit_in, pit_out,
+           rainfall
+    FROM laps
+    WHERE session_id = :session_id AND driver_id = :driver_id
+    ORDER BY lap_number
+    """
+)
+
+_LAPS_QUERY_NO_RAINFALL = text(
+    """
+    SELECT lap_number, lap_time_s, compound, tyre_life, stint,
            sector_1_s, sector_2_s, sector_3_s, track_status, pit_in, pit_out
     FROM laps
     WHERE session_id = :session_id AND driver_id = :driver_id
@@ -65,11 +76,21 @@ def fetch_laps(session_id: int, driver_id: int) -> pd.DataFrame:
     laps — callers never have to guard against a None.
     """
     with engine().connect() as conn:
-        return pd.read_sql(
-            _LAPS_QUERY,
-            conn,
-            params={"session_id": session_id, "driver_id": driver_id},
-        )
+        try:
+            frame = pd.read_sql(
+                _LAPS_QUERY,
+                conn,
+                params={"session_id": session_id, "driver_id": driver_id},
+            )
+        except Exception:
+            frame = pd.read_sql(
+                _LAPS_QUERY_NO_RAINFALL,
+                conn,
+                params={"session_id": session_id, "driver_id": driver_id},
+            )
+    if "rainfall" not in frame.columns:
+        frame["rainfall"] = False
+    return frame
 
 
 _LAP_SECTORS_QUERY = text(
@@ -280,6 +301,32 @@ def fetch_session_weather(session_id: int) -> dict | None:
         "humidity_pct": float(row.humidity_pct) if row.humidity_pct is not None else None,
         "rainfall": bool(row.rainfall),
     }
+
+
+_WEATHER_SAMPLES_QUERY = text(
+    """
+    SELECT time_s, rainfall
+    FROM weather_samples
+    WHERE session_id = :session_id
+    ORDER BY sample_idx
+    """
+)
+
+
+def fetch_weather_samples(session_id: int) -> list[dict]:
+    """Per-sample FastF1 weather_data rows, or [] if the table is absent."""
+    try:
+        with engine().connect() as conn:
+            rows = conn.execute(
+                _WEATHER_SAMPLES_QUERY, {"session_id": session_id}
+            ).fetchall()
+    except Exception:
+        return []
+    return [
+        {"time_s": float(r.time_s), "rainfall": bool(r.rainfall)}
+        for r in rows
+        if r.time_s is not None
+    ]
 
 
 _SESSION_RESULTS_QUERY = text(

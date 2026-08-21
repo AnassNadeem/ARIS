@@ -114,23 +114,30 @@ def _driver_rows(sess, year: int) -> list[dict]:
     return rows
 
 
-def _lap_rows(enriched: pd.DataFrame, session_id: int, code_to_id: dict[str, int]) -> list[dict]:
+def _lap_rows(
+    enriched: pd.DataFrame,
+    session_id: int,
+    code_to_id: dict[str, int],
+    rainfall_by_lap: dict[tuple[str, int], bool] | None = None,
+) -> list[dict]:
     """Translate a `detect_stints`-enriched laps frame into `laps` table rows.
 
     `stint` is the compound-change-cumsum `StintId` from `aris.physics.stint`,
     not FastF1's native `Stint` column — Day 4's SQL baseline cross-check
     partitions on it and must reproduce Week 2's pandas baseline exactly.
     """
+    rain = rainfall_by_lap or {}
     rows: list[dict] = []
     for rec in enriched.itertuples(index=False):
         driver_id = code_to_id.get(rec.Driver)
         if driver_id is None or pd.isna(rec.LapNumber):
             continue  # a lap with no resolvable driver or no lap number is unusable
+        lap_number = int(rec.LapNumber)
         rows.append(
             {
                 "session_id": session_id,
                 "driver_id": driver_id,
-                "lap_number": int(rec.LapNumber),
+                "lap_number": lap_number,
                 "lap_time_s": _num(rec.LapTimeS),
                 "compound": _str(rec.Compound),
                 "tyre_life": _int(rec.TyreLife),
@@ -141,6 +148,7 @@ def _lap_rows(enriched: pd.DataFrame, session_id: int, code_to_id: dict[str, int
                 "track_status": _str(rec.TrackStatus),
                 "pit_in": bool(pd.notna(rec.PitInTime)),
                 "pit_out": bool(pd.notna(rec.PitOutTime)),
+                "rainfall": bool(rain.get((str(rec.Driver), lap_number), False)),
             }
         )
     return rows
@@ -307,6 +315,31 @@ _INSERT_WEATHER = text(
     """
 )
 
+_INSERT_WEATHER_SAMPLE = text(
+    """
+    INSERT INTO weather_samples (
+        session_id, sample_idx, time_s, rainfall, air_temp_c, track_temp_c
+    )
+    VALUES (
+        :session_id, :sample_idx, :time_s, :rainfall, :air_temp_c, :track_temp_c
+    )
+    ON CONFLICT (session_id, sample_idx) DO UPDATE SET
+        time_s = EXCLUDED.time_s,
+        rainfall = EXCLUDED.rainfall,
+        air_temp_c = EXCLUDED.air_temp_c,
+        track_temp_c = EXCLUDED.track_temp_c
+    """
+)
+
+_UPDATE_LAP_RAINFALL = text(
+    """
+    UPDATE laps SET rainfall = :rainfall
+    WHERE session_id = :session_id
+      AND driver_id = :driver_id
+      AND lap_number = :lap_number
+    """
+)
+
 _INSERT_RESULT = text(
     """
     INSERT INTO session_results (session_id, driver_id, grid_pos, finish_pos, points)
@@ -360,6 +393,92 @@ def _table_exists(conn: Connection, table: str) -> bool:
             {"name": f"public.{table}"},
         ).scalar_one()
     )
+
+
+def _column_exists(conn: Connection, table: str, column: str) -> bool:
+    return bool(
+        conn.execute(
+            text(
+                """
+                SELECT 1 FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = :table
+                  AND column_name = :column
+                """
+            ),
+            {"table": table, "column": column},
+        ).fetchone()
+    )
+
+
+def ensure_rainfall_schema(conn: Connection) -> None:
+    """Add laps.rainfall + weather_samples if this DB predates migration 004."""
+    conn.execute(
+        text(
+            "ALTER TABLE laps ADD COLUMN IF NOT EXISTS "
+            "rainfall BOOLEAN NOT NULL DEFAULT FALSE"
+        )
+    )
+    conn.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS weather_samples (
+                session_id   BIGINT  NOT NULL REFERENCES sessions(session_id),
+                sample_idx   INTEGER NOT NULL,
+                time_s       REAL    NOT NULL,
+                rainfall     BOOLEAN NOT NULL DEFAULT FALSE,
+                air_temp_c   REAL,
+                track_temp_c REAL,
+                PRIMARY KEY (session_id, sample_idx)
+            )
+            """
+        )
+    )
+
+
+def _weather_sample_rows(sess, session_id: int) -> list[dict]:
+    weather = getattr(sess, "weather_data", None)
+    if weather is None or weather.empty:
+        return []
+    rows: list[dict] = []
+    for i, rec in enumerate(weather.itertuples(index=False)):
+        time_s = _secs(getattr(rec, "Time", None))
+        if time_s is None:
+            continue
+        rain = getattr(rec, "Rainfall", False)
+        try:
+            raining = False if pd.isna(rain) else bool(rain)
+        except (TypeError, ValueError):
+            raining = bool(rain)
+        rows.append(
+            {
+                "session_id": session_id,
+                "sample_idx": i,
+                "time_s": time_s,
+                "rainfall": raining,
+                "air_temp_c": _num(getattr(rec, "AirTemp", None)),
+                "track_temp_c": _num(getattr(rec, "TrackTemp", None)),
+            }
+        )
+    return rows
+
+
+def _rainfall_by_lap(sess) -> dict[tuple[str, int], bool]:
+    from aris.physics.wet import nearest_rainfall
+
+    weather = getattr(sess, "weather_data", None)
+    out: dict[tuple[str, int], bool] = {}
+    laps = getattr(sess, "laps", None)
+    if laps is None or laps.empty:
+        return out
+    for rec in laps.itertuples(index=False):
+        if pd.isna(getattr(rec, "LapNumber", None)):
+            continue
+        code = str(getattr(rec, "Driver", "") or "")
+        lap_no = int(rec.LapNumber)
+        start = getattr(rec, "LapStartTime", None)
+        out[(code, lap_no)] = nearest_rainfall(weather, start)
+    return out
 
 
 def _upsert_weather(conn: Connection, session_id: int, summary: dict | None) -> int:
@@ -477,14 +596,22 @@ def ingest_session(
     # One transaction for the whole session: engine().begin() commits on a
     # clean exit and rolls back on any exception — never a half-ingested race.
     with engine().begin() as conn:
+        ensure_rainfall_schema(conn)
         session_id, n_sessions = _upsert_session(
             conn, year, round_no, country, session_type, date
         )
         code_to_id, n_drivers = _upsert_drivers(conn, year, driver_rows)
-        lap_rows = _lap_rows(enriched, session_id, code_to_id)
+        rain_map = _rainfall_by_lap(sess)
+        lap_rows = _lap_rows(enriched, session_id, code_to_id, rain_map)
         n_laps = _upsert_laps(conn, session_id, lap_rows)
+        if lap_rows and _column_exists(conn, "laps", "rainfall"):
+            conn.execute(_UPDATE_LAP_RAINFALL, lap_rows)
+        sample_rows = _weather_sample_rows(sess, session_id)
+        if sample_rows and _table_exists(conn, "weather_samples"):
+            conn.execute(_INSERT_WEATHER_SAMPLE, sample_rows)
         counts = {"sessions": n_sessions, "drivers": n_drivers, "laps": n_laps}
         counts["weather"] = _upsert_weather(conn, session_id, weather_summary)
+        counts["weather_samples"] = len(sample_rows)
         counts["results"] = _upsert_results(
             conn, _result_rows(sess, session_id, code_to_id)
         )
@@ -492,3 +619,121 @@ def ingest_session(
             counts["telemetry"] = _upsert_telemetry(conn, session_id, code_to_id, sess)
 
     return counts
+
+
+def backfill_lap_rainfall_from_cache(*, years: tuple[int, ...] = (2024, 2025)) -> dict:
+    """Set laps.rainfall + weather_samples from FastF1 cache pickles.
+
+    Does not call FastF1's season schedule (which can be down). Matches
+    ``sessions.date`` to ``fastf1_cache/{year}/{date}_{Event}/..._Race/weather_data.ff1pkl``.
+    """
+    import pickle
+
+    from aris.physics.wet import nearest_rainfall
+
+    cache_root = _CACHE_DIR
+    updated_sessions = 0
+    updated_laps = 0
+    skipped = []
+
+    with engine().begin() as conn:
+        ensure_rainfall_schema(conn)
+        sess_rows = conn.execute(
+            text(
+                """
+                SELECT session_id, year, round_no, country, date
+                FROM sessions
+                WHERE session_type = 'R' AND year >= :y0 AND year <= :y1
+                ORDER BY year, round_no
+                """
+            ),
+            {"y0": min(years), "y1": max(years)},
+        ).fetchall()
+
+        for sess in sess_rows:
+            year = int(sess.year)
+            if sess.date is None:
+                skipped.append((year, int(sess.round_no), "no date"))
+                continue
+            day = pd.Timestamp(sess.date).strftime("%Y-%m-%d")
+            year_dir = cache_root / str(year)
+            if not year_dir.exists():
+                skipped.append((year, int(sess.round_no), "no cache year"))
+                continue
+            matches = [p for p in year_dir.iterdir() if p.name.startswith(day)]
+            if not matches:
+                prev = (pd.Timestamp(sess.date) - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+                matches = [p for p in year_dir.iterdir() if p.name.startswith(prev)]
+            if not matches:
+                skipped.append((year, int(sess.round_no), f"no cache folder {day}"))
+                continue
+            race_dirs = list(matches[0].glob("*Race*"))
+            if not race_dirs:
+                skipped.append((year, int(sess.round_no), "no Race folder"))
+                continue
+            weather_path = race_dirs[0] / "weather_data.ff1pkl"
+            if not weather_path.exists():
+                skipped.append((year, int(sess.round_no), "no weather pickle"))
+                continue
+            raw = pickle.loads(weather_path.read_bytes())
+            weather = pd.DataFrame(raw["data"] if isinstance(raw, dict) and "data" in raw else raw)
+            sample_rows = []
+            if not weather.empty and "Time" in weather.columns:
+                for i, rec in enumerate(weather.itertuples(index=False)):
+                    time_s = _secs(getattr(rec, "Time", None))
+                    if time_s is None:
+                        continue
+                    rain = getattr(rec, "Rainfall", False)
+                    try:
+                        raining = False if pd.isna(rain) else bool(rain)
+                    except (TypeError, ValueError):
+                        raining = bool(rain)
+                    sample_rows.append(
+                        {
+                            "session_id": int(sess.session_id),
+                            "sample_idx": i,
+                            "time_s": time_s,
+                            "rainfall": raining,
+                            "air_temp_c": _num(getattr(rec, "AirTemp", None)),
+                            "track_temp_c": _num(getattr(rec, "TrackTemp", None)),
+                        }
+                    )
+            if sample_rows:
+                conn.execute(_INSERT_WEATHER_SAMPLE, sample_rows)
+
+            laps = conn.execute(
+                text(
+                    """
+                    SELECT driver_id, lap_number, lap_time_s
+                    FROM laps WHERE session_id = :sid
+                    ORDER BY driver_id, lap_number
+                    """
+                ),
+                {"sid": int(sess.session_id)},
+            ).fetchall()
+            elapsed: dict[int, float] = {}
+            rain_updates: list[dict] = []
+            for row in laps:
+                did = int(row.driver_id)
+                prev = elapsed.get(did, 0.0)
+                raining = nearest_rainfall(weather, prev)
+                rain_updates.append(
+                    {
+                        "session_id": int(sess.session_id),
+                        "driver_id": did,
+                        "lap_number": int(row.lap_number),
+                        "rainfall": raining,
+                    }
+                )
+                if row.lap_time_s is not None:
+                    elapsed[did] = prev + float(row.lap_time_s)
+            if rain_updates:
+                conn.execute(_UPDATE_LAP_RAINFALL, rain_updates)
+                updated_laps += len(rain_updates)
+            updated_sessions += 1
+
+    return {
+        "updated_sessions": updated_sessions,
+        "updated_laps": updated_laps,
+        "skipped": skipped,
+    }

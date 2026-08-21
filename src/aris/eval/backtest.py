@@ -18,10 +18,12 @@ from typing import Any, Literal
 import pandas as pd
 
 from aris.decisions.persist import JsonlDecisionLog
+from aris.decisions.queue import DecisionKind
 from aris.engine.clock import SectorClock
 from aris.engine.session import RaceEngineSession, SessionPhase
 from aris.engine.triggers import check_triggers
 from aris.eval.laptime import HELD_OUT_RACES
+from aris.field.state import FieldState, ReplayIndex
 from aris.eval.postrace import (
     actual_schedule,
     bias_cancelled_delta,
@@ -30,7 +32,7 @@ from aris.eval.postrace import (
 )
 from aris.io import db
 from aris.plan.prewrite import generate_strat_plans
-from aris.recommend import Recommendation, recommend
+from aris.recommend import UNDERCUT_WINDOW_S, Recommendation, recommend
 from aris.simulate import ActionKind, StrategyAction, simulate
 from aris.state import RaceState, track_status_is_sc_vsc
 from aris.tracks import load_track_config
@@ -41,6 +43,10 @@ HINDSIGHT_MARGIN_S = 2.0
 ROLLING_WINDOW = 5
 DRY_COMPOUNDS = frozenset({"SOFT", "MEDIUM", "HARD", "C1", "C2", "C3", "C4", "C5"})
 WET_COMPOUNDS = frozenset({"INTERMEDIATE", "WET", "UNKNOWN"})
+# check_triggers TACTICAL threshold — keep in sync with engine/triggers.py
+TACTICAL_GAP_S = 1.0
+OVERCUT_RIVAL_PIT_WINDOW = 3
+OVERCUT_MIN_GAP_AHEAD_S = 2.0
 
 # 2025 calendar in round order. Not in HELD_OUT_RACES (that's the 2024
 # lap-time MAE split vs 2018–2023 train). 2025 is a second held-out year
@@ -355,6 +361,85 @@ def extract_inflections(laps: pd.DataFrame) -> list[Inflection]:
         prev_pit = pit_in
 
     return out
+
+
+def undercut_trigger_kind(
+    inflection: Inflection, gap_ahead_s: float | None
+) -> DecisionKind | None:
+    """Engine trigger kinds where field undercut scoring can move rank.
+
+    Maps walk-forward *inflections* onto ``DecisionKind.PIT`` / ``TACTICAL``:
+    a team pit is the PIT case; ``gap_ahead < 1s`` is the TACTICAL case
+    (same threshold as ``check_triggers``). SC/compound inflections with a
+    larger gap are not undercut-relevant.
+    """
+    if inflection.kind == "pit" or inflection.team_pitted:
+        return DecisionKind.PIT
+    if gap_ahead_s is not None and gap_ahead_s < TACTICAL_GAP_S:
+        return DecisionKind.TACTICAL
+    return None
+
+
+def is_undercut_event(state: RaceState, inflection: Inflection) -> bool:
+    """True when T3-B field undercut can apply at this inflection.
+
+    Requires ``gap_ahead < 22s`` and a PIT or TACTICAL trigger kind.
+    """
+    gap = state.gap_ahead_s
+    if gap is None or not (gap < UNDERCUT_WINDOW_S):
+        return False
+    return undercut_trigger_kind(inflection, gap) in (
+        DecisionKind.PIT,
+        DecisionKind.TACTICAL,
+    )
+
+
+def rival_pitted_in_window(
+    all_laps: pd.DataFrame,
+    focus_driver_id: int,
+    lap: int,
+    *,
+    window: int = OVERCUT_RIVAL_PIT_WINDOW,
+) -> bool:
+    """True if any other car has ``pit_in`` in the ``window`` laps before ``lap``."""
+    if all_laps.empty or "pit_in" not in all_laps.columns:
+        return False
+    lo = max(1, int(lap) - int(window))
+    hi = int(lap) - 1
+    if hi < lo:
+        return False
+    others = all_laps[
+        (all_laps["lap_number"] >= lo)
+        & (all_laps["lap_number"] <= hi)
+        & (all_laps["driver_id"] != int(focus_driver_id))
+        & (all_laps["pit_in"].fillna(False).astype(bool))
+    ]
+    return not others.empty
+
+
+def is_overcut_event(
+    state: RaceState,
+    inflection: Inflection,
+    all_laps: pd.DataFrame,
+    focus_driver_id: int,
+) -> bool:
+    """True when T3-C overcut can apply: rival boxed in the last 3 laps, gap > 2s."""
+    del inflection  # window is on the field, not the focus inflection kind
+    gap = state.gap_ahead_s
+    if gap is None or gap <= OVERCUT_MIN_GAP_AHEAD_S:
+        return False
+    return rival_pitted_in_window(all_laps, focus_driver_id, int(state.lap_number))
+
+
+def _field_at_lap(
+    all_laps: pd.DataFrame, session: RaceEngineSession, lap: int
+) -> FieldState:
+    return FieldState.from_laps(
+        all_laps,
+        session_id=session.session_id,
+        index=ReplayIndex(max(1, int(lap)), 3),
+        total_laps=session.total_laps,
+    )
 
 
 def rec_is_stay(rec: Recommendation | None) -> bool:
@@ -690,7 +775,14 @@ def _score_outcome(
     )
 
 
-def score_race(meta: dict[str, Any], *, mc_draws: int = 0, include_wet: bool = False) -> RaceBacktest:
+def score_race(
+    meta: dict[str, Any],
+    *,
+    mc_draws: int = 0,
+    include_wet: bool = False,
+    undercut_events_only: bool = False,
+    overcut_events_only: bool = False,
+) -> RaceBacktest:
     session_id = int(meta["session_id"])
     gp = str(meta["gp"])
     year = int(meta["year"])
@@ -732,7 +824,14 @@ def score_race(meta: dict[str, Any], *, mc_draws: int = 0, include_wet: bool = F
         session.active_strat = recommended
 
     all_laps = db.fetch_all_laps(session_id)
-    ticks, recs_by_lap = walk_race_triggers(session, all_laps, mc_draws=mc_draws)
+    targeted = undercut_events_only or overcut_events_only
+    # Targeted subsets score inflections, not the sector-clock propose log.
+    # Skip the clock so we can reconstruct FieldState at each inflection
+    # (end-of-walk field would give the wrong gap_ahead).
+    if targeted:
+        ticks, recs_by_lap = 0, {}
+    else:
+        ticks, recs_by_lap = walk_race_triggers(session, all_laps, mc_draws=mc_draws)
 
     focus_laps = db.fetch_laps(session_id, driver_id)
     inflections = extract_inflections(focus_laps)
@@ -742,11 +841,22 @@ def score_race(meta: dict[str, Any], *, mc_draws: int = 0, include_wet: bool = F
 
     decisions: list[DecisionScore] = []
     for inf in inflections:
-        rec = _recommend_at_lap(session, inf.lap, recs_by_lap, mc_draws=mc_draws)
+        if targeted:
+            session.field_state = _field_at_lap(all_laps, session, inf.lap)
         try:
             state = session.build_state(inf.lap)
         except ValueError:
             continue
+        if undercut_events_only and not is_undercut_event(state, inf):
+            continue
+        if overcut_events_only and not is_overcut_event(
+            state, inf, all_laps, driver_id
+        ):
+            continue
+        if targeted:
+            rec = _recommend_at_lap(session, inf.lap, {}, mc_draws=mc_draws)
+        else:
+            rec = _recommend_at_lap(session, inf.lap, recs_by_lap, mc_draws=mc_draws)
         klass, team_s, aris_s = classify_decision(
             rec, inf, state, rainfall=rainfall, include_wet=include_wet
         )

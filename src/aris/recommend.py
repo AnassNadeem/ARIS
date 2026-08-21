@@ -425,7 +425,7 @@ def recommend(
         wet_candidate_delta,
     )
 
-    wet_on = should_recommend_inter(state, field)
+    wet_on = should_recommend_inter(state, state.track_status)
     if wet_on:
         mm = effective_rainfall_mm(state)
         remaining = max(int(state.laps_remaining), 1)

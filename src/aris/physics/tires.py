@@ -74,7 +74,10 @@ _CIRCUIT_DEG_ALIASES: Final[dict[str, str]] = {
 def normalize_compound(compound: str | None) -> str:
     if not compound:
         return "MEDIUM"
-    return str(compound).strip().upper()
+    key = str(compound).strip().upper()
+    if key == "INTER":
+        return "INTERMEDIATE"
+    return key
 
 
 def tire_pace_loss(

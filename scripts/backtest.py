@@ -72,8 +72,30 @@ def main() -> int:
         action="store_true",
         help="Score INTER/WET inflections (default off; dry 87 stays locked)",
     )
+    filt = parser.add_mutually_exclusive_group()
+    filt.add_argument(
+        "--undercut-events-only",
+        action="store_true",
+        help=(
+            "Score only inflections where gap_ahead < 22s and the trigger "
+            "kind is PIT or TACTICAL (T3-B subset)"
+        ),
+    )
+    filt.add_argument(
+        "--overcut-events-only",
+        action="store_true",
+        help=(
+            "Score only inflections where a rival pitted in the 3 laps "
+            "before the trigger and gap_ahead > 2s (T3-C subset)"
+        ),
+    )
     args = parser.parse_args()
     out_dir = args.out_dir if args.out_dir is not None else _OUT_DIR
+    if args.out_dir is None:
+        if args.undercut_events_only:
+            out_dir = _OUT_DIR / "undercut-events"
+        elif args.overcut_events_only:
+            out_dir = _OUT_DIR / "overcut-events"
 
     if args.combine:
         return combine_years(out_dir)
@@ -86,6 +108,8 @@ def main() -> int:
             mc_draws=args.mc_draws,
             out_dir=out_dir,
             include_wet=args.include_wet,
+            undercut_events_only=args.undercut_events_only,
+            overcut_events_only=args.overcut_events_only,
         )
         if rc:
             return rc
@@ -95,7 +119,14 @@ def main() -> int:
 
 
 def walk_year(
-    year: int, *, limit: int, mc_draws: int, out_dir: Path, include_wet: bool = False
+    year: int,
+    *,
+    limit: int,
+    mc_draws: int,
+    out_dir: Path,
+    include_wet: bool = False,
+    undercut_events_only: bool = False,
+    overcut_events_only: bool = False,
 ) -> int:
     calendar = resolve_calendar(year)
     if limit > 0:
@@ -106,9 +137,17 @@ def walk_year(
             flush=True,
         )
 
+    event_filter = (
+        "undercut-events-only"
+        if undercut_events_only
+        else "overcut-events-only"
+        if overcut_events_only
+        else "all"
+    )
     print(
         f"=== Walk-forward backtest {year}: {len(calendar)} races, "
-        f"mc_draws={mc_draws} include_wet={include_wet} ===",
+        f"mc_draws={mc_draws} include_wet={include_wet} "
+        f"event_filter={event_filter} ===",
         flush=True,
     )
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -122,7 +161,13 @@ def walk_year(
             flush=True,
         )
         started = time.perf_counter()
-        result = score_race(meta, mc_draws=mc_draws, include_wet=include_wet)
+        result = score_race(
+            meta,
+            mc_draws=mc_draws,
+            include_wet=include_wet,
+            undercut_events_only=undercut_events_only,
+            overcut_events_only=overcut_events_only,
+        )
         elapsed = time.perf_counter() - started
         races.append(result)
         n_dec = len(result.decisions)
@@ -173,6 +218,9 @@ def walk_year(
         "year": year,
         "n_races": len(races),
         "include_wet": include_wet,
+        "event_filter": event_filter,
+        "undercut_events_only": undercut_events_only,
+        "overcut_events_only": overcut_events_only,
         "elapsed_s": time.perf_counter() - t0,
         "reference_driver": "classified P5 (nearest classified if P5 missing)",
         "overall_match_rate": overall_match,
@@ -240,6 +288,8 @@ def walk_year(
     )
 
     print("\n=== Aggregate ===", flush=True)
+    if event_filter != "all":
+        print(f"event_filter={event_filter}", flush=True)
     print(
         f"match-rate aimed (beat naive max)={proposed_target} "
         f"actual={overall_match} scored={n_match}/{n_scored}",

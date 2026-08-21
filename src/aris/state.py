@@ -117,6 +117,10 @@ class RaceState(BaseModel):
     gap_ahead_history: list[float] = []
     rainfall_mm_per_lap: float | None = None
     weather_rainfall: bool | None = None
+    # Per-lap FastF1 weather_data['Rainfall'] (boolean). Session-level
+    # session_weather.rainfall (any-sample) stays on weather_rainfall for
+    # walk-forward exclusion; it is not a live rain signal.
+    rainfall: bool = False
 
     def with_overrides(self, overrides: RaceStateOverrides) -> RaceState:
         data = self.model_dump()
@@ -145,6 +149,31 @@ def _gap_ahead_history(
         if mine is not None and mine.gap_ahead_s is not None:
             out.append(float(mine.gap_ahead_s))
     return out
+
+
+def _elapsed_s_at_lap(laps: pd.DataFrame, lap_number: int) -> float | None:
+    """Cumulative completed lap time before ``lap_number`` (session-relative)."""
+    if laps.empty or "lap_time_s" not in laps.columns:
+        return None
+    prior = laps[laps["lap_number"] < int(lap_number)].sort_values("lap_number")
+    times = prior["lap_time_s"].dropna()
+    if times.empty:
+        return None
+    return float(times.sum())
+
+
+def _lap_rainfall(session_id: int, laps: pd.DataFrame, lap, lap_number: int) -> bool:
+    """Per-lap rain from laps.rainfall, else nearest weather_samples row."""
+    if "rainfall" in getattr(lap, "index", []) and pd.notna(lap.get("rainfall")):
+        return bool(lap.get("rainfall"))
+    samples = db.fetch_weather_samples(session_id)
+    if not samples:
+        return False
+    elapsed = _elapsed_s_at_lap(laps, lap_number)
+    if elapsed is None:
+        return False
+    best = min(samples, key=lambda s: abs(float(s["time_s"]) - elapsed))
+    return bool(best["rainfall"])
 
 
 def _pace_lags(
@@ -278,6 +307,7 @@ def build_race_state(
         gap_ahead_history=_gap_ahead_history(session_id, driver_id, requested),
         weather_rainfall=bool(weather["rainfall"]) if weather.get("rainfall") is not None else None,
         rainfall_mm_per_lap=None,
+        rainfall=_lap_rainfall(session_id, laps, lap, requested),
     )
     if overrides:
         state = state.with_overrides(overrides)
