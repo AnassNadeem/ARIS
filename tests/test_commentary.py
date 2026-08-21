@@ -120,3 +120,66 @@ def test_resolve_unknown_numeric_id_raises(monkeypatch):
         assert "3-letter" in str(extra)
     else:
         raise AssertionError("expected ClientInputError")
+
+
+def _field_drivers(*, life: int = 18) -> list[DriverSnap]:
+    return [
+        DriverSnap(code="NOR", position=1, gap_to_leader_s=0.0, compound="MEDIUM", tyre_life=life, stint_number=1),
+        DriverSnap(code="VER", position=2, gap_to_leader_s=1.2, compound="MEDIUM", tyre_life=life, stint_number=1),
+        DriverSnap(code="PIA", position=3, gap_to_leader_s=2.4, compound="MEDIUM", tyre_life=life + 3, stint_number=1),
+        DriverSnap(code="LEC", position=4, gap_to_leader_s=3.1, compound="HARD", tyre_life=6, stint_number=2),
+        DriverSnap(code="HAM", position=5, gap_to_leader_s=4.0, compound="MEDIUM", tyre_life=life + 5, stint_number=1),
+        DriverSnap(code="RUS", position=6, gap_to_leader_s=5.2, compound="MEDIUM", tyre_life=life + 1, stint_number=1),
+    ]
+
+
+def test_field_board_fires_at_lap_10_and_20_not_11():
+    from aris.commentary import CommentaryEngine
+
+    engine = CommentaryEngine()
+    engine.prev_field = _snap(9, _field_drivers())
+    at10 = engine.generate(_snap(10, _field_drivers()), "NOR", 10, 72, [])
+    field10 = [m for m in at10 if m.type == "FIELD"]
+    assert field10, at10
+    assert field10[0].text.startswith("FIELD:")
+    for code in ("VER", "PIA", "LEC", "HAM"):
+        assert code in field10[0].text
+    assert "NOR" not in field10[0].text.split("FIELD:", 1)[-1]
+    assert "already pitted" in field10[0].text
+
+    at11 = engine.generate(_snap(11, _field_drivers()), "NOR", 11, 72, [])
+    assert not any(m.type == "FIELD" for m in at11), at11
+
+    at20 = engine.generate(_snap(20, _field_drivers()), "NOR", 20, 72, [])
+    assert any(m.type == "FIELD" for m in at20), at20
+
+
+def test_field_board_on_first_lap():
+    from aris.commentary import CommentaryEngine
+
+    engine = CommentaryEngine()
+    msgs = engine.generate(_snap(1, _field_drivers(life=1)), "NOR", 1, 72, [])
+    assert any(m.type == "FIELD" for m in msgs), msgs
+
+
+def test_field_board_should_fire_cadence():
+    from aris.engine.clock import SectorEvent
+    from aris.engine.triggers import field_board_should_fire
+    from aris.field.state import FieldState, ReplayIndex
+
+    session = MagicMock()
+
+    def ev(lap: int, new_lap: bool = True) -> SectorEvent:
+        return SectorEvent(
+            index=ReplayIndex(lap, 0),
+            field=MagicMock(spec=FieldState),
+            is_new_lap=new_lap,
+            is_race_complete=False,
+        )
+
+    assert field_board_should_fire(session, ev(1)) is True
+    assert field_board_should_fire(session, ev(10)) is True
+    assert field_board_should_fire(session, ev(20)) is True
+    assert field_board_should_fire(session, ev(11)) is False
+    assert field_board_should_fire(session, ev(10, new_lap=False)) is False
+

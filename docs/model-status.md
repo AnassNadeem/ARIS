@@ -1,12 +1,11 @@
 # Model status — where ARIS actually stands
 
 Interview-ready account of the predictive / decision core as of
-Tier 2 (2026-08-20), the day before the 21–23 August 2026 Dutch GP.
-This page supersedes scattered phase docs as the one place to point
-someone asking **how good is this, really**. Those phase docs remain
-the evidence trail. Public-facing numbers in `README.md` match this
-page. Wet races are out of scope (see below) — same class of named
-limit as G1.5 and the physics-offset close.
+Tier 3 (2026-08-21). This page supersedes scattered phase docs as the
+one place to point someone asking **how good is this, really**. Those
+phase docs remain the evidence trail. Public-facing numbers in
+`README.md` match this page. A wet INTER heuristic exists and is
+labelled uncalibrated; the dry 87-event slice is still the headline.
 
 Every number is aimed vs actual. Overlay env
 `ARIS_TRUE_COMPOUND_SLOPES` is **unset**. G1.5 slopes stay the tyre
@@ -35,7 +34,7 @@ sensor. The Zandvoort demo identity is unchanged.
 | Same, disrupted (red or SC run ≥ 5) | report, don't hide | **−2.38** (n=13) | more negative, not a cherry-pick |
 | Absolute `team_sim − actual` | a stable intercept | mean **+989 s**, std **544** | **closed** — do not subtract |
 | Tyre slopes from lap time | physical C1<…<C5 | G2/G3/G4 miss; T2-A identity **moved** | **G1.5 locked**; `ARIS_USE_CIRCUIT_DEG` stays off |
-| Wet / rain-affected races | a wet strategy | **none** — **0.356** (48/135) inflections excluded | **out of scope**, not an eval choice |
+| Wet / rain-affected races | a wet strategy | heuristic only — **not calibrated**; dry 87 still **0.345** | INTER tagged `wet_heuristic`; `--include-wet` is eval-only |
 | Zandvoort recommend identity | Pit 33 HARD / Pit 30 HARD / Stay out | same on the **default** path | demo path **untouched** unless T2-A is forced on |
 
 ---
@@ -248,19 +247,18 @@ present) or for the identity-safe ranking.
 
 ---
 
-## Wet / rain-affected races — out of scope
+## Wet / rain-affected races — heuristic, not calibrated
 
-Named as plainly as the tyre lock and the physics-offset close: **there
-is no wet-strategy logic.** `recommend()`'s candidate menu is dry
-(stay / pit SOFT-MEDIUM-HARD / two-stop sketches / lift-brake). There
-is no wet pit-loss, no intermediate cliff, and no “box for slicks as
-the track dries” search. FastF1 C-code mapping leaves INTERMEDIATE/WET
-as relative labels. Shipping the G1.5 dry slope table into a wet race
-would be a new error, not a fix.
+`recommend()` can emit INTER (and WET under heavy rain) when
+`rainfall_mm_per_lap > 0.5`, session `weather_rainfall` is true, or a
+field car is already on intermediates. The radio line includes
+`[HEURISTIC — reduced confidence in wet conditions]`. FastF1
+`track_status` `4`/`6`/`7` are SC/VSC, not rain; `5` is a red flag.
 
-Walk-forward therefore excludes rainfall / wet-compound / red-flag
-inflections as `divergence_insufficient_info` instead of scoring them
-as match or mismatch.
+Default walk-forward still excludes rainfall / wet-compound / red-flag
+inflections as `divergence_insufficient_info`. `--include-wet` scores
+INTER/WET inflections only. Spain-style `rainfall=True` dry races stay
+out of the 87.
 
 | Slice | Aimed (the ~1/3 characterization) | Actual | Result |
 |---|---|---|---|
@@ -268,9 +266,8 @@ as match or mismatch.
 | 2025 (G1.5) | report | **0.365** (27/74) | 47 scored remain |
 | Combined 2024+2025 | ~1/3 | **0.356** (48/135) | 87 scored remain |
 
-The 87-event match-rate (**0.345** T2 default / **0.322** G1.5-only vs stay-out **0.276**) is computed
-on what is left after that cut. The cut reflects a missing model, not
-an evaluation convenience. Spain 2024’s race was dry but FastF1’s
+The 87-event match-rate (**0.345** T2/T3 default / **0.322** G1.5-only vs stay-out **0.276**) is computed
+on what is left after that cut. Spain 2024’s race was dry but FastF1’s
 `rainfall` bit can fire on any session moisture; Monaco 2024 was
 `rainfall=False` and still unscored (red-flag / status-5). Both sit in
 the 48. See `docs/strategy-backtest.md` and
@@ -328,15 +325,42 @@ Zandvoort identity on the default path (L25, MEDIUM, tyre_life 2,
 
 ---
 
-## Research window — closed until after the event
+## Tier 3 (2026-08-21)
 
-No further model-accuracy research will be attempted before 21–23
-August 2026. Tier 2 search-based work is in; T2-A stays flagged.
-Cornering-load (R1.4) remains queued, not abandoned — see
+Field simulation and opponent awareness. Architecture lock held:
+snapshot → score a fixed shortlist → rank by delta vs stay-out. No
+learned policy. Rival pit estimates never change the focus driver's
+`simulate()` lap times.
+
+Dry walk (`scripts/backtest.py --years 2024 2025`, flags off):
+**0.345 (30/87)** — 2024 **0.375 (15/40)**, 2025 **0.319 (15/47)**.
+Lights-out all-48 **−1.73**, clean **−1.49** (n=35), disrupted
+**−2.38** (n=13). Zandvoort identity unchanged. MAE not re-run
+(last **0.583 s**).
+
+| Change | Default? | Notes |
+|---|---|---|
+| T3-A rival pit-lap estimator | yes (comms + optional scoring) | Cliff × race_frac × 0.85; not wired into ranking unless T3-B/C flags on |
+| T3-D FIELD comms board | yes | Lap 1 / every 10 / estimate shift > 3. Not a DecisionQueue propose |
+| T3-B field-aware undercut | **no** — `ARIS_FIELD_UNDERCUT` | Cap −1.2 s vs car ahead; T2-D fallback if no estimate. Gate ≥ 0.355 not cleared as default |
+| T3-C overcut `OVERCUT_{code}_{N}L` | **no** — `ARIS_FIELD_OVERCUT` | Eligibility via physics-delta window; ranking still `simulate()` vs stay-out. Default off so the 87 cannot regress |
+| T3-E INTER/WET heuristic | live when rain signals fire | Uncalibrated. `--include-wet` **0.327 (36/110)** misses 0.340. Status `4` is SC, not rain; `5` is red |
+
+`--include-wet` scores INTER/WET inflections (no red) and still excludes
+Spain-style session-rainfall dry events from the 87. Combined wet slice
+**0.327 (36/110)** — below the 0.340 target; uncalibrated; not the
+headline. Dry 87 remains **0.345 (30/87)**.
+
+---
+
+## Research window
+
+T3 field work landed on the Dutch GP weekend. T2-A stays flagged.
+Cornering-load (R1.4) remains queued — see
 [`docs/PHASE-R1-CORNERING-LOAD-SUMMARY.md`](./PHASE-R1-CORNERING-LOAD-SUMMARY.md)
 and
 [`docs/future-research-cornering-load.md`](./future-research-cornering-load.md).
-G1.5 stays the tyre prior through the event.
+G1.5 stays the tyre prior.
 
 ---
 
@@ -351,8 +375,10 @@ G1.5 stays the tyre prior through the event.
   moved; the flag stays off).
 - That the 0.345 match-rate is a C-code / GBT overlay. It is G1.5
   slopes plus SC pit cost, undercut bonus, and approach triggers.
-- That ARIS has a wet / rain strategy. Combined **0.356** (48/135)
-  inflections are excluded because that model does not exist.
+- That ARIS has a **calibrated** wet / rain strategy. A heuristic exists
+  and is labelled as such; the dry 87-event **0.345** slice is still the
+  headline. Combined rainfall/wet/red exclusions remain a missing
+  fitted model, not a solved one.
 
 Further reading: `docs/tyre-degradation-research.md`,
 `docs/physics-calibration-research.md`, `docs/how-recommend-works.md`,

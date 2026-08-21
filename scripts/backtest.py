@@ -67,6 +67,11 @@ def main() -> int:
         default=None,
         help="Directory for per-race JSON, summaries, and --combine inputs",
     )
+    parser.add_argument(
+        "--include-wet",
+        action="store_true",
+        help="Score INTER/WET inflections (default off; dry 87 stays locked)",
+    )
     args = parser.parse_args()
     out_dir = args.out_dir if args.out_dir is not None else _OUT_DIR
 
@@ -75,7 +80,13 @@ def main() -> int:
 
     years = list(args.years) if args.years else [args.year]
     for year in years:
-        rc = walk_year(year, limit=args.limit, mc_draws=args.mc_draws, out_dir=out_dir)
+        rc = walk_year(
+            year,
+            limit=args.limit,
+            mc_draws=args.mc_draws,
+            out_dir=out_dir,
+            include_wet=args.include_wet,
+        )
         if rc:
             return rc
     if len(years) > 1:
@@ -83,7 +94,9 @@ def main() -> int:
     return 0
 
 
-def walk_year(year: int, *, limit: int, mc_draws: int, out_dir: Path) -> int:
+def walk_year(
+    year: int, *, limit: int, mc_draws: int, out_dir: Path, include_wet: bool = False
+) -> int:
     calendar = resolve_calendar(year)
     if limit > 0:
         calendar = calendar[:limit]
@@ -95,7 +108,7 @@ def walk_year(year: int, *, limit: int, mc_draws: int, out_dir: Path) -> int:
 
     print(
         f"=== Walk-forward backtest {year}: {len(calendar)} races, "
-        f"mc_draws={mc_draws} ===",
+        f"mc_draws={mc_draws} include_wet={include_wet} ===",
         flush=True,
     )
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -109,7 +122,7 @@ def walk_year(year: int, *, limit: int, mc_draws: int, out_dir: Path) -> int:
             flush=True,
         )
         started = time.perf_counter()
-        result = score_race(meta, mc_draws=mc_draws)
+        result = score_race(meta, mc_draws=mc_draws, include_wet=include_wet)
         elapsed = time.perf_counter() - started
         races.append(result)
         n_dec = len(result.decisions)
@@ -159,7 +172,7 @@ def walk_year(year: int, *, limit: int, mc_draws: int, out_dir: Path) -> int:
     summary = {
         "year": year,
         "n_races": len(races),
-        "mc_draws": mc_draws,
+        "include_wet": include_wet,
         "elapsed_s": time.perf_counter() - t0,
         "reference_driver": "classified P5 (nearest classified if P5 missing)",
         "overall_match_rate": overall_match,
@@ -232,6 +245,17 @@ def walk_year(year: int, *, limit: int, mc_draws: int, out_dir: Path) -> int:
         f"actual={overall_match} scored={n_match}/{n_scored}",
         flush=True,
     )
+    if include_wet:
+        print(
+            f"include-wet scored n={n_scored} (uncalibrated heuristic). "
+            f"Dry headline remains the 87-event 0.345 slice.",
+            flush=True,
+        )
+    else:
+        print(
+            "dry-only slice: locked headline is 0.345 (30/87) unless this run differs.",
+            flush=True,
+        )
     print(
         f"always-stay-out={stay_rate} ({stay_n}/{stay_d}) "
         f"copy-last-year={ly_rate} ({ly_n}/{ly_d})",

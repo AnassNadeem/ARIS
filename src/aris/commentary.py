@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from aris.field.rivals import RivalPitEstimate, RivalState, estimate_rival_pit_lap
+from aris.physics.tires import normalize_compound
 from aris.simulate import get_pit_loss
 
 
@@ -97,6 +99,116 @@ class FieldSnapshot:
         return min(times) / 1000.0
 
 
+_COMPOUND_SHORT = {
+    "SOFT": "SOFT",
+    "MEDIUM": "MED",
+    "HARD": "HARD",
+    "INTERMEDIATE": "INTER",
+    "WET": "WET",
+}
+FIELD_BOARD_INTERVAL = 10
+
+
+def _rival_states_from_snapshot(
+    snap: FieldSnapshot,
+    focus_driver: str,
+) -> list[RivalState]:
+    focus = (focus_driver or "").upper()
+    ours = snap.get_driver(focus)
+    focus_gap = float(ours.gap_to_leader_s) if ours and ours.gap_to_leader_s is not None else 0.0
+    ordered = sorted(
+        (d for d in snap.drivers if d.position is not None),
+        key=lambda d: int(d.position or 99),
+    )
+    out: list[RivalState] = []
+    for drv in ordered:
+        code = (drv.code or "").upper()
+        if not code or code == focus:
+            continue
+        gap = focus_gap - float(drv.gap_to_leader_s or 0.0)
+        out.append(
+            RivalState(
+                driver_code=code,
+                position=int(drv.position or 99),
+                compound=normalize_compound(drv.compound),
+                tyre_life=int(drv.tyre_life) if drv.tyre_life is not None else 1,
+                gap_to_focus=gap,
+                gap_trend=0.0,
+                team="",
+                last_lap_s=(drv.last_lap_ms / 1000.0) if drv.last_lap_ms else 0.0,
+                stint_number=int(drv.stint_number or 1),
+            )
+        )
+        if len(out) >= 6:
+            break
+    return out
+
+
+def estimates_from_snapshot(
+    snap: FieldSnapshot,
+    focus_driver: str,
+    *,
+    circuit_key: str = "",
+) -> list[RivalPitEstimate]:
+    rivals = _rival_states_from_snapshot(snap, focus_driver)
+    estimates = [
+        estimate_rival_pit_lap(
+            rival,
+            snap.lap,
+            snap.total_laps,
+            circuit_key,
+        )
+        for rival in rivals
+    ]
+    return sorted(estimates, key=lambda e: (e.estimated_pit_lap, e.driver_code))
+
+
+def generate_field_strategy_board(
+    rivals: list[RivalPitEstimate],
+    focus_driver: str,
+    current_lap: int,
+    total_laps: int,
+    *,
+    stint_by_code: dict[str, int] | None = None,
+) -> CommentaryMessage | None:
+    """Plain-text FIELD board for the comms panel. Top 6, exclude focus."""
+    del current_lap, total_laps
+    focus = (focus_driver or "").upper()
+    stints = stint_by_code or {}
+    parts: list[str] = []
+    for est in rivals:
+        if est.driver_code.upper() == focus:
+            continue
+        short = _COMPOUND_SHORT.get(est.compound, est.compound[:3])
+        already = int(stints.get(est.driver_code, 1)) >= 2
+        if already:
+            parts.append(
+                f"{est.driver_code} already pitted ({short} {est.tyre_life}L)"
+            )
+            continue
+        if est.confidence == "HIGH":
+            box = f"box L{est.estimated_pit_lap}"
+        elif est.confidence == "LOW":
+            box = f"est. box L{est.estimated_pit_lap}"
+        else:
+            box = f"box ~L{est.estimated_pit_lap}"
+        parts.append(f"{est.driver_code} {box} ({short} {est.tyre_life}L)")
+    if not parts:
+        return None
+    return CommentaryMessage(type="FIELD", text="FIELD: " + " · ".join(parts))
+
+
+def _estimates_shifted(
+    prev: dict[str, int],
+    current: list[RivalPitEstimate],
+) -> bool:
+    for est in current:
+        old = prev.get(est.driver_code)
+        if old is not None and abs(est.estimated_pit_lap - old) > 3:
+            return True
+    return False
+
+
 class CommentaryEngine:
     def __init__(self) -> None:
         self.prev_field: FieldSnapshot | None = None
@@ -104,6 +216,9 @@ class CommentaryEngine:
         self.announced_milestones: set[int] = set()
         self.announced_approach: set[float] = set()
         self.last_track_status: str = "1"
+        self.last_field_board_lap: int | None = None
+        self.last_estimates: dict[str, int] = {}
+        self.overcut_hold_laps: dict[str, int] = {}
 
     def generate(
         self,
@@ -118,27 +233,74 @@ class CommentaryEngine:
     ) -> list[CommentaryMessage]:
         messages: list[CommentaryMessage] = []
         rc = race_control_messages if race_control_messages is not None else current_field.messages
+        focus = (focus_driver or "").upper()
+        prior_estimates = dict(self.last_estimates)
+        estimates = estimates_from_snapshot(current_field, focus_driver)
+        board_due = (
+            lap == 1
+            or (lap % FIELD_BOARD_INTERVAL == 0)
+            or _estimates_shifted(self.last_estimates, estimates)
+        )
+        if board_due and estimates:
+            stints = {
+                d.code.upper(): int(d.stint_number or 1)
+                for d in current_field.drivers
+                if d.code
+            }
+            board = generate_field_strategy_board(
+                estimates, focus_driver, lap, total_laps, stint_by_code=stints
+            )
+            if board is not None:
+                messages.append(board)
+                self.last_field_board_lap = lap
+                self.last_estimates = {e.driver_code: e.estimated_pit_lap for e in estimates}
+
         if self.prev_field is None:
             self.prev_field = current_field
             self.prev_fastest_lap_holder = current_field.fastest_lap_holder()
             return messages
 
-        focus = (focus_driver or "").upper()
-
         for drv in current_field.drivers:
             prev = self.prev_field.get_driver(drv.code)
             if prev and drv.stint_number is not None and prev.stint_number is not None:
                 if drv.stint_number > prev.stint_number:
-                    msg = (
-                        f"{drv.code} has pitted — now on "
-                        f"{drv.compound or 'fresh tyres'}. Emerged P{drv.position}"
-                    )
-                    if drv.code != focus and focus:
-                        ours = current_field.get_driver(focus)
-                        if ours and ours.gap_to_leader_s is not None and drv.gap_to_leader_s is not None:
-                            gap = drv.gap_to_leader_s - ours.gap_to_leader_s
-                            msg += f", {gap:+.1f}s to us"
-                    messages.append(CommentaryMessage(type="INTEL", text=msg + "."))
+                    hold = self.overcut_hold_laps.get(drv.code.upper())
+                    est_lap = prior_estimates.get(drv.code.upper())
+                    in_window = hold is not None and lap <= hold
+                    if not in_window and est_lap is not None:
+                        in_window = 0 <= int(est_lap) - (lap - 1) <= 8
+                    remaining = total_laps - lap
+                    gap_ok = True
+                    ours = current_field.get_driver(focus) if focus else None
+                    if ours and ours.gap_to_leader_s is not None and drv.gap_to_leader_s is not None:
+                        gap_ok = abs(float(drv.gap_to_leader_s) - float(ours.gap_to_leader_s)) >= 2.0
+                    if (
+                        drv.code.upper() != focus
+                        and in_window
+                        and remaining >= 15
+                        and gap_ok
+                    ):
+                        n = (hold - lap) if hold is not None else 4
+                        messages.append(
+                            CommentaryMessage(
+                                type="INTEL",
+                                text=(
+                                    f"OVERCUT ACTIVE — {drv.code} pitted. "
+                                    f"Hold {max(int(n), 0)} more laps."
+                                ),
+                            )
+                        )
+                    else:
+                        msg = (
+                            f"{drv.code} has pitted — now on "
+                            f"{drv.compound or 'fresh tyres'}. Emerged P{drv.position}"
+                        )
+                        if drv.code != focus and focus:
+                            ours = current_field.get_driver(focus)
+                            if ours and ours.gap_to_leader_s is not None and drv.gap_to_leader_s is not None:
+                                gap = drv.gap_to_leader_s - ours.gap_to_leader_s
+                                msg += f", {gap:+.1f}s to us"
+                        messages.append(CommentaryMessage(type="INTEL", text=msg + "."))
 
         fl_holder = current_field.fastest_lap_holder()
         if fl_holder and fl_holder != self.prev_fastest_lap_holder:

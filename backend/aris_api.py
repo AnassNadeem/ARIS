@@ -376,7 +376,22 @@ def _recommend_from_state(
         rec = _fallback_recommend(req, ingest_status=ingest_status)
         return rec.model_copy(update={"lap_note": state.lap_note, "data_source": "FASTF1_FALLBACK", "ingest_status": ingest_status})
 
-    result = aris_recommend(state, top_k=3, mc_draws=0)
+    field = None
+    try:
+        from aris.field.state import FieldState, ReplayIndex
+        from aris.io import db as aris_db
+
+        all_laps = aris_db.fetch_all_laps(state.session_id)
+        if all_laps is not None and not all_laps.empty:
+            field = FieldState.from_laps(
+                all_laps,
+                session_id=int(state.session_id),
+                index=ReplayIndex(int(state.lap_number), 3),
+                total_laps=int(state.total_laps),
+            )
+    except Exception:
+        field = None
+    result = aris_recommend(state, top_k=3, mc_draws=0, field=field)
     recs = result.recommendations
     if not recs:
         return _fallback_recommend(req, ingest_status=ingest_status)

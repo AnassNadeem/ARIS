@@ -190,7 +190,7 @@ elif session.phase == SessionPhase.LIVE:
                 kind = check_triggers(session, event)
                 if kind:
                     session.decision_queue.propose(
-                        session.build_state(), kind=kind, use_llm=use_llm
+                        session.build_state(), kind=kind, use_llm=use_llm, field=session.field_state
                     )
                 if event.is_race_complete:
                     session.phase = SessionPhase.POST_RACE

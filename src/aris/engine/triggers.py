@@ -9,10 +9,20 @@ from aris.io import db
 
 APPROACHING_OFFSET = 5
 APPROACHING_FRACS = (0.25, 0.50, 0.75)
+FIELD_BOARD_INTERVAL = 10
 
 
 def approaching_key(frac: float) -> str:
     return f"approaching_{frac:.2f}"
+
+
+def field_board_should_fire(session: RaceEngineSession, event: SectorEvent) -> bool:
+    """Informational FIELD cadence. Never a DecisionQueue propose."""
+    del session
+    if not event.is_new_lap:
+        return False
+    lap = event.index.lap_number
+    return lap == 1 or lap % FIELD_BOARD_INTERVAL == 0
 
 
 def check_triggers(session: RaceEngineSession, event: SectorEvent) -> DecisionKind | None:

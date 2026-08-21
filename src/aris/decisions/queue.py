@@ -70,10 +70,13 @@ class DecisionQueue(BaseModel):
         kind: DecisionKind,
         use_llm: bool = False,
         mc_draws: int | None = None,
+        field=None,
     ) -> DecisionTurn:
         kwargs: dict[str, Any] = {"top_k": 3}
         if mc_draws is not None:
             kwargs["mc_draws"] = mc_draws
+        if field is not None:
+            kwargs["field"] = field
         result = recommend(state, **kwargs)
         top = result.recommendations[0] if result.recommendations else None
         if top is None:

@@ -29,6 +29,7 @@ class StandingRow:
     pit_in: bool
     pit_out: bool
     track_status: str | None
+    stint_number: int = 1
 
 
 def _sector_columns(sector_idx: int) -> list[str]:
@@ -66,6 +67,29 @@ def _completed_lap_time(grp: pd.DataFrame, lap_number: int, sector_idx: int) -> 
         return None
     last = prior.iloc[-1]
     return float(last["lap_time_s"]) if pd.notna(last.get("lap_time_s")) else None
+
+
+def _stint_number(
+    grp: pd.DataFrame,
+    lap_number: int,
+    *,
+    include_current: bool = False,
+) -> int:
+    """1 + pit_in count on laps before ``lap_number`` (and this lap if visible)."""
+    n = 0
+    if "pit_in" in grp.columns:
+        prior = grp[grp["lap_number"] < lap_number]
+        if not prior.empty:
+            n = int(prior["pit_in"].fillna(False).astype(bool).sum())
+        if include_current:
+            current = grp[grp["lap_number"] == lap_number]
+            if not current.empty and bool(current.iloc[0].get("pit_in")):
+                n += 1
+    elif "stint" in grp.columns:
+        subset = grp[grp["lap_number"] <= lap_number]
+        if not subset.empty and pd.notna(subset.iloc[-1].get("stint")):
+            return max(1, int(subset.iloc[-1]["stint"]))
+    return 1 + n
 
 
 def compute_standings(
@@ -122,6 +146,9 @@ def compute_standings(
                             track_status=str(lr["track_status"])
                             if pd.notna(lr.get("track_status"))
                             else None,
+                            stint_number=_stint_number(
+                                grp, lap_number - 1, include_current=True
+                            ),
                         )
                     )
             continue
@@ -157,6 +184,9 @@ def compute_standings(
                 track_status=str(lap_row["track_status"])
                 if pd.notna(lap_row.get("track_status"))
                 else None,
+                stint_number=_stint_number(
+                    grp, lap_number, include_current=sector_idx >= 3
+                ),
             )
         )
 

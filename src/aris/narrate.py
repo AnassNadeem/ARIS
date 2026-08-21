@@ -266,6 +266,26 @@ def _build_prompt(rec: Recommendation, state_context: dict[str, Any]) -> str:
 
 
 def _fallback_narration(rec: Recommendation) -> str:
+    if rec.label.startswith("OVERCUT_") or rec.narration_context.get("overcut_rival"):
+        rival = rec.narration_context.get("overcut_rival") or rec.action.overcut_rival or "rival"
+        n = rec.narration_context.get("overcut_n") or rec.action.overcut_n or 2
+        delta = rec.narration_context.get("overcut_window_delta_s")
+        if delta is None:
+            delta = rec.action.overcut_window_delta_s
+        if delta is None:
+            delta = rec.delta_vs_stay_out_s
+        return (
+            f"Overcut window — {rival} is coming in. Stay out {n} more laps, "
+            f"build the gap, then box. Net: {delta:.1f}s in our favour."
+        )
+    if rec.wet_heuristic:
+        delta = rec.narration_context.get("delta_s", rec.delta_vs_stay_out_s)
+        remaining = rec.narration_context.get("laps_remaining", "?")
+        return (
+            f"Rain affecting lap times. Box for intermediates — estimated "
+            f"{delta:.0f}s net gain over {remaining} laps. "
+            f"[HEURISTIC — reduced confidence in wet conditions]"
+        )
     delta = rec.narration_context.get("delta_s", rec.delta_vs_stay_out_s)
     driver = rec.narration_context.get("driver", "driver")
     lap = rec.narration_context.get("lap", "?")

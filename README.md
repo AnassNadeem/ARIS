@@ -29,7 +29,7 @@ no notebook to open: the pipeline is the page.
 | Question | Aimed | Actual |
 |---|---|---|
 | 2024 calendar one-step blend MAE | ≤ **0.783** (1.5× MA(2) **0.522**) | **0.583 s** — closest stack, does **not** beat MA(2) |
-| Mid-race match-rate vs stay-out | > **0.276** (24/87) | **0.322** (28/87) |
+| Mid-race match-rate vs stay-out | > **0.276** (24/87) | **0.345** (30/87) T2 default; G1.5-only was 0.322 |
 | Lights-out position-delta | ≤ 0 | **−1.73** all 48 / **−1.49** clean (n=35) |
 | Tyre slopes from lap time | physical C1<…<C5 | G2/G3/G4 miss the gate — **G1.5 locked** |
 | Physics `team_sim − actual` intercept | a stable intercept | mean **+989 s**, std **544** — **closed**, do not subtract |
@@ -42,10 +42,12 @@ headline. The five-race Phase C row (blend **0.549 s** vs MA(2) **0.469**) is
 superseded by the E3 calendar figure above. Tags past `v0.2-pipeline` have
 not been cut.
 
-**Wet / rain-affected races are out of scope.** There is no wet-strategy
-logic. Walk-forward excludes rainfall / wet-compound / red-flag inflections
-as `divergence_insufficient_info` — combined **0.356** (48/135), about
-one-third. That is a missing model, not an evaluation convenience.
+**Wet / rain-affected races are not calibrated.** A conservative INTER/WET
+heuristic exists (`src/aris/physics/wet.py`) and is tagged `wet_heuristic` on
+the radio call. The dry headline remains the **87-event 0.345** slice.
+`--include-wet` scores INTER/WET inflections only; Spain-style `rainfall=True`
+dry races stay out of that 87. The wet slice on this walk was **0.327
+(36/110)** — below 0.340, uncalibrated, not a headline.
 
 ---
 

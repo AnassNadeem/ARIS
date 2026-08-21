@@ -64,8 +64,19 @@ It does not search every legal strategy. It scores a **fixed shortlist**:
 5. **Lift** or **brake** earlier into turns 1, 7, and 10 — physics-backed
    line actions, not made-up DRS bonuses.
 
-That is the whole menu. There is no tree search, no opponent model, and no
-“what if they cover.”
+That is the whole menu on a field-free snapshot. When a `FieldState` is
+passed in, two extra tags can appear:
+
+6. **OVERCUT_{code}_{N}L** — stay while a rival (pitting within 8 laps,
+   confidence not LOW) boxes, then pit N ∈ {2,4,6} laps later. Eligibility
+   uses a physics-delta window vs that rival; ranking is still `simulate()`
+   vs stay-out. Skipped if the gap ahead is under 2 s or fewer than 15 laps
+   remain.
+7. **INTER / WET** — only when a wet heuristic fires (rainfall flag, mm/lap,
+   or a field car already on intermediates). Uncalibrated; tagged
+   `wet_heuristic`.
+
+There is no learned opponent policy and no “what if they cover” tree.
 
 ---
 

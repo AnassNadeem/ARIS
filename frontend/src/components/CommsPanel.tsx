@@ -26,6 +26,7 @@ export function CommsPanel({
     confirm: C.green,
     user: C.blue,
     aris_response: C.purple,
+    field: C.blue,
   };
   const label: Record<string, string> = {
     intel: "◉ INTEL",
@@ -34,6 +35,7 @@ export function CommsPanel({
     confirm: "✓ CONFIRM",
     user: "YOU",
     aris_response: "ARIS RESPONSE",
+    field: "FIELD",
   };
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -41,20 +43,25 @@ export function CommsPanel({
         {messages.length === 0 && (
           <EmptyState title="No messages yet" body="Recommendations appear as the replay clock advances. Ask ARIS below." />
         )}
-        {messages.map((m) => (
+        {messages.map((m) => {
+          const isField = m.type === "field";
+          return (
           <div
             key={m.id}
             style={{
               padding: "8px 10px",
               borderRadius: 4,
-              background: C.panel2,
-              borderLeft: `3px solid ${border[m.type] || C.border}`,
+              background: isField ? C.void : C.panel2,
+              borderLeft: `3px solid ${isField ? C.blue : (border[m.type] || C.border)}`,
             }}
           >
-            <div style={{ fontFamily: T.mono, fontSize: 8, color: C.faint, marginBottom: 3 }}>{label[m.type] || "ARIS"}</div>
-            <div style={{ fontFamily: T.body, fontSize: 11.5, color: C.paper, lineHeight: 1.5 }}>{m.text}</div>
+            <div style={{ fontFamily: T.mono, fontSize: 8, color: isField ? C.blue : C.faint, marginBottom: 3 }}>
+              {isField ? "FIELD" : (label[m.type] || "ARIS")}
+            </div>
+            <div style={{ fontFamily: isField ? T.mono : T.body, fontSize: isField ? 11 : 11.5, color: C.paper, lineHeight: 1.5, letterSpacing: isField ? 0.2 : undefined }}>{m.text}</div>
           </div>
-        ))}
+          );
+        })}
         <div ref={endRef} />
       </div>
       <div style={{ flexShrink: 0, padding: 8, borderTop: `1px solid ${C.border}`, display: "flex", gap: 6 }}>

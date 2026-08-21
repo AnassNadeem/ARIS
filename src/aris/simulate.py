@@ -55,6 +55,10 @@ class StrategyAction(BaseModel):
     # 1-based corner index + metres earlier (LIFT / BRAKE).
     corner_index: int | None = None
     distance_m: float | None = None
+    label_override: str | None = None
+    overcut_rival: str | None = None
+    overcut_n: int | None = None
+    overcut_window_delta_s: float | None = None
 
 
 class PredictedOutcome(BaseModel):
@@ -400,6 +404,170 @@ def simulate(
         extrapolation_caveat=str(caveat) if caveat else None,
         chained_laps=int(extra["chained_laps"]),
     )
+
+
+def _fresh_pace(last_lap_s: float, compound: str, tyre_life: int, slopes: dict[str, float] | None) -> float:
+    from aris.physics.tires import tire_pace_loss
+
+    life = max(1, int(tyre_life or 1))
+    return float(last_lap_s) - tire_pace_loss(compound, life, slopes=slopes)
+
+
+def _window_cumulative(
+    *,
+    fresh_pace: float,
+    compound: str,
+    tyre_life: int,
+    start_lap: int,
+    end_lap: int,
+    pit_lap: int | None,
+    pit_compound: str,
+    current_lap: int,
+    circuit_pit_loss: float,
+    track_status: str | None,
+    circuit_key: str | None,
+    slopes: dict[str, float] | None,
+) -> float:
+    """Physics-delta window total. No residual chaining on projected laps."""
+    from aris.physics.tires import tire_pace_loss
+
+    total = 0.0
+    c = compound
+    life = max(1, int(tyre_life or 1))
+    green = float(circuit_pit_loss)
+    for lap in range(int(start_lap), int(end_lap) + 1):
+        pace = fresh_pace + tire_pace_loss(c, life, slopes=slopes)
+        if pit_lap is not None and lap == int(pit_lap):
+            if lap == int(current_lap):
+                pit_loss = get_pit_loss(green, track_status, circuit_key=circuit_key)
+            else:
+                pit_loss = green
+            total += pace + pit_loss
+            c = pit_compound
+            life = 1
+            continue
+        total += pace
+        life += 1
+    return total
+
+
+def simulate_undercut(
+    state: RaceState,
+    rival,
+    pit_compound: str,
+    circuit_pit_loss: float,
+    slopes: dict[str, float] | None,
+) -> float:
+    """Net seconds from pitting now vs the rival boxing at their estimate.
+
+    Negative = we gain time. Non-negative undercuts return 0. Physics-delta
+    only — does not chain residual on projected rival laps (G1.4).
+    """
+    current = int(state.lap_number)
+    rival_pit = int(getattr(rival, "estimated_pit_lap"))
+    end = min(rival_pit + 3, int(state.total_laps))
+    if end < current:
+        return 0.0
+    focus_last = float(state.lag1_pace or getattr(rival, "last_lap_s", 0.0) or 90.0)
+    rival_last = float(getattr(rival, "last_lap_s", 0.0) or focus_last)
+    focus_fresh = _fresh_pace(focus_last, state.compound, state.tyre_life, slopes)
+    rival_fresh = _fresh_pace(
+        rival_last,
+        getattr(rival, "compound", "MEDIUM"),
+        getattr(rival, "tyre_life", 1),
+        slopes,
+    )
+    key = state.country
+    focus_t = _window_cumulative(
+        fresh_pace=focus_fresh,
+        compound=state.compound,
+        tyre_life=state.tyre_life,
+        start_lap=current,
+        end_lap=end,
+        pit_lap=current,
+        pit_compound=pit_compound,
+        current_lap=current,
+        circuit_pit_loss=circuit_pit_loss,
+        track_status=state.track_status,
+        circuit_key=key,
+        slopes=slopes,
+    )
+    rival_t = _window_cumulative(
+        fresh_pace=rival_fresh,
+        compound=str(getattr(rival, "compound", "MEDIUM")),
+        tyre_life=int(getattr(rival, "tyre_life", 1) or 1),
+        start_lap=current,
+        end_lap=end,
+        pit_lap=rival_pit,
+        pit_compound=pit_compound,
+        current_lap=current,
+        circuit_pit_loss=circuit_pit_loss,
+        track_status=state.track_status,
+        circuit_key=key,
+        slopes=slopes,
+    )
+    delta = focus_t - rival_t
+    return float(delta) if delta < 0 else 0.0
+
+
+def simulate_overcut_window(
+    state: RaceState,
+    rival,
+    *,
+    extra_laps: int,
+    pit_compound: str,
+    circuit_pit_loss: float,
+    slopes: dict[str, float] | None,
+) -> float:
+    """We stay, they pit at estimate, we pit at estimate + extra_laps.
+
+    Negative = we are ahead at the end of the window. Physics-delta only.
+    """
+    current = int(state.lap_number)
+    rival_pit = int(getattr(rival, "estimated_pit_lap"))
+    our_pit = rival_pit + int(extra_laps)
+    end = min(our_pit + 3, int(state.total_laps))
+    if end < current or our_pit > state.total_laps:
+        return 0.0
+    focus_last = float(state.lag1_pace or getattr(rival, "last_lap_s", 0.0) or 90.0)
+    rival_last = float(getattr(rival, "last_lap_s", 0.0) or focus_last)
+    focus_fresh = _fresh_pace(focus_last, state.compound, state.tyre_life, slopes)
+    rival_fresh = _fresh_pace(
+        rival_last,
+        getattr(rival, "compound", "MEDIUM"),
+        getattr(rival, "tyre_life", 1),
+        slopes,
+    )
+    key = state.country
+    focus_t = _window_cumulative(
+        fresh_pace=focus_fresh,
+        compound=state.compound,
+        tyre_life=state.tyre_life,
+        start_lap=current,
+        end_lap=end,
+        pit_lap=our_pit,
+        pit_compound=pit_compound,
+        current_lap=current,
+        circuit_pit_loss=circuit_pit_loss,
+        track_status=state.track_status,
+        circuit_key=key,
+        slopes=slopes,
+    )
+    rival_t = _window_cumulative(
+        fresh_pace=rival_fresh,
+        compound=str(getattr(rival, "compound", "MEDIUM")),
+        tyre_life=int(getattr(rival, "tyre_life", 1) or 1),
+        start_lap=current,
+        end_lap=end,
+        pit_lap=rival_pit,
+        pit_compound=pit_compound,
+        current_lap=current,
+        circuit_pit_loss=circuit_pit_loss,
+        track_status=state.track_status,
+        circuit_key=key,
+        slopes=slopes,
+    )
+    return float(focus_t - rival_t)
 
 
 def simulate_full_race(

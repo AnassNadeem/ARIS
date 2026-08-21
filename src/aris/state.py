@@ -115,6 +115,8 @@ class RaceState(BaseModel):
     confidence_caveat: str | None = None
     lap_note: str | None = None
     gap_ahead_history: list[float] = []
+    rainfall_mm_per_lap: float | None = None
+    weather_rainfall: bool | None = None
 
     def with_overrides(self, overrides: RaceStateOverrides) -> RaceState:
         data = self.model_dump()
@@ -274,6 +276,8 @@ def build_race_state(
         confidence_caveat=SC_PACE_CAVEAT if sc_pace else None,
         lap_note=lap_note,
         gap_ahead_history=_gap_ahead_history(session_id, driver_id, requested),
+        weather_rainfall=bool(weather["rainfall"]) if weather.get("rainfall") is not None else None,
+        rainfall_mm_per_lap=None,
     )
     if overrides:
         state = state.with_overrides(overrides)

@@ -130,7 +130,13 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
           ...m,
           ...d.events.map((e, i) => ({
             id: m.length + i + 1,
-            type: e.type.toLowerCase() === "alert" ? "alert" : "intel",
+            type: (() => {
+              const t = e.type.toLowerCase();
+              if (t === "alert") return "alert";
+              if (t === "field") return "field";
+              if (t === "recommend") return "recommend";
+              return "intel";
+            })(),
             text: e.text,
           })),
         ]);

@@ -50,6 +50,7 @@ class RaceEngineSession(BaseModel):
     fired_this_lap: set[str] = Field(default_factory=set)
     fired_triggers: set[str] = Field(default_factory=set)
     last_trigger_lap: int = 0
+    last_field_board_estimates: dict[str, int] = Field(default_factory=dict)
 
     def model_post_init(self, __context: Any) -> None:
         # Live + backtest sessions persist propose/resolve past process end.

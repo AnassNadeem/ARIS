@@ -421,12 +421,22 @@ def classify_decision(
     state: RaceState,
     *,
     rainfall: bool,
+    include_wet: bool = False,
 ) -> tuple[DecisionClass, float | None, float | None]:
-    if rainfall or _is_wet(inflection.compound or "") or _is_wet(state.compound):
-        return "divergence_insufficient_info", None, None
     status = str(state.track_status or "")
     if "5" in status:
         return "divergence_insufficient_info", None, None
+    wet_inflection = _is_wet(inflection.compound or "") or _is_wet(state.compound)
+    if include_wet:
+        # Score INTER/WET inflections. Session rainfall on a dry-compound
+        # event stays excluded so Spain-style dry races do not enter the 87.
+        if not wet_inflection:
+            if rainfall:
+                return "divergence_insufficient_info", None, None
+        # wet_inflection True: score even if session rainfall is set
+    else:
+        if rainfall or wet_inflection:
+            return "divergence_insufficient_info", None, None
 
     if matches_team_action(rec, inflection):
         return "match", None, None
@@ -597,7 +607,7 @@ def walk_race_triggers(
                 )
             state = session.build_state(event.index.lap_number)
             turn = session.decision_queue.propose(
-                state, kind=kind, use_llm=False, mc_draws=mc_draws
+                state, kind=kind, use_llm=False, mc_draws=mc_draws, field=session.field_state
             )
             if turn.recommendation is not None:
                 by_lap[event.index.lap_number] = turn.recommendation
@@ -625,7 +635,7 @@ def _recommend_at_lap(
         state = session.build_state(lap)
     except ValueError:
         return None
-    result = recommend(state, top_k=3, mc_draws=mc_draws)
+    result = recommend(state, top_k=3, mc_draws=mc_draws, field=session.field_state)
     top = result.recommendations[0] if result.recommendations else None
     if top is not None:
         cached[lap] = top
@@ -680,7 +690,7 @@ def _score_outcome(
     )
 
 
-def score_race(meta: dict[str, Any], *, mc_draws: int = 0) -> RaceBacktest:
+def score_race(meta: dict[str, Any], *, mc_draws: int = 0, include_wet: bool = False) -> RaceBacktest:
     session_id = int(meta["session_id"])
     gp = str(meta["gp"])
     year = int(meta["year"])
@@ -737,7 +747,9 @@ def score_race(meta: dict[str, Any], *, mc_draws: int = 0) -> RaceBacktest:
             state = session.build_state(inf.lap)
         except ValueError:
             continue
-        klass, team_s, aris_s = classify_decision(rec, inf, state, rainfall=rainfall)
+        klass, team_s, aris_s = classify_decision(
+            rec, inf, state, rainfall=rainfall, include_wet=include_wet
+        )
         stay_match = (not inf.team_pitted) and inf.kind != "pit"
         ly = last_year_matches_pit(last_pits, inf.lap) if inf.kind == "pit" else None
         decisions.append(
