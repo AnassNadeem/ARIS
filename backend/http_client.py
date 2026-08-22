@@ -63,9 +63,23 @@ def _wait_rate() -> None:
         time.sleep(min(2.0, max(0.05, wait_s)))
 
 
+def _static_bearer() -> str | None:
+    """Paid OpenF1 key pasted as a bearer token (Streamlit secrets or .env)."""
+    _load_env()
+    for key in ("OPENF1_API_KEY", "OPENF1_TOKEN", "OPENF1_ACCESS_TOKEN", "OPENF1_KEY"):
+        val = (os.getenv(key) or "").strip()
+        if val:
+            return val.removeprefix("Bearer ").strip()
+    return None
+
+
 def _refresh_token() -> str | None:
     global _access_token, _token_expires_at
-    _load_env()
+    static = _static_bearer()
+    if static:
+        _access_token = static
+        _token_expires_at = time.time() + 24 * 3600
+        return static
     user = (os.getenv("OPENF1_USERNAME") or "").strip()
     password = (os.getenv("OPENF1_PASSWORD") or "").strip()
     if not user or not password:

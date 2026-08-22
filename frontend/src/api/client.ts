@@ -83,7 +83,7 @@ function pathTtlMs(path: string, override?: number | false): number {
   if (override === false) return 0;
   if (typeof override === "number") return override;
   const p = path.split("?")[0];
-  if (p.includes("/api/live/status")) return 10_000;
+  if (p.includes("/api/live/status")) return 8_000;
   if (p.includes("/api/live/")) return 0;
   if (p.includes("/api/aris/recommend")) return 0;
   if (p.includes("/api/circuit/") && (p.endsWith("/map") || p.endsWith("/preview"))) return 30 * 60_000;
@@ -91,7 +91,7 @@ function pathTtlMs(path: string, override?: number | false): number {
   if (p.includes("/api/calendar/")) return 10 * 60_000;
   if (p.includes("/api/drivers/") || p.includes("/api/teams/")) return 10 * 60_000;
   if (p.includes("/api/standings/")) return 5 * 60_000;
-  if (p.includes("/api/next-race")) return 60_000;
+  if (p.includes("/api/next-race")) return 15_000;
   if (p.includes("/api/aris/stats")) return 30 * 60_000;
   if (p.includes("/api/session/")) return 30 * 60_000;
   if (p.includes("/api/aris/")) return 5 * 60_000;

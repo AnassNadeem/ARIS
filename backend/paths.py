@@ -13,5 +13,12 @@ for extra in (SRC,):
     if extra.exists() and str(extra) not in sys.path:
         sys.path.insert(0, str(extra))
 
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(ROOT / ".env")
+except Exception:
+    pass
+
 # Apply FastF1/requests shims before any FastF1 import.
 import aris  # noqa: E402, F401

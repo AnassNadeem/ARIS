@@ -372,6 +372,9 @@ class CircuitMapResponse(BaseModel):
     corners: list[CircuitCorner] = Field(default_factory=list)
     markers: list[CircuitMarker] = Field(default_factory=list)
     drs_segments: list[list[int]] = Field(default_factory=list)
+    pit_lane_x: list[float] = Field(default_factory=list)
+    pit_lane_y: list[float] = Field(default_factory=list)
+    pit_stalls: list[list[float]] = Field(default_factory=list)
     bounds: CircuitMapBounds | None = None
     available: bool = True
     fallback: bool = False
@@ -598,6 +601,7 @@ class LiveStatus(BaseModel):
     current_lap: int | None = None
     total_laps: int | None = None
     session_elapsed_seconds: int | None = None
+    session_remaining_seconds: int | None = None
     session_flag: SessionFlag = "UNKNOWN"
     last_success_utc: datetime | None = None
     replay_mode: bool = False
@@ -605,6 +609,9 @@ class LiveStatus(BaseModel):
     as_of: datetime | None = None
     session: dict[str, Any] | None = None
     error: str | None = None
+    source: str | None = None
+    view_only: bool = False
+    aris_ready: bool = False
 
 
 class LiveTimingRow(BaseModel):
@@ -627,6 +634,13 @@ class LiveTimingRow(BaseModel):
     drs_open: bool = False
     speed_trap_kph: float | None = None
     team_colour: str | None = None
+    eliminated: bool = False
+    in_pit: bool = False
+    fastest_lap: bool = False
+    reason: str | None = None
+    q1_ms: int | None = None
+    q2_ms: int | None = None
+    q3_ms: int | None = None
 
 
 class LiveTimingResponse(BaseModel):
@@ -647,6 +661,7 @@ class LivePosition(BaseModel):
     is_dnf: bool = False
     path_frac: float = 0.0
     speed_ms: float | None = None
+    reason: str | None = None
 
 
 class LivePositionsResponse(BaseModel):
@@ -685,7 +700,30 @@ class LiveWeatherResponse(BaseModel):
     rainfall: bool | None = None
     wind_speed: float | None = None
     wind_direction: float | None = None
+    pressure: float | None = None
     last_success_utc: datetime | None = None
+
+
+class QualiWindow(BaseModel):
+    id: str
+    label: str
+    start_s: int
+    end_s: int
+
+
+class ReplayFrameResponse(BaseModel):
+    session_key: int
+    as_of: datetime
+    elapsed_s: int
+    duration_s: int
+    date_start: datetime | None = None
+    date_end: datetime | None = None
+    timing: LiveTimingResponse
+    weather: LiveWeatherResponse
+    positions: LivePositionsResponse
+    source: str = "openf1"
+    quali_phase: str | None = None
+    quali_windows: list[QualiWindow] = Field(default_factory=list)
 
 
 class RecommendRequest(BaseModel):

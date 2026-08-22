@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CarPosition, CircuitMap, LiveTimingRow } from "../api/types";
-import { C, SPEED_MS, SPEED_OPTIONS, T } from "../theme";
+import { C, SPEED_FACTOR, SPEED_MS, SPEED_OPTIONS, T } from "../theme";
 import { CircuitOutline } from "./CircuitSvg";
 import { Chip, SkeletonPanel } from "./atoms";
 import { useAllLapPositions, useCircuitMap } from "../hooks/useCircuitMap";
@@ -27,16 +27,31 @@ interface CarAnimState {
   teamColour: string;
   isPitted: boolean;
   isDnf: boolean;
+  reason?: string | null;
+  useXy: boolean;
+  prevX: number;
+  prevY: number;
+  targetX: number;
+  targetY: number;
+  currentX: number;
+  currentY: number;
 }
 
 function buildPathSegments(pathX: number[], pathY: number[]): { segments: PathSegment[]; totalLength: number } {
+  const xs = [...pathX];
+  const ys = [...pathY];
+  const n0 = Math.min(xs.length, ys.length);
+  if (n0 >= 2 && (xs[0] !== xs[n0 - 1] || ys[0] !== ys[n0 - 1])) {
+    xs.push(xs[0]);
+    ys.push(ys[0]);
+  }
   const segments: PathSegment[] = [];
-  const n = Math.min(pathX.length, pathY.length);
+  const n = Math.min(xs.length, ys.length);
   const lengths: number[] = [];
   let totalLength = 0;
   for (let i = 0; i < n - 1; i++) {
-    const dx = pathX[i + 1] - pathX[i];
-    const dy = pathY[i + 1] - pathY[i];
+    const dx = xs[i + 1] - xs[i];
+    const dy = ys[i + 1] - ys[i];
     const len = Math.sqrt(dx * dx + dy * dy);
     lengths.push(len);
     totalLength += len;
@@ -45,8 +60,8 @@ function buildPathSegments(pathX: number[], pathY: number[]): { segments: PathSe
   let cumulative = 0;
   for (let i = 0; i < n - 1; i++) {
     segments.push({
-      start: { x: pathX[i], y: pathY[i] },
-      end: { x: pathX[i + 1], y: pathY[i + 1] },
+      start: { x: xs[i], y: ys[i] },
+      end: { x: xs[i + 1], y: ys[i + 1] },
       length: lengths[i],
       cumulativeFrac: cumulative / totalLength,
     });
@@ -112,6 +127,8 @@ export function TrackMap({
   lap,
   live,
   speed = "1×",
+  replaySessionKey,
+  liveFeed,
 }: {
   year: number;
   round: number;
@@ -121,6 +138,8 @@ export function TrackMap({
   lap: number;
   live?: boolean;
   speed?: (typeof SPEED_OPTIONS)[number];
+  replaySessionKey?: number | null;
+  liveFeed?: { positions: CarPosition[]; circuitPath?: { x: number[]; y: number[] } | null };
 }) {
   const cmap = useCircuitMap(year, round);
   const allPos = useAllLapPositions(year, round, !live);
@@ -130,7 +149,7 @@ export function TrackMap({
     positionsRef.current = allPos.data.laps;
     if (allPos.data.circuit_path?.x?.length) circuitPathRef.current = allPos.data.circuit_path;
   }
-  const livePos = useLivePositions(!!live);
+  const livePos = useLivePositions(!!live && liveFeed == null, replaySessionKey);
   const drivers = useDrivers(year);
   const [hover, setHover] = useState<{
     code: string;
@@ -138,6 +157,7 @@ export function TrackMap({
     x: number;
     y: number;
     row?: LiveTimingRow;
+    reason?: string | null;
   } | null>(null);
 
   const map: CircuitMap | null = cmap.status === "ok" ? cmap.data : null;
@@ -165,19 +185,20 @@ export function TrackMap({
     return m;
   }, [drivers]);
 
-  const pathX = map && map.x.length >= 2 ? map.x : (livePos.circuitPath?.x ?? circuitPathRef.current?.x ?? []);
-  const pathY = map && map.y.length >= 2 ? map.y : (livePos.circuitPath?.y ?? circuitPathRef.current?.y ?? []);
+  const feedPath = liveFeed?.circuitPath ?? livePos.circuitPath;
+  const pathX = map && map.x.length >= 2 ? map.x : (feedPath?.x ?? circuitPathRef.current?.x ?? []);
+  const pathY = map && map.y.length >= 2 ? map.y : (feedPath?.y ?? circuitPathRef.current?.y ?? []);
   const pathData = useMemo(() => buildPathSegments(pathX, pathY), [pathX, pathY]);
   const pathDataRef = useRef(pathData);
   pathDataRef.current = pathData;
 
   const driverCodes = useMemo(() => {
-    const codes =
-      drivers.status === "ok"
-        ? drivers.data.drivers.map((d) => d.driver_code)
-        : cars.map((c) => c.driver_code);
+    const fromDrivers =
+      drivers.status === "ok" ? drivers.data.drivers.map((d) => d.driver_code) : cars.map((c) => c.driver_code);
+    const fromPos = (liveFeed?.positions ?? []).map((p) => p.driver_code);
+    const codes = [...new Set([...fromDrivers, ...fromPos, ...cars.map((c) => c.driver_code)])];
     return codes.filter((code) => !hiddenCars.includes(code));
-  }, [drivers, cars, hiddenCars]);
+  }, [drivers, cars, hiddenCars, liveFeed]);
 
   const carStatesRef = useRef<Map<string, CarAnimState>>(new Map());
   const carGroupRefs = useRef<Map<string, SVGGElement>>(new Map());
@@ -187,15 +208,23 @@ export function TrackMap({
   const missRef = useRef<Map<string, number>>(new Map());
 
   const rawPositions: CarPosition[] = live
-    ? livePos.positions
+    ? (liveFeed?.positions ?? livePos.positions)
     : positionsRef.current[String(lap)] ?? positionsRef.current[String(lap - 1)] ?? [];
 
-  const lapDurationMs = live ? 2000 : SPEED_MS[speed] ?? 90_000;
+  const lapDurationMs = live
+    ? Math.min(2000, Math.max(160, 500 / (SPEED_FACTOR[speed] ?? 1)))
+    : SPEED_MS[speed] ?? 90_000;
+  const eliminatedKey = cars
+    .filter((c) => c.eliminated)
+    .map((c) => c.driver_code)
+    .sort()
+    .join(",");
 
   useEffect(() => {
     const { segments, totalLength } = pathDataRef.current;
     const now = performance.now();
     const incoming = new Set<string>();
+    const eliminated = new Set(eliminatedKey ? eliminatedKey.split(",") : []);
     for (const pos of rawPositions) {
       incoming.add(pos.driver_code);
       missRef.current.set(pos.driver_code, 0);
@@ -206,7 +235,9 @@ export function TrackMap({
           : computePathFrac(pos.x, pos.y, segments, totalLength);
       const prevFrac = existing?.currentFrac ?? frac;
       let target = frac;
-      if (pos.is_dnf) {
+      if (pos.is_dnf || eliminated.has(pos.driver_code)) {
+        target = existing?.currentFrac ?? frac;
+      } else if (pos.is_pitted) {
         target = existing?.currentFrac ?? frac;
       } else if (!live) {
         if (!existing) {
@@ -222,6 +253,7 @@ export function TrackMap({
         if (delta > 0.5) delta -= 1;
         target = prevFrac + delta;
       }
+      const useXy = Boolean(pos.is_pitted || pos.is_dnf || pos.reason);
       carStatesRef.current.set(pos.driver_code, {
         driverCode: pos.driver_code,
         currentFrac: existing ? prevFrac : frac,
@@ -231,10 +263,18 @@ export function TrackMap({
         lapStartTime: now,
         teamColour: pos.team_colour || colourByRef.current.get(pos.driver_code) || C.signal,
         isPitted: Boolean(pos.is_pitted),
-        isDnf: Boolean(pos.is_dnf),
+        isDnf: Boolean(pos.is_dnf) || eliminated.has(pos.driver_code),
+        reason: pos.reason ?? null,
+        useXy,
+        prevX: existing && existing.useXy ? existing.currentX : pos.x,
+        prevY: existing && existing.useXy ? existing.currentY : pos.y,
+        targetX: pos.x,
+        targetY: pos.y,
+        currentX: existing && existing.useXy ? existing.currentX : pos.x,
+        currentY: existing && existing.useXy ? existing.currentY : pos.y,
       });
     }
-    if (live) {
+    if (live && liveFeed == null) {
       for (const [code, car] of carStatesRef.current) {
         if (incoming.has(code)) continue;
         const misses = (missRef.current.get(code) ?? 0) + 1;
@@ -244,7 +284,7 @@ export function TrackMap({
         }
       }
     }
-  }, [lap, rawPositions, lapDurationMs, live]);
+  }, [lap, rawPositions, lapDurationMs, live, eliminatedKey]);
 
   useEffect(() => {
     let rafId = 0;
@@ -256,13 +296,22 @@ export function TrackMap({
         const progress = Math.min(elapsed / Math.max(car.lapDurationMs, 1), 1);
         const eased = easeInOut(progress);
         let currentFrac: number;
-        if (car.isDnf) {
+        let point: PathPoint;
+        if (car.useXy) {
+          const x = car.prevX + eased * (car.targetX - car.prevX);
+          const y = car.prevY + eased * (car.targetY - car.prevY);
+          car.currentX = x;
+          car.currentY = y;
+          point = { x, y };
+          currentFrac = car.prevFrac;
+        } else if (car.isDnf) {
           currentFrac = wrapFrac(car.prevFrac);
+          point = getPointAtFraction(segments, currentFrac);
         } else {
           currentFrac = wrapFrac(car.prevFrac + eased * (car.targetFrac - car.prevFrac));
+          point = getPointAtFraction(segments, currentFrac);
         }
         car.currentFrac = currentFrac;
-        const point = getPointAtFraction(segments, currentFrac);
         const g = carGroupRefs.current.get(code);
         if (g) g.setAttribute("transform", `translate(${point.x}, ${point.y})`);
         const dot = dotRefs.current.get(code);
@@ -286,7 +335,7 @@ export function TrackMap({
           }
         }
         if (label) {
-          label.textContent = car.isPitted && !car.isDnf ? "PIT" : code;
+          label.textContent = car.isPitted || car.reason ? (car.reason?.startsWith("OUT") ? "OUT" : "PIT") : code;
         }
       });
       rafId = requestAnimationFrame(renderFrame);
@@ -300,7 +349,9 @@ export function TrackMap({
     carStatesRef.current.forEach((car, code) => {
       const g = carGroupRefs.current.get(code);
       if (!g) return;
-      const point = getPointAtFraction(segments, car.currentFrac);
+      const point = car.useXy
+        ? { x: car.currentX, y: car.currentY }
+        : getPointAtFraction(segments, car.currentFrac);
       g.setAttribute("transform", `translate(${point.x}, ${point.y})`);
     });
   });
@@ -370,7 +421,9 @@ export function TrackMap({
                 onMouseEnter={() => {
                   const svg = svgRef.current?.getBoundingClientRect();
                   const car = carStatesRef.current.get(code);
-                  const pt = getPointAtFraction(pathDataRef.current.segments, car?.currentFrac ?? 0);
+                  const pt = car?.useXy
+                    ? { x: car.currentX, y: car.currentY }
+                    : getPointAtFraction(pathDataRef.current.segments, car?.currentFrac ?? 0);
                   const w = svg?.width ?? 440;
                   const h = svg?.height ?? 280;
                   setHover({
@@ -379,6 +432,7 @@ export function TrackMap({
                     x: (pt.x / 440) * w,
                     y: (pt.y / 280) * h,
                     row: cars.find((c) => c.driver_code === code),
+                    reason: car?.reason ?? cars.find((c) => c.driver_code === code)?.reason,
                   });
                 }}
                 onMouseLeave={() => setHover(null)}
@@ -432,6 +486,9 @@ export function TrackMap({
           }}
         >
           <div style={{ fontFamily: T.mono, fontSize: 11, color: C.signal }}>{hover.name}</div>
+          {hover.reason && (
+            <div style={{ fontFamily: T.mono, fontSize: 11, color: C.signal, marginTop: 4 }}>{hover.reason}</div>
+          )}
           <div style={{ fontFamily: T.mono, fontSize: 10, color: C.mist, marginTop: 4 }}>
             P{hover.row?.position ?? "—"} · gap{" "}
             {hover.row?.gap_to_leader_s != null ? `+${hover.row.gap_to_leader_s.toFixed(1)}s` : "—"}

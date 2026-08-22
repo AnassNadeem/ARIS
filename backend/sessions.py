@@ -93,6 +93,16 @@ def _get_fastf1_session(year: int, round_number: int, session_type: str):
     import fastf1
 
     stype = session_type.upper()
+    if year == 2026:
+        try:
+            from backend.calendar import get_round
+
+            rnd = get_round(year, round_number)
+            ident = rnd.name or rnd.official_event_name
+            if ident:
+                return fastf1.get_session(year, ident, stype)
+        except Exception:
+            pass
     try:
         return fastf1.get_session(year, round_number, stype)
     except Exception as first:
@@ -741,6 +751,350 @@ def _nearest_index(distances: list[float], target: float) -> int:
     return best_i
 
 
+def _path_length(xs: list[float], ys: list[float]) -> float:
+    n = min(len(xs), len(ys))
+    total = 0.0
+    for i in range(n - 1):
+        dx = xs[i + 1] - xs[i]
+        dy = ys[i + 1] - ys[i]
+        total += (dx * dx + dy * dy) ** 0.5
+    return total
+
+
+def close_circuit_loop(xs: list[float], ys: list[float]) -> tuple[list[float], list[float]]:
+    """Close the start/finish gap. FastF1 flying-lap XY is an open polyline."""
+    n = min(len(xs), len(ys))
+    if n < 3:
+        return xs[:n], ys[:n]
+    xs = list(xs[:n])
+    ys = list(ys[:n])
+    for _ in range(8):
+        if len(xs) < 3:
+            break
+        gap = ((xs[0] - xs[-1]) ** 2 + (ys[0] - ys[-1]) ** 2) ** 0.5
+        total = _path_length(xs, ys)
+        last_step = ((xs[-1] - xs[-2]) ** 2 + (ys[-1] - ys[-2]) ** 2) ** 0.5
+        if total > 0 and last_step > max(28.0, 0.045 * total) and gap > 12:
+            xs.pop()
+            ys.pop()
+            continue
+        break
+    if not xs:
+        return xs, ys
+    gap = ((xs[0] - xs[-1]) ** 2 + (ys[0] - ys[-1]) ** 2) ** 0.5
+    if gap < 1.2:
+        xs[-1] = xs[0]
+        ys[-1] = ys[0]
+        return xs, ys
+    xs.append(xs[0])
+    ys.append(ys[0])
+    return xs, ys
+
+
+def pit_lane_from_path(
+    xs: list[float], ys: list[float], *, stalls: int = 22, offset: float = 16.0
+) -> tuple[list[float], list[float], list[list[float]]]:
+    """Offset a short run after start/finish toward the circuit centroid."""
+    n = min(len(xs), len(ys))
+    if n < 4:
+        return [], [], []
+    cx = sum(xs[:n]) / n
+    cy = sum(ys[:n]) / n
+    count = max(6, min(n // 8 if n >= 8 else n - 1, 36))
+    pit_x: list[float] = []
+    pit_y: list[float] = []
+    for i in range(count):
+        j = min(i, n - 2)
+        tx = xs[j + 1] - xs[j]
+        ty = ys[j + 1] - ys[j]
+        nx, ny = -ty, tx
+        mag = (nx * nx + ny * ny) ** 0.5 or 1.0
+        nx, ny = nx / mag, ny / mag
+        if nx * (cx - xs[j]) + ny * (cy - ys[j]) < 0:
+            nx, ny = -nx, -ny
+        pit_x.append(round(xs[j] + nx * offset, 2))
+        pit_y.append(round(ys[j] + ny * offset, 2))
+    stall_pts: list[list[float]] = []
+    if len(pit_x) >= 2:
+        for k in range(stalls):
+            t = (k + 0.5) / stalls
+            idx = min(len(pit_x) - 2, int(t * (len(pit_x) - 1)))
+            local = (t * (len(pit_x) - 1)) - idx
+            stall_pts.append(
+                [
+                    round(pit_x[idx] + local * (pit_x[idx + 1] - pit_x[idx]), 2),
+                    round(pit_y[idx] + local * (pit_y[idx + 1] - pit_y[idx]), 2),
+                ]
+            )
+    return pit_x, pit_y, stall_pts
+
+
+def _ff1_session_candidates(session_type: str) -> list[str]:
+    u = (session_type or "R").upper()
+    if u == "SQ":
+        return ["SQ", "SS", "Q"]
+    if u in {"Q", "QUALIFYING"}:
+        return ["Q"]
+    return [u]
+
+
+def _quali_windows_from_duration(duration_s: int, sprint: bool) -> list[dict[str, Any]]:
+    blocks = [(12, 4), (10, 4), (8, 0)] if sprint else [(18, 7), (15, 8), (12, 0)]
+    labels = ("SQ1", "SQ2", "SQ3") if sprint else ("Q1", "Q2", "Q3")
+    t = 0
+    out: list[dict[str, Any]] = []
+    for i, (mins, gap) in enumerate(blocks):
+        start = t
+        end = min(duration_s, t + mins * 60)
+        if end <= start:
+            break
+        out.append({"id": labels[i], "label": labels[i], "start_s": start, "end_s": end})
+        t = end + gap * 60
+        if t >= duration_s:
+            break
+    if out:
+        out[-1]["end_s"] = max(out[-1]["end_s"], duration_s)
+    return out
+
+
+def _quali_windows_from_messages(messages: list[Any], start: datetime | None, duration_s: int, sprint: bool) -> list[dict[str, Any]]:
+    labels = ("SQ1", "SQ2", "SQ3") if sprint else ("Q1", "Q2", "Q3")
+    hits: dict[str, list[int]] = {lab: [] for lab in labels}
+    for row in messages:
+        blob = ""
+        dt = None
+        if hasattr(row, "message"):
+            blob = str(row.message or "").upper()
+            dt = _parse_maybe_dt(getattr(row, "utc_time", None))
+        elif isinstance(row, dict):
+            blob = str(row.get("message") or "").upper()
+            dt = _parse_maybe_dt(row.get("date") or row.get("utc_time"))
+        if start is None or dt is None:
+            continue
+        elapsed = int((dt - start).total_seconds())
+        if elapsed < 0 or elapsed > duration_s + 120:
+            continue
+        for lab in labels:
+            if lab in blob.replace(" ", ""):
+                hits[lab].append(elapsed)
+    windows: list[dict[str, Any]] = []
+    prev_end = 0
+    for i, lab in enumerate(labels):
+        times = sorted(hits[lab])
+        if not times:
+            continue
+        start_s = prev_end if i == 0 else max(prev_end, times[0] - 60)
+        end_s = times[-1]
+        windows.append({"id": lab, "label": lab, "start_s": max(0, start_s), "end_s": min(duration_s, max(end_s, start_s + 60))})
+        prev_end = windows[-1]["end_s"]
+    return windows if len(windows) >= 2 else _quali_windows_from_duration(duration_s, sprint)
+
+
+def _parse_maybe_dt(value: Any) -> datetime | None:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return None
+    if hasattr(value, "to_pydatetime"):
+        value = value.to_pydatetime()
+    if isinstance(value, datetime):
+        dt = value
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def build_ff1_replay_assets(
+    year: int,
+    round_number: int,
+    session_type: str,
+    bounds: CircuitMapBounds | None,
+    *,
+    date_start: datetime | None = None,
+    date_end: datetime | None = None,
+) -> dict[str, Any]:
+    """In-memory FastF1 samples for completed-session replay (no OpenF1 GPS)."""
+    empty: dict[str, Any] = {"ok": False}
+    sess = None
+    used = session_type
+    for cand in _ff1_session_candidates(session_type):
+        try:
+            sess = load_session(year, round_number, cand, telemetry=True, weather=True, messages=True)
+            used = cand
+            break
+        except Exception as extra:
+            _log.info("FastF1 replay load %s %s %s failed: %s", year, round_number, cand, extra)
+            sess = None
+    if sess is None:
+        return empty
+    code_by_num: dict[int, str] = {}
+    num_by_code: dict[str, int] = {}
+    colours: dict[int, str] = {}
+    q_times: dict[str, dict[str, int | None]] = {}
+    status_by_code: dict[str, str] = {}
+    try:
+        from backend.standings import team_colour
+
+        results = getattr(sess, "results", None)
+        if results is not None and not getattr(results, "empty", True):
+            for rec in results.itertuples(index=False):
+                code = str(getattr(rec, "Abbreviation", "") or "")
+                if not code:
+                    continue
+                num = _int(getattr(rec, "DriverNumber", None))
+                if num is not None:
+                    code_by_num[num] = code
+                    num_by_code[code] = num
+                    colours[num] = team_colour(str(getattr(rec, "TeamName", "") or "")) or ""
+                status_by_code[code] = str(getattr(rec, "Status", "") or "")
+                q_times[code] = {
+                    "q1_ms": _td_ms(getattr(rec, "Q1", None)),
+                    "q2_ms": _td_ms(getattr(rec, "Q2", None)),
+                    "q3_ms": _td_ms(getattr(rec, "Q3", None)),
+                }
+    except Exception as extra:
+        _log.info("FastF1 results parse failed: %s", extra)
+
+    laps_rows: list[dict[str, Any]] = []
+    try:
+        laps = sess.laps
+        if laps is not None and not laps.empty:
+            for rec in laps.itertuples(index=False):
+                code = str(getattr(rec, "Driver", "") or "")
+                if not code:
+                    continue
+                num = num_by_code.get(code)
+                if num is None:
+                    num = _int(getattr(rec, "DriverNumber", None))
+                    if num is not None:
+                        num_by_code[code] = num
+                        code_by_num[num] = code
+                start = _parse_maybe_dt(getattr(rec, "LapStartDate", None))
+                laps_rows.append(
+                    {
+                        "driver_number": num,
+                        "driver_code": code,
+                        "date_start": start.isoformat() if start else None,
+                        "lap_duration": None
+                        if _td_ms(getattr(rec, "LapTime", None)) is None
+                        else _td_ms(getattr(rec, "LapTime", None)) / 1000.0,
+                        "lap_number": _int(getattr(rec, "LapNumber", None)) or 0,
+                        "duration_sector_1": None
+                        if _td_ms(getattr(rec, "Sector1Time", None)) is None
+                        else _td_ms(getattr(rec, "Sector1Time", None)) / 1000.0,
+                        "duration_sector_2": None
+                        if _td_ms(getattr(rec, "Sector2Time", None)) is None
+                        else _td_ms(getattr(rec, "Sector2Time", None)) / 1000.0,
+                        "duration_sector_3": None
+                        if _td_ms(getattr(rec, "Sector3Time", None)) is None
+                        else _td_ms(getattr(rec, "Sector3Time", None)) / 1000.0,
+                        "is_pit_out_lap": pd.notna(getattr(rec, "PitOutTime", None)),
+                        "st_speed": _num(getattr(rec, "SpeedST", None)),
+                    }
+                )
+    except Exception as extra:
+        _log.info("FastF1 laps parse failed: %s", extra)
+
+    weather_rows: list[dict[str, Any]] = []
+    try:
+        series = session_weather(year, round_number, used)
+        for i, ts in enumerate(series.timestamp):
+            weather_rows.append(
+                {
+                    "date": ts,
+                    "air_temperature": series.air_temp[i] if i < len(series.air_temp) else None,
+                    "track_temperature": series.track_temp[i] if i < len(series.track_temp) else None,
+                    "humidity": series.humidity[i] if i < len(series.humidity) else None,
+                    "rainfall": series.rainfall[i] if i < len(series.rainfall) else None,
+                    "wind_speed": series.wind_speed[i] if i < len(series.wind_speed) else None,
+                    "wind_direction": series.wind_direction[i] if i < len(series.wind_direction) else None,
+                    "pressure": None,
+                }
+            )
+    except Exception as extra:
+        _log.info("FastF1 weather parse failed: %s", extra)
+
+    pos_samples: dict[str, list[tuple[float, float, float, str]]] = {}
+    pos_data = getattr(sess, "pos_data", None) or {}
+    try:
+        for drv_key, df in pos_data.items():
+            if df is None or getattr(df, "empty", True) or "X" not in df.columns:
+                continue
+            code = code_by_num.get(int(drv_key)) if str(drv_key).isdigit() else str(drv_key)
+            if not code:
+                code = str(drv_key)
+            n = len(df)
+            step = max(5, n // 2400) if n > 400 else 1
+            samples: list[tuple[float, float, float, str]] = []
+            for i in range(0, n, step):
+                rec = df.iloc[i]
+                ts = _parse_maybe_dt(rec["Date"] if "Date" in df.columns else None)
+                if ts is None:
+                    continue
+                raw_x = float(rec["X"]) if pd.notna(rec["X"]) else 0.0
+                raw_y = float(rec["Y"]) if pd.notna(rec["Y"]) else 0.0
+                if bounds is not None:
+                    px, py = _apply_bounds(raw_x, raw_y, bounds)
+                else:
+                    px, py = raw_x, raw_y
+                st = str(rec["Status"]) if "Status" in df.columns and pd.notna(rec.get("Status")) else "OnTrack"
+                samples.append((ts.timestamp(), px, py, st))
+            if samples:
+                pos_samples[code] = samples
+    except Exception as extra:
+        _log.info("FastF1 pos_data parse failed: %s", extra)
+
+    duration_s = 0
+    if date_start and date_end:
+        duration_s = max(0, int((date_end - date_start).total_seconds()))
+    sprint = used in {"SQ", "SS"} or session_type.upper() == "SQ"
+    is_quali = used in {"Q", "SQ", "SS"} or session_type.upper() in {"Q", "SQ"}
+    windows: list[dict[str, Any]] = []
+    if is_quali and duration_s:
+        try:
+            msgs = session_messages(year, round_number, used)
+            windows = _quali_windows_from_messages(list(msgs.messages), date_start, duration_s, sprint)
+        except Exception:
+            windows = _quali_windows_from_duration(duration_s, sprint)
+
+    return {
+        "ok": True,
+        "session_type": used,
+        "code_by_num": code_by_num,
+        "num_by_code": num_by_code,
+        "colours": colours,
+        "q_times": q_times,
+        "status_by_code": status_by_code,
+        "laps": laps_rows,
+        "weather": weather_rows,
+        "pos_samples": pos_samples,
+        "quali_windows": windows,
+    }
+
+
+def sample_ff1_position(
+    samples: list[tuple[float, float, float, str]], t_epoch: float
+) -> tuple[float, float, str] | None:
+    if not samples:
+        return None
+    if t_epoch + 0.25 < samples[0][0]:
+        return None
+    lo, hi = 0, len(samples) - 1
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if samples[mid][0] <= t_epoch:
+            lo = mid
+        else:
+            hi = mid - 1
+    _, x, y, st = samples[lo]
+    return x, y, st
+
+
 def circuit_map(year: int, round_number: int, *, _fallback: bool = True) -> CircuitMapResponse:
     """Track outline, corners, DRS and sector markers from FastF1."""
     empty = CircuitMapResponse(
@@ -752,9 +1106,9 @@ def circuit_map(year: int, round_number: int, *, _fallback: bool = True) -> Circ
     )
 
     def _unavailable() -> CircuitMapResponse:
-        if _fallback and year == 2026:
-            fb = circuit_map(2025, round_number, _fallback=False)
-            if fb.available:
+        if _fallback and year >= 2026:
+            fb = _circuit_map_same_track(year - 1, year, round_number)
+            if fb is not None and fb.available:
                 return fb.model_copy(update={"year": year, "round_number": round_number})
         return empty
 
@@ -790,10 +1144,12 @@ def circuit_map(year: int, round_number: int, *, _fallback: bool = True) -> Circ
         bounds, nx, ny = _bounds_and_norm(raw_x, raw_y)
         if bounds is None or len(nx) < 2:
             return _unavailable()
+        nx, ny = close_circuit_loop(nx, ny)
+        pit_x, pit_y, pit_stalls = pit_lane_from_path(nx, ny)
 
         npts = max(len(nx) - 1, 1)
         corners: list[CircuitCorner] = []
-        markers: list[CircuitMarker] = []
+        markers: list[CircuitMarker] = [CircuitMarker(kind="sf", x=nx[0], y=ny[0], label="S/F")]
         drs_segments: list[list[int]] = []
         try:
             info = sess.get_circuit_info()
@@ -875,17 +1231,44 @@ def circuit_map(year: int, round_number: int, *, _fallback: bool = True) -> Circ
             corners=corners,
             markers=markers,
             drs_segments=drs_segments,
+            pit_lane_x=pit_x,
+            pit_lane_y=pit_y,
+            pit_stalls=pit_stalls,
             bounds=bounds,
             available=True,
             fallback=False,
         )
     except Exception as extra:
         _log.warning("circuit_map failed for %s R%s: %s", year, round_number, extra)
-        if _fallback and year == 2026:
-            fb = circuit_map(2025, round_number, _fallback=False)
-            if fb.available:
+        if _fallback and year >= 2026:
+            fb = _circuit_map_same_track(year - 1, year, round_number)
+            if fb is not None and fb.available:
                 return fb.model_copy(update={"year": year, "round_number": round_number})
         return empty
+
+
+def _circuit_map_same_track(prev_year: int, year: int, round_number: int) -> CircuitMapResponse | None:
+    try:
+        from backend.calendar import get_calendar, get_round
+
+        rnd = get_round(year, round_number)
+        key = (rnd.circuit_key or "").lower()
+        name = (rnd.name or rnd.circuit_name or "").lower()
+        city = (rnd.city or "").lower()
+        prev = get_calendar(prev_year)
+        for other in prev.rounds:
+            other_key = (other.circuit_key or "").lower()
+            other_name = (other.name or other.circuit_name or "").lower()
+            other_city = (other.city or "").lower()
+            if key and other_key == key:
+                return circuit_map(prev_year, other.round_number, _fallback=False)
+            if city and other_city == city:
+                return circuit_map(prev_year, other.round_number, _fallback=False)
+            if name and (name in other_name or other_name in name):
+                return circuit_map(prev_year, other.round_number, _fallback=False)
+    except Exception as extra:
+        _log.info("same-track fallback failed: %s", extra)
+    return None
 
 
 def session_positions(
@@ -1026,6 +1409,7 @@ def circuit_preview_from_map(full: CircuitMapResponse) -> CircuitMapResponse:
     if xs[-1] != full.x[-1]:
         xs.append(full.x[-1])
         ys.append(full.y[-1])
+    xs, ys = close_circuit_loop(xs[:21], ys[:21])
     return CircuitMapResponse(
         year=full.year,
         round_number=full.round_number,

@@ -272,6 +272,104 @@ p, li, .stMarkdown {{ line-height: 1.45; }}
 """
 
 
+_V3_CSS = """
+@import url('https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;700;800;900&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+html, body, .stApp, [data-testid="stAppViewContainer"] {
+  background: #070A0E !important;
+  color: #E8ECF0 !important;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+}
+[data-testid="stHeader"], header[data-testid="stHeader"],
+#MainMenu, footer, .stDeployButton, [data-testid="stToolbar"],
+[data-testid="stDecoration"], [data-testid="stStatusWidget"] { display: none !important; }
+.block-container { padding: 0.4rem 1rem 1.2rem 1rem !important; max-width: 1400px !important; }
+[data-testid="stSidebar"] { background: #0B0E12 !important; border-right: 1px solid #1E2630; }
+[data-testid="stSidebar"] * { font-family: "IBM Plex Mono", ui-monospace, monospace !important; }
+h1, h2, h3, .aris-display {
+  font-family: "Big Shoulders Display", sans-serif !important;
+  letter-spacing: -0.02em;
+  font-weight: 800 !important;
+}
+.aris-v3-nav {
+  display: flex; align-items: center; gap: 16px;
+  padding: 8px 4px 10px 4px;
+  border-bottom: 1px solid #1E2630;
+  margin-bottom: 10px;
+}
+.aris-v3-brand {
+  font-family: "Big Shoulders Display", sans-serif;
+  font-size: 22px; font-weight: 900; letter-spacing: -0.5px; color: #E8ECF0;
+}
+.aris-v3-head {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 8px 0 10px 0; border-bottom: 1px solid #1E2630; margin-bottom: 8px;
+}
+.aris-chip {
+  display: inline-flex; align-items: center;
+  padding: 3px 8px; border-radius: 3px;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 10px; font-weight: 600; letter-spacing: 0.04em;
+  border: 1px solid #1E2630; color: #7A8796;
+}
+.aris-chip.live { background: #2A1210; color: #E05B4A; border-color: #E05B4A66; }
+.aris-chip.replay { background: #0C1E2E; color: #4FA8E0; border-color: #4FA8E060; }
+.aris-chip.green { background: #0A1F18; color: #2DD4A0; border-color: #2DD4A060; }
+.aris-chip.signal { background: #2E2510; color: #E8A33D; border-color: #E8A33D80; }
+.aris-title {
+  font-family: "Big Shoulders Display", sans-serif;
+  font-weight: 800; font-size: 18px; color: #E8ECF0;
+}
+.aris-wx {
+  display: grid; grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px; padding: 8px 0; border-bottom: 1px solid #1E2630;
+  font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 10px;
+  margin-bottom: 8px;
+}
+.aris-wx .lbl { color: #4A5560; letter-spacing: 0.08em; }
+.aris-wx .val { color: #E8ECF0; font-weight: 700; margin-top: 2px; }
+.aris-wx .val.alert { color: #E8A33D; }
+.aris-v3-tower { width: 100%; border-collapse: collapse; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 11px; }
+.aris-v3-tower th {
+  text-align: left; color: #4A5560; font-size: 9px; font-weight: 500;
+  padding: 6px 8px; border-bottom: 1px solid #1E2630;
+}
+.aris-v3-tower td { padding: 6px 8px; border-bottom: 1px solid #1E263060; color: #E8ECF0; }
+.aris-v3-tower tr.focus td { background: #2E2510; }
+.aris-v3-tower tr.alt td { background: #131820; }
+.aris-v3-tower tr.out { opacity: 0.38; }
+.aris-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; }
+.aris-dot.purple { background: #9B72F0; }
+.aris-dot.green { background: #2DD4A0; }
+.aris-dot.yellow { background: #E8A33D; }
+.aris-dot.grey, .aris-dot.none { background: #7A8796; }
+.aris-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; border-radius: 50%;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 9px; font-weight: 700;
+}
+.aris-badge.S { color: #E8002D; border: 2px solid #E8002D; }
+.aris-badge.M { color: #D4B800; border: 2px solid #D4B800; }
+.aris-badge.H { color: #C0C4CC; border: 2px solid #C0C4CC; }
+.aris-badge.I { color: #39B54A; border: 2px solid #39B54A; }
+.aris-badge.W { color: #0067FF; border: 2px solid #0067FF; }
+.aris-fl { color: #9B72F0; font-weight: 500; margin-left: 6px; }
+.aris-weekend {
+  padding: 14px; background: #0F1318; border: 1px solid #1E2630; border-radius: 6px;
+}
+.aris-weekend-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 0; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12px;
+}
+"""
+
+
+def inject_v3() -> None:
+    """React live-dashboard chrome — same tokens as frontend/src/theme.ts."""
+    st.markdown(f"<style>{_V3_CSS}</style>", unsafe_allow_html=True)
+
+
 def inject_theme(*, show_tech_toggle: bool = True) -> None:
     """Inject CSS once per run and optionally render the technical-detail toggle."""
     st.markdown(f"<style>{_CSS}</style>", unsafe_allow_html=True)

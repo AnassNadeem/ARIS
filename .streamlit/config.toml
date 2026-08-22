@@ -9,8 +9,8 @@ showSidebarNavigation = false
 
 [theme]
 base = "dark"
-primaryColor = "#E10600"
-backgroundColor = "#0B0D10"
-secondaryBackgroundColor = "#15191F"
-textColor = "#F3F4F6"
+primaryColor = "#E8A33D"
+backgroundColor = "#070A0E"
+secondaryBackgroundColor = "#0F1318"
+textColor = "#E8ECF0"
 font = "sans serif"

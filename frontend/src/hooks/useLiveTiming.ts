@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { apiGet, replaySessionKeyFromUrl, withAsOf, asOfFromUrl, apiUrl } from "../api/client";
 import { liveStatusSchema, liveTimingSchema, type LiveStatus, type LiveTiming } from "../api/types";
 
-export function useLiveTiming(active: boolean) {
+export function useLiveTiming(active: boolean, replaySessionKey?: number | null) {
   const [timing, setTiming] = useState<LiveTiming | null>(null);
   const [status, setStatus] = useState<LiveStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -14,7 +14,7 @@ export function useLiveTiming(active: boolean) {
     let cancelled = false;
     let pollTimer: number | undefined;
     const asOf = asOfFromUrl();
-    const replay = replaySessionKeyFromUrl();
+    const replay = replaySessionKey ?? replaySessionKeyFromUrl();
     const extra = replay != null ? `replay_session_key=${replay}` : "";
     const q = extra ? `?${extra}` : "";
 
@@ -38,10 +38,10 @@ export function useLiveTiming(active: boolean) {
     const startPoll = () => {
       setMode("poll");
       void poll();
-      pollTimer = window.setInterval(() => void poll(), 5_000);
+      pollTimer = window.setInterval(() => void poll(), replay != null ? 30_000 : 5_000);
     };
 
-    if (asOf) {
+    if (asOf || replay != null) {
       startPoll();
       return () => {
         cancelled = true;
@@ -76,7 +76,7 @@ export function useLiveTiming(active: boolean) {
       esRef.current?.close();
       if (pollTimer) window.clearInterval(pollTimer);
     };
-  }, [active]);
+  }, [active, replaySessionKey]);
 
   return { timing, status, error, mode };
 }

@@ -2,7 +2,13 @@ import type { CircuitMap } from "../api/types";
 import { C, T } from "../theme";
 
 export function polylinePoints(map: CircuitMap): string {
-  return map.x.map((x, i) => `${x},${map.y[i]}`).join(" ");
+  if (!map.x.length) return "";
+  const pts = map.x.map((x, i) => `${x},${map.y[i]}`);
+  const last = map.x.length - 1;
+  if (map.x[0] !== map.x[last] || map.y[0] !== map.y[last]) {
+    pts.push(`${map.x[0]},${map.y[0]}`);
+  }
+  return pts.join(" ");
 }
 
 export function CircuitOutline({
@@ -38,9 +44,30 @@ export function CircuitOutline({
     </>
   ) : (
     <>
-      <polyline points={pts} fill="none" stroke={C.borderHi} strokeWidth={14} strokeLinejoin="round" />
-      <polyline points={pts} fill="none" stroke={C.panel2} strokeWidth={8} strokeLinejoin="round" />
+      <polyline points={pts} fill="none" stroke={C.borderHi} strokeWidth={14} strokeLinejoin="round" strokeLinecap="round" />
+      <polyline points={pts} fill="none" stroke={C.panel2} strokeWidth={8} strokeLinejoin="round" strokeLinecap="round" />
       <polyline points={pts} fill="none" stroke={C.faint} strokeWidth={1} strokeDasharray="4 6" />
+      {map.pit_lane_x && map.pit_lane_x.length >= 2 && (
+        <polyline
+          points={map.pit_lane_x.map((x, i) => `${x},${map.pit_lane_y?.[i] ?? 0}`).join(" ")}
+          fill="none"
+          stroke={C.borderHi}
+          strokeWidth={7}
+          strokeLinejoin="round"
+          strokeLinecap="round"
+          opacity={0.85}
+        />
+      )}
+      {(map.markers || [])
+        .filter((m) => m.kind === "sf")
+        .map((m) => (
+          <g key="sf">
+            <line x1={m.x - 7} y1={m.y - 7} x2={m.x + 7} y2={m.y + 7} stroke={C.paper} strokeWidth={2} />
+            <text x={m.x + 8} y={m.y - 8} fill={C.mist} style={{ fontFamily: T.mono, fontSize: 8 }}>
+              S/F
+            </text>
+          </g>
+        ))}
       {showDrs &&
         (map.drs_segments || []).map((seg, i) => {
           const [a, b] = seg;

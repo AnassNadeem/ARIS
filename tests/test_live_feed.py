@@ -182,6 +182,17 @@ def test_delay_note_flags_stale_feed():
     assert "first timing" in delay_note(None, connected=True, source="SignalR")
 
 
+def test_openf1_static_bearer_from_api_key(monkeypatch):
+    from backend import http_client
+
+    monkeypatch.setenv("OPENF1_API_KEY", "Bearer paid-key-123")
+    http_client._access_token = None
+    http_client._token_expires_at = 0.0
+    token = http_client._refresh_token()
+    assert token == "paid-key-123"
+    assert http_client.openf1_headers()["Authorization"] == "Bearer paid-key-123"
+
+
 def test_build_live_race_state_from_snapshot():
     from aris.live_feed import DriverLive
 

@@ -17,7 +17,15 @@ sys.path.insert(0, str(_ROOT))
 import streamlit as st  # noqa: E402
 
 try:
-    for _key in ("ARIS_DB_URL", "OPENF1_USERNAME", "OPENF1_PASSWORD"):
+    for _key in (
+        "ARIS_DB_URL",
+        "OPENF1_USERNAME",
+        "OPENF1_PASSWORD",
+        "OPENF1_API_KEY",
+        "OPENF1_TOKEN",
+        "OPENF1_ACCESS_TOKEN",
+        "OPENF1_KEY",
+    ):
         if _key in st.secrets:
             os.environ.setdefault(_key, str(st.secrets[_key]))
 except (FileNotFoundError, KeyError):

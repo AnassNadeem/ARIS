@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { apiGet, asOfFromUrl, peekGet, withAsOf } from "../api/client";
 import {
   calendarSchema,
@@ -26,7 +26,9 @@ function liveKind(next: NextRace, live: LiveStatus): CalendarState {
 }
 
 function classify(next: NextRace, live: LiveStatus, calendar: CalendarResponse): CalendarState {
-  if (live.is_live || next.status === "LIVE") {
+  const sessionLive =
+    live.is_live || next.sessions_this_weekend.some((s) => s.status === "LIVE");
+  if (sessionLive) {
     return liveKind(next, live);
   }
 
@@ -88,6 +90,11 @@ export function useCalendarState(year: number) {
     if (bundle.status !== "ok") return undefined;
     return classify(bundle.data.next, bundle.data.live, bundle.data.calendar);
   }, [bundle]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => bundle.retry(), 20_000);
+    return () => window.clearInterval(id);
+  }, [bundle.retry]);
 
   return { ...bundle, calendarState: state, asOf };
 }

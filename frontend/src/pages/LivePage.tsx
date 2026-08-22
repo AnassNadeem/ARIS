@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiGet, apiPost } from "../api/client";
-import type { CalendarRound, Driver, DriverStandings, NextRace, RecommendResponse, StratPlan } from "../api/types";
+import type { CalendarRound, Driver, DriverStandings, NextRace, RecommendResponse, StratPlan, WeekendSession } from "../api/types";
 import { useCalendarState } from "../hooks/useCalendarState";
 import { useDrivers } from "../hooks/useDrivers";
 import { useStandings } from "../hooks/useStandings";
@@ -10,6 +10,7 @@ import { C, T } from "../theme";
 import { Chip, ErrorPanel, initials, ReasoningBar, SkeletonPanel, TyreBadge } from "../components/atoms";
 import { RaceBrief } from "../components/RaceBrief";
 import { ConsoleView } from "../views/ConsoleView";
+import { LiveSessionView } from "../views/LiveSessionView";
 import { useFlow } from "../session/FlowContext";
 import { compoundLetter } from "../theme";
 
@@ -36,14 +37,28 @@ function Countdown({ seconds }: { seconds: number }) {
 export function LivePage() {
   const flow = useFlow();
   const cal = useCalendarState(2026);
+  const [viewData, setViewData] = useState(false);
+  const [replayType, setReplayType] = useState<string | null>(null);
   const next = cal.calendarState && "next" in cal.calendarState ? cal.calendarState.next : undefined;
-  const liveStatus =
-    cal.calendarState?.type === "LIVE_RACE" ||
-    cal.calendarState?.type === "LIVE_QUALI" ||
-    cal.calendarState?.type === "LIVE_PRACTICE";
-  const isLive = liveStatus || (next?.status === "LIVE");
+  const liveKind = cal.calendarState?.type;
+  const sessionLive =
+    liveKind === "LIVE_RACE" ||
+    liveKind === "LIVE_QUALI" ||
+    liveKind === "LIVE_PRACTICE" ||
+    Boolean(next?.sessions_this_weekend.some((s) => s.status === "LIVE"));
+  const viewOnly = liveKind === "LIVE_QUALI" || liveKind === "LIVE_PRACTICE";
 
-  if (isLive && flow.config?.mode === "live") {
+  if (replayType && next) {
+    return (
+      <LiveSessionView next={next} replaySessionType={replayType} onBack={() => setReplayType(null)} />
+    );
+  }
+
+  if (viewData && sessionLive && next) {
+    return <LiveSessionView next={next} onBack={() => setViewData(false)} />;
+  }
+
+  if (sessionLive && flow.config?.mode === "live" && !viewOnly) {
     return <ConsoleView config={flow.config} onDebrief={() => undefined} />;
   }
 
@@ -61,11 +76,17 @@ export function LivePage() {
   const hoursUntil = next?.hours_until ?? 999;
   const raceWeekend = !!(next && (next.is_this_weekend || next.days_until <= 7 || hoursUntil <= 96));
 
-  if (isLive) {
-    return <LiveDriverGate next={next} onEnter={(round, driver) => flow.enterLive(round, driver)} />;
-  }
-  if (raceWeekend) {
-    return <StateB next={next!} />;
+  if ((sessionLive || raceWeekend) && next) {
+    return (
+      <LiveWeekendBoard
+        next={next}
+        sessionLive={sessionLive}
+        viewOnly={viewOnly}
+        onViewData={() => setViewData(true)}
+        onReplay={(stype) => setReplayType(stype)}
+        onEnter={(round, driver) => flow.enterLive(round, driver)}
+      />
+    );
   }
   return <StateA next={next} calendarYear={cal.calendarState && "year" in cal.calendarState ? 2026 : 2026} />;
 }
@@ -111,7 +132,7 @@ function StateA({ next }: { next?: NextRace; calendarYear: number }) {
   );
 }
 
-function StateB({ next }: { next: NextRace }) {
+function StateB({ next, embedded }: { next: NextRace; embedded?: boolean }) {
   const [driver, setDriver] = useState<string | null>(null);
   const drivers = useDrivers(2026);
   const standings = useStandings(2026);
@@ -123,18 +144,23 @@ function StateB({ next }: { next: NextRace }) {
   const session = next.next_session_name ?? "FP1";
 
   return (
-    <div style={{ flex: 1, overflow: "auto", padding: "28px 24px", maxWidth: 1100, margin: "0 auto" }}>
-      <div style={{ fontFamily: T.mono, fontSize: 12, color: C.signal, letterSpacing: "0.12em" }}>
-        {next.circuit_name.toUpperCase()} · {next.name.toUpperCase()}
-      </div>
-      <div style={{ fontFamily: T.display, fontSize: 42, fontWeight: 900, marginTop: 8 }}>
-        {session.toUpperCase()} STARTS IN <Countdown seconds={next.countdown_seconds} />
-      </div>
-      {hours > 0 && hours <= 3 && (
-        <div style={{ fontFamily: T.mono, fontSize: 12, color: C.mist, marginTop: 6 }}>
-          Session window &lt; 3 hours
-        </div>
+    <div style={embedded ? undefined : { flex: 1, overflow: "auto", padding: "28px 24px", maxWidth: 1100, margin: "0 auto" }}>
+      {!embedded && (
+        <>
+          <div style={{ fontFamily: T.mono, fontSize: 12, color: C.signal, letterSpacing: "0.12em" }}>
+            {next.circuit_name.toUpperCase()} · {next.name.toUpperCase()}
+          </div>
+          <div style={{ fontFamily: T.display, fontSize: 42, fontWeight: 800, marginTop: 8 }}>
+            {session.toUpperCase()} STARTS IN <Countdown seconds={next.countdown_seconds} />
+          </div>
+          {hours > 0 && hours <= 3 && (
+            <div style={{ fontFamily: T.mono, fontSize: 12, color: C.mist, marginTop: 6 }}>
+              Session window &lt; 3 hours
+            </div>
+          )}
+        </>
       )}
+      {!embedded && (
       <div style={{ marginTop: 20, padding: 14, background: C.panel, border: `1px solid ${C.border}`, borderRadius: 6 }}>
         {next.sessions_this_weekend.map((s) => (
           <div key={s.session_type} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0" }}>
@@ -145,6 +171,7 @@ function StateB({ next }: { next: NextRace }) {
           </div>
         ))}
       </div>
+      )}
       <div style={{ fontFamily: T.display, fontSize: 22, fontWeight: 800, margin: "28px 0 8px" }}>
         Set up your strategy for this race
       </div>
@@ -182,6 +209,116 @@ function StateB({ next }: { next: NextRace }) {
           />
         </>
       )}
+    </div>
+  );
+}
+
+function secondsUntil(iso?: string | null): number {
+  if (!iso) return 0;
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return 0;
+  return Math.max(0, Math.floor((t - Date.now()) / 1000));
+}
+
+function LiveWeekendBoard({
+  next,
+  sessionLive,
+  viewOnly,
+  onViewData,
+  onReplay,
+  onEnter,
+}: {
+  next: NextRace;
+  sessionLive: boolean;
+  viewOnly: boolean;
+  onViewData: () => void;
+  onReplay: (sessionType: string) => void;
+  onEnter: (round: CalendarRound, driver: string) => void;
+}) {
+  const liveSession = next.sessions_this_weekend.find((s) => s.status === "LIVE");
+  const nextUp = next.sessions_this_weekend.find((s) => s.status === "UPCOMING");
+  const upcoming = ["S", "Q", "R"]
+    .map((t) => next.sessions_this_weekend.find((s) => s.session_type === t && s.status === "UPCOMING"))
+    .filter((s): s is WeekendSession => Boolean(s));
+  const headline = liveSession
+    ? `${liveSession.session_name.toUpperCase()} IN PROGRESS`
+    : nextUp
+      ? `${nextUp.session_name.toUpperCase()} NEXT`
+      : "WEEKEND";
+  return (
+    <div style={{ flex: 1, overflow: "auto", padding: 24, maxWidth: 1100, margin: "0 auto" }}>
+      <Chip tone={sessionLive ? "caution" : "mist"}>{sessionLive ? "LIVE SESSION" : "RACE WEEKEND"}</Chip>
+      <div style={{ fontFamily: T.display, fontSize: 36, fontWeight: 900, margin: "12px 0" }}>
+        {next.name.toUpperCase()}
+      </div>
+      <div style={{ fontFamily: T.mono, fontSize: 12, color: C.mist, marginBottom: 16 }}>
+        {next.circuit_name.toUpperCase()} · {headline}
+        {nextUp?.datetime_utc && !liveSession ? (
+          <>
+            {" "}
+            · <Countdown seconds={secondsUntil(nextUp.datetime_utc)} />
+          </>
+        ) : null}
+      </div>
+      <div style={{ padding: 14, background: C.panel, border: `1px solid ${C.border}`, borderRadius: 6, marginBottom: 20 }}>
+        {next.sessions_this_weekend.map((s) => (
+          <div
+            key={s.session_type}
+            style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", alignItems: "center", gap: 12 }}
+          >
+            <span style={{ fontFamily: T.mono, fontSize: 12 }}>{s.session_name}</span>
+            <span style={{ fontFamily: T.mono, fontSize: 11, color: C.mist, flex: 1, textAlign: "right" }}>
+              {s.status === "UPCOMING" && s.datetime_utc ? <Countdown seconds={secondsUntil(s.datetime_utc)} /> : null}
+            </span>
+            {s.status === "COMPLETED" ? (
+              <button
+                onClick={() => onReplay(s.session_type)}
+                style={{
+                  background: "transparent",
+                  border: `1px solid ${C.border}`,
+                  color: C.paper,
+                  fontFamily: T.mono,
+                  fontSize: 10,
+                  padding: "5px 10px",
+                  cursor: "pointer",
+                }}
+              >
+                REPLAY
+              </button>
+            ) : null}
+            <Chip
+              tone={s.status === "LIVE" ? "caution" : s.status === "COMPLETED" ? "green" : "mist"}
+              size="xs"
+            >
+              {s.status}
+            </Chip>
+          </div>
+        ))}
+      </div>
+      {upcoming.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: `repeat(${upcoming.length}, minmax(0, 1fr))`, gap: 10, marginBottom: 24 }}>
+          {upcoming.map((s) => (
+            <div key={s.session_type} style={{ padding: 14, background: C.panel2, border: `1px solid ${C.border}`, borderRadius: 6 }}>
+              <div style={{ fontFamily: T.mono, fontSize: 10, color: C.faint }}>{s.session_name.toUpperCase()}</div>
+              <div style={{ fontFamily: T.display, fontSize: 22, fontWeight: 800, marginTop: 6 }}>
+                <Countdown seconds={secondsUntil(s.datetime_utc)} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {sessionLive && viewOnly ? (
+        <>
+          <p style={{ fontFamily: T.body, fontSize: 13, color: C.mist, marginBottom: 16 }}>
+            This session is view-only. ARIS strategy is for Sprint and Race.
+          </p>
+          <button onClick={onViewData} style={cta(true)}>
+            VIEW SESSION DATA →
+          </button>
+        </>
+      ) : null}
+      {sessionLive && !viewOnly ? <LiveDriverGate next={next} onEnter={onEnter} /> : null}
+      {!sessionLive ? <StateB next={next} embedded /> : null}
     </div>
   );
 }

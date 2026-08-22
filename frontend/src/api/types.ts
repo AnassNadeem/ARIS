@@ -96,6 +96,10 @@ export const liveStatusSchema = z
     session_flag: z.string().optional(),
     last_success_utc: z.string().nullable().optional(),
     replay_mode: z.boolean().optional(),
+    view_only: z.boolean().optional(),
+    aris_ready: z.boolean().optional(),
+    session_remaining_seconds: z.number().nullable().optional(),
+    source: z.string().nullable().optional(),
   })
   .passthrough();
 
@@ -120,6 +124,27 @@ export const liveTimingRowSchema = z
     drs_open: z.boolean().optional(),
     speed_trap_kph: z.number().nullable().optional(),
     team_colour: z.string().nullable().optional(),
+    eliminated: z.boolean().optional(),
+    in_pit: z.boolean().optional(),
+    fastest_lap: z.boolean().optional(),
+    reason: z.string().nullable().optional(),
+    q1_ms: z.number().nullable().optional(),
+    q2_ms: z.number().nullable().optional(),
+    q3_ms: z.number().nullable().optional(),
+  })
+  .passthrough();
+
+export const liveWeatherSchema = z
+  .object({
+    is_live: z.boolean(),
+    air_temp: z.number().nullable().optional(),
+    track_temp: z.number().nullable().optional(),
+    humidity: z.number().nullable().optional(),
+    rainfall: z.boolean().nullable().optional(),
+    wind_speed: z.number().nullable().optional(),
+    wind_direction: z.number().nullable().optional(),
+    pressure: z.number().nullable().optional(),
+    last_success_utc: z.string().nullable().optional(),
   })
   .passthrough();
 
@@ -231,6 +256,7 @@ export type DriversResponse = z.infer<typeof driversSchema>;
 export type LiveStatus = z.infer<typeof liveStatusSchema>;
 export type LiveTimingRow = z.infer<typeof liveTimingRowSchema>;
 export type LiveTiming = z.infer<typeof liveTimingSchema>;
+export type LiveWeather = z.infer<typeof liveWeatherSchema>;
 export type DriverStandings = z.infer<typeof driverStandingsSchema>;
 export type ConstructorStandings = z.infer<typeof constructorStandingsSchema>;
 export type LapsResponse = z.infer<typeof lapsSchema>;
@@ -300,6 +326,9 @@ export type CircuitMap = {
   }[];
   markers?: { kind: string; x: number; y: number; label: string }[];
   drs_segments?: number[][];
+  pit_lane_x?: number[];
+  pit_lane_y?: number[];
+  pit_stalls?: number[][];
   bounds?: { min_x: number; max_x: number; min_y: number; max_y: number } | null;
   available: boolean;
   fallback?: boolean;
@@ -316,6 +345,7 @@ export type CarPosition = {
   team_colour?: string | null;
   is_pitted?: boolean;
   is_dnf?: boolean;
+  reason?: string | null;
 };
 
 export type ChatResponse = { answer: string; cited_ids: string[]; abstained: boolean };

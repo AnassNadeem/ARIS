@@ -64,6 +64,15 @@ export const SPEED_MS: Record<(typeof SPEED_OPTIONS)[number], number> = {
   "50×": 1_800,
 };
 
+export const SPEED_FACTOR: Record<(typeof SPEED_OPTIONS)[number], number> = {
+  "1×": 1,
+  "2×": 2,
+  "5×": 5,
+  "10×": 10,
+  "25×": 25,
+  "50×": 50,
+};
+
 export function compoundColour(code: string | null | undefined): string {
   if (!code) return "#AAAAAA";
   return PIRELLI[code.toUpperCase()] ?? "#AAAAAA";

@@ -63,6 +63,7 @@ from backend.models import (  # noqa: E402
     PositionHistoryResponse,
     RecommendRequest,
     RecommendResponse,
+    ReplayFrameResponse,
     RoundSessionsResponse,
     SessionEventsResponse,
     SessionPositionsAllResponse,
@@ -156,7 +157,15 @@ async def lifespan(_app: FastAPI):
     loop = asyncio.get_running_loop()
     loop.run_in_executor(executor, _prewarm_calendars)
     loop.run_in_executor(executor, _prewarm_circuit_previews)
-    yield
+    poller = asyncio.create_task(live.poll_openf1_forever(), name="openf1-poller")
+    try:
+        yield
+    finally:
+        poller.cancel()
+        try:
+            await poller
+        except (asyncio.CancelledError, Exception):
+            pass
 
 
 app = FastAPI(title="ARIS V3 Data Broker", version="0.3.0", lifespan=lifespan)
@@ -441,7 +450,7 @@ async def api_circuit_path(year: int, round_number: int, session_type: str) -> C
 async def api_circuit_map(year: int, round_number: int) -> CircuitMapResponse:
     try:
         return await _cached_sync(
-            f"circuit_map_{year}_{round_number}",
+            f"circuit_map_v2_{year}_{round_number}",
             TTL_SESSION,
             sessions.circuit_map,
             year,
@@ -460,7 +469,7 @@ async def api_circuit_preview(year: int, round_number: int) -> CircuitMapRespons
     hit = cache.get(preview_key, TTL_SESSION)
     if hit is not None:
         return hit
-    map_key = f"circuit_map_{year}_{round_number}"
+    map_key = f"circuit_map_v2_{year}_{round_number}"
     full = cache.get(map_key, TTL_SESSION)
     if full is not None:
         preview = sessions.circuit_preview_from_map(full)
@@ -667,6 +676,32 @@ async def api_compare(
     )
 
 
+@app.get("/api/live/session-key")
+async def api_live_session_key(year: int, round_number: int, session_type: str) -> dict[str, object]:
+    sess = await live.resolve_openf1_session(year, round_number, session_type)
+    if sess is None or sess.get("session_key") is None:
+        raise HTTPException(404, f"No OpenF1 session for {year} R{round_number} {session_type}")
+    return {
+        "session_key": int(sess["session_key"]),
+        "year": year,
+        "round_number": round_number,
+        "session_type": session_type,
+        "date_start": sess.get("date_start"),
+        "date_end": sess.get("date_end"),
+        "session_name": sess.get("session_name"),
+    }
+
+
+@app.get("/api/live/replay-frame", response_model=ReplayFrameResponse)
+async def api_live_replay_frame(
+    session_key: int,
+    as_of: datetime = Query(..., description="Replay clock (ISO-8601 UTC)"),
+    year: int | None = None,
+    round_number: int | None = None,
+) -> ReplayFrameResponse:
+    return await live.replay_frame(session_key, as_of, year=year, round_number=round_number)
+
+
 @app.get("/api/live/status", response_model=LiveStatus)
 async def api_live_status(as_of: AsOf, replay_session_key: int | None = None) -> LiveStatus:
     try:
@@ -700,7 +735,7 @@ async def api_live_positions(as_of: AsOf, replay_session_key: int | None = None)
             f"live_positions_{_as_of_key(as_of)}_{replay_session_key}",
             TTL_LIVE,
             lambda: live.live_positions(
-                as_of, replay_session_key=replay_session_key, simulated=as_of is not None
+                as_of, replay_session_key=replay_session_key, simulated=as_of is not None and replay_session_key is None
             ),
         )
     except Exception:

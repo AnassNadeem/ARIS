@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { apiGet, asOfFromUrl, withAsOf } from "../api/client";
 import type { CarPosition } from "../api/types";
 
-export function useLivePositions(active: boolean) {
+export function useLivePositions(active: boolean, replaySessionKey?: number | null) {
   const [positions, setPositions] = useState<CarPosition[]>([]);
   const [circuitPath, setCircuitPath] = useState<{ x: number[]; y: number[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -14,10 +14,11 @@ export function useLivePositions(active: boolean) {
     const asOf = asOfFromUrl();
     const poll = async () => {
       try {
+        const extra = replaySessionKey != null ? `?replay_session_key=${replaySessionKey}` : "";
         const data = await apiGet<{
           positions: CarPosition[];
           circuit_path?: { x: number[]; y: number[] } | null;
-        }>(withAsOf("/api/live/positions", asOf), {
+        }>(withAsOf(`/api/live/positions${extra}`, asOf), {
           timeout: 30_000,
           cache: false,
         });
@@ -43,11 +44,11 @@ export function useLivePositions(active: boolean) {
       }
     };
     void poll();
-    const id = window.setInterval(() => void poll(), 2000);
+    const id = window.setInterval(() => void poll(), replaySessionKey != null ? 8_000 : 2_000);
     return () => {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [active]);
+  }, [active, replaySessionKey]);
   return { positions, circuitPath, error };
 }

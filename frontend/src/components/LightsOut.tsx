@@ -1,13 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { C, T } from "../theme";
 
 const LIGHT_MS = 420;
 const HOLD_MS = 700;
 
 /** F1 gantry: five reds in sequence, then lights out. Sits just above the track. */
-export function LightsOut({ play }: { play: boolean }) {
+export function LightsOut({ play, onComplete }: { play: boolean; onComplete?: () => void }) {
   const [lit, setLit] = useState(0);
   const [phase, setPhase] = useState<"idle" | "seq" | "out">(play ? "idle" : "out");
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
 
   useEffect(() => {
     if (!play) {
@@ -25,6 +27,7 @@ export function LightsOut({ play }: { play: boolean }) {
       window.setTimeout(() => {
         setLit(0);
         setPhase("out");
+        onCompleteRef.current?.();
       }, 5 * LIGHT_MS + HOLD_MS),
     );
     return () => timers.forEach((id) => window.clearTimeout(id));
