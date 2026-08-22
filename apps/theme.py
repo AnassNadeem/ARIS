@@ -233,6 +233,36 @@ p, li, .stMarkdown {{ line-height: 1.45; }}
   margin-top: 0.55rem;
 }}
 
+.aris-live-badge {{
+  display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 0.2rem 0.5rem;
+  border-radius: 3px;
+  margin-right: 0.45rem;
+}}
+.aris-live-badge.live {{ background: {COLOR_ACCENT}; color: #fff; }}
+.aris-live-badge.replay {{ background: #2563eb; color: #fff; }}
+.aris-live-badge.wait {{ background: {COLOR_SURFACE_2}; color: {COLOR_MUTED}; }}
+.aris-tyre {{
+  display: inline-block;
+  min-width: 1.15rem;
+  text-align: center;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 0 5px;
+}}
+.aris-tyre.S {{ background: #E10600; color: #fff; }}
+.aris-tyre.M {{ background: #F5C518; color: #111; }}
+.aris-tyre.H {{ background: #F3F4F6; color: #111; }}
+.aris-tyre.I {{ background: #22C55E; color: #052e16; }}
+.aris-tyre.W {{ background: #2563eb; color: #fff; }}
+.aris-posup {{ color: {COLOR_OK}; }}
+.aris-posdn {{ color: {COLOR_ACCENT}; }}
+.aris-fl {{ color: {SECTOR_PURPLE}; font-weight: 700; }}
+
 @media (max-width: 768px) {{
   .aris-stat-row {{ grid-template-columns: 1fr; }}
   .aris-hero {{ padding: 1rem; }}

@@ -63,6 +63,14 @@ st.caption(
     "still ~10–26 s slow on many circuits; residual + blend is what you see above."
 )
 
+st.markdown("**Live**")
+st.write(
+    "Official live feed (SignalR + OpenF1) starts itself — GPS, tower, sectors, "
+    "tyres, throttle/brake, and ARIS. After the feed drops it becomes a FastF1 "
+    "replay at 2×–50×. No Play click on a live session."
+)
+st.page_link("pages/03_Live.py", label="Open the live dashboard", icon="🔴")
+
 left, right = st.columns(2)
 with left:
     st.markdown("**Strategy**")

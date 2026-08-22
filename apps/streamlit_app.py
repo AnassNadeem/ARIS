@@ -17,14 +17,22 @@ sys.path.insert(0, str(_ROOT))
 import streamlit as st  # noqa: E402
 
 try:
-    if "ARIS_DB_URL" in st.secrets:
-        os.environ.setdefault("ARIS_DB_URL", st.secrets["ARIS_DB_URL"])
+    for _key in ("ARIS_DB_URL", "OPENF1_USERNAME", "OPENF1_PASSWORD"):
+        if _key in st.secrets:
+            os.environ.setdefault(_key, str(st.secrets[_key]))
 except (FileNotFoundError, KeyError):
     pass
 
 st.set_page_config(page_title="ARIS", page_icon="🏁", layout="wide")
 
-home = st.Page("pages/00_Home.py", title="Home", icon="🏁", default=True)
+live = st.Page(
+    "pages/03_Live.py",
+    title="Live",
+    icon="🔴",
+    url_path="Live",
+    default=True,
+)
+home = st.Page("pages/00_Home.py", title="Home", icon="🏁")
 strategy = st.Page(
     "pages/01_Strategy.py",
     title="Strategy",
@@ -40,9 +48,10 @@ explorer = st.Page(
 
 # Explicit links — client.showSidebarNavigation is off so pages/ is not auto-listed.
 with st.sidebar:
+    st.page_link(live, label="Live", icon="🔴")
     st.page_link(home, label="Home", icon="🏁")
     st.page_link(strategy, label="Strategy", icon="📡")
     st.page_link(explorer, label="Lap explorer", icon="📈")
 
-pg = st.navigation([home, strategy, explorer])
+pg = st.navigation([live, home, strategy, explorer])
 pg.run()
