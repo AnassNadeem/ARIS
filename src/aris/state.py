@@ -121,6 +121,7 @@ class RaceState(BaseModel):
     # session_weather.rainfall (any-sample) stays on weather_rainfall for
     # walk-forward exclusion; it is not a live rain signal.
     rainfall: bool = False
+    stint_number: int = 1
 
     def with_overrides(self, overrides: RaceStateOverrides) -> RaceState:
         data = self.model_dump()
@@ -263,6 +264,7 @@ def build_race_state(
         _log.warning("no prior laps for driver=%s lap=%s — lags will be null", driver_id, requested)
     compound = str(lap.get("compound") or "MEDIUM")
     tyre_life = int(lap.get("tyre_life") or 1)
+    stint_number = int(lap["stint"]) if pd.notna(lap.get("stint")) else 1
     fuel = estimate_fuel_kg(requested, total_laps=total_laps)
     lag1, lag2, roll3 = _pace_lags(laps, requested)
     weather = db.fetch_session_weather(session_id) or {}
@@ -308,6 +310,7 @@ def build_race_state(
         weather_rainfall=bool(weather["rainfall"]) if weather.get("rainfall") is not None else None,
         rainfall_mm_per_lap=None,
         rainfall=_lap_rainfall(session_id, laps, lap, requested),
+        stint_number=stint_number,
     )
     if overrides:
         state = state.with_overrides(overrides)

@@ -31,6 +31,14 @@ data/processed/*
 models/*
 !models/.gitkeep
 !models/circuit_deg_slopes.json
+# CQL artefacts — regenerable, allowed to stay untracked.
+# Do not commit cql_q_network_test.pt or the test normalisation/dataset.
+models/cql_q_network.pt
+models/cql_q_network_test.pt
+models/cql_normalisation.json
+models/cql_normalisation_test.json
+data/cql_dataset.parquet
+data/cql_dataset_test.parquet
 results/*
 !results/.gitkeep
 !results/wk2-baseline-mae.csv
@@ -51,6 +59,8 @@ data/ask/index/*
 .env.*
 !.env.example
 !.env.cloud.example
+!.env.development
+!.env.production
 .dev.vars
 *.key
 

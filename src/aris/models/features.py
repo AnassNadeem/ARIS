@@ -98,12 +98,12 @@ def feature_matrix(frame: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, np.ndar
 
 
 def build_from_fastf1(year: int, gp: str) -> pd.DataFrame:
-    import fastf1
-
+    from aris.io.fastf1_session import load_race_session
     from aris.tracks import _match_track_file
 
-    session = fastf1.get_session(year, gp, "R")
-    session.load(laps=True, telemetry=False, weather=False, messages=False)
+    session = load_race_session(
+        year, gp, laps=True, telemetry=False, weather=False, messages=False
+    )
     event_name = str(session.event.EventName)
     location = str(session.event.Location)
     country = str(session.event.Country)
