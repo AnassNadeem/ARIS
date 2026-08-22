@@ -180,6 +180,23 @@ ARIS/
 
 ---
 
+## First-time setup (after cloning)
+
+```powershell
+# Build the residual predictor
+python scripts/train_residual.py `
+    --years 2018 2019 2020 2021 2022 2023
+# Build the CQL training dataset
+python scripts/build_cql_dataset.py `
+    --years 2018 2019 2020 2021 2022 2023
+# Train the CQL Q-network
+python scripts/train_cql.py --dataset data/cql_dataset.parquet
+```
+
+CQL scoring is opt-in (`recommend(..., scoring="cql"|"blend")`) until it
+beats the dry 87-event physics walk. Default `recommend()` scoring stays
+`physics`. Torch is an optional extra: `uv sync --extra cql`.
+
 ## Getting started
 
 The fastest way to see ARIS is the [live dashboard](https://aris-f1.streamlit.app) —

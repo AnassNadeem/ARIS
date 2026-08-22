@@ -470,7 +470,10 @@ def tune_hyperparams(
     return best_config, screen_rows + final_rows
 
 
-def load_training_frames(cache_dir: Path | None = None) -> pd.DataFrame:
+def load_training_frames(
+    cache_dir: Path | None = None,
+    years: list[int] | None = None,
+) -> pd.DataFrame:
     """Build and concatenate feature frames for all reference races."""
     import time
 
@@ -482,8 +485,14 @@ def load_training_frames(cache_dir: Path | None = None) -> pd.DataFrame:
     fastf1.Cache.enable_cache(str(root))
     frames: list[pd.DataFrame] = []
     failed: list[str] = []
-    n = len(REFERENCE_RACES)
-    for i, (year, gp) in enumerate(REFERENCE_RACES, start=1):
+    races = list(REFERENCE_RACES)
+    if years:
+        wanted = {int(y) for y in years}
+        races = [(y, gp) for y, gp in REFERENCE_RACES if y in wanted]
+        if not races:
+            raise RuntimeError(f"no REFERENCE_RACES in years {sorted(wanted)}")
+    n = len(races)
+    for i, (year, gp) in enumerate(races, start=1):
         label = f"{year} {gp}"
         attempts = 0
         while True:
@@ -522,9 +531,12 @@ def load_training_frames(cache_dir: Path | None = None) -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True)
 
 
-def train_residual_model(path: Path | None = None) -> tuple[ResidualModel, dict[str, float]]:
+def train_residual_model(
+    path: Path | None = None,
+    years: list[int] | None = None,
+) -> tuple[ResidualModel, dict[str, float]]:
     """End-to-end train + save; returns model and CV metrics."""
-    frame = load_training_frames()
+    frame = load_training_frames(years=years)
     model = ResidualModel()
     metrics = model.fit(frame)
     model.save(path)
