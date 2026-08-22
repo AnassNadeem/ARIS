@@ -51,7 +51,12 @@ data/ask/index/*
 .env.*
 !.env.example
 !.env.cloud.example
+.dev.vars
 *.key
+
+# Cloudflare / Node (repo-root wrangler)
+node_modules/
+worker-configuration.d.ts
 
 # OS / IDE
 .DS_Store

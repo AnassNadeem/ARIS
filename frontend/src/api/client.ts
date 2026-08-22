@@ -36,7 +36,7 @@ async function parseOrThrow<T>(res: Response, path: string, schema?: ZodType<T>)
   return data as T;
 }
 
-export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8765";
+export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
 
 let inFlight = 0;
 const trafficListeners = new Set<() => void>();

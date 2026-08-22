@@ -1,0 +1,15 @@
+{
+  "name": "aris",
+  "private": true,
+  "scripts": {
+    "build:ui": "npm --prefix frontend ci && npm --prefix frontend run build",
+    "deploy": "npm run build:ui && wrangler deploy",
+    "deploy:container": "npm run build:ui && wrangler deploy --config wrangler.containers.jsonc",
+    "types": "wrangler types"
+  },
+  "devDependencies": {
+    "@cloudflare/containers": "latest",
+    "@cloudflare/workers-types": "latest",
+    "wrangler": "^4.125.0"
+  }
+}

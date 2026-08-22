@@ -225,6 +225,11 @@ def root() -> dict[str, object]:
     return {"status": "ok", "service": "ARIS backend", "port": 8765}
 
 
+@app.get("/health")
+def health_probe() -> dict[str, bool]:
+    return {"ok": True}
+
+
 @app.get("/api/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     return HealthResponse(ok=True)
