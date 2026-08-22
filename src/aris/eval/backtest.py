@@ -112,6 +112,8 @@ class DecisionScore:
     state_rainfall: bool = False
     state_weather_rainfall: bool | None = None
     state_tyre_life: int = 0
+    team_action_class: str = "STAY_OUT"
+    physics_classification: str | None = None
 
 
 @dataclass
@@ -296,6 +298,34 @@ def _is_wet(compound: str) -> bool:
     if token in DRY_COMPOUNDS:
         return False
     return "INTER" in token or token == "WET"
+
+
+def team_action_class(inflection: Inflection) -> str:
+    if not (inflection.team_pitted or inflection.kind == "pit"):
+        return "STAY_OUT"
+    token = _norm_compound(inflection.compound)
+    if token == "SOFT":
+        return "PIT_S"
+    if token == "MEDIUM":
+        return "PIT_M"
+    if token == "HARD":
+        return "PIT_H"
+    return "PIT_OTHER"
+
+
+def action_class_breakdown(scores: list[DecisionScore]) -> dict[str, dict[str, int]]:
+    """Per-class physics vs current-mode match counts on scored inflections."""
+    classes = ("STAY_OUT", "PIT_S", "PIT_M", "PIT_H", "PIT_OTHER")
+    out = {k: {"n": 0, "physics": 0, "current": 0} for k in classes}
+    scored = [s for s in scores if s.classification != "divergence_insufficient_info"]
+    for s in scored:
+        key = s.team_action_class if s.team_action_class in out else "PIT_OTHER"
+        out[key]["n"] += 1
+        if (s.physics_classification or s.classification) == "match":
+            out[key]["physics"] += 1
+        if s.classification == "match":
+            out[key]["current"] += 1
+    return out
 
 
 def extract_inflections(laps: pd.DataFrame) -> list[Inflection]:
@@ -722,16 +752,29 @@ def _recommend_at_lap(
     cached: dict[int, Recommendation],
     *,
     mc_draws: int,
+    scoring: str = "physics",
+    cql_weight: float = 0.5,
+    field=None,
+    use_cache: bool = True,
 ) -> Recommendation | None:
-    if lap in cached:
+    mode = (scoring or "physics").strip().lower()
+    if use_cache and mode == "physics" and lap in cached:
         return cached[lap]
     try:
         state = session.build_state(lap)
     except ValueError:
         return None
-    result = recommend(state, top_k=3, mc_draws=mc_draws, field=session.field_state)
+    use_field = field if field is not None else session.field_state
+    result = recommend(
+        state,
+        top_k=3,
+        mc_draws=mc_draws,
+        field=use_field,
+        scoring=mode,
+        cql_weight=cql_weight,
+    )
     top = result.recommendations[0] if result.recommendations else None
-    if top is not None:
+    if top is not None and use_cache and mode == "physics":
         cached[lap] = top
     return top
 
@@ -791,6 +834,8 @@ def score_race(
     include_wet: bool = False,
     undercut_events_only: bool = False,
     overcut_events_only: bool = False,
+    scoring: str = "physics",
+    cql_weight: float = 0.5,
 ) -> RaceBacktest:
     session_id = int(meta["session_id"])
     gp = str(meta["gp"])
@@ -834,13 +879,14 @@ def score_race(
 
     all_laps = db.fetch_all_laps(session_id)
     targeted = undercut_events_only or overcut_events_only
-    # Targeted subsets score inflections, not the sector-clock propose log.
-    # Skip the clock so we can reconstruct FieldState at each inflection
-    # (end-of-walk field would give the wrong gap_ahead).
-    if targeted:
-        ticks, recs_by_lap = 0, {}
-    else:
+    scoring_mode = (scoring or "physics").strip().lower()
+    use_propose_cache = scoring_mode == "physics" and not targeted
+    # Targeted subsets and CQL/blend must not use DecisionQueue.propose()
+    # cache. Rebuild FieldState at the inflection lap so numbers compare.
+    if use_propose_cache:
         ticks, recs_by_lap = walk_race_triggers(session, all_laps, mc_draws=mc_draws)
+    else:
+        ticks, recs_by_lap = 0, {}
 
     focus_laps = db.fetch_laps(session_id, driver_id)
     inflections = extract_inflections(focus_laps)
@@ -850,7 +896,7 @@ def score_race(
 
     decisions: list[DecisionScore] = []
     for inf in inflections:
-        if targeted:
+        if targeted or scoring_mode != "physics":
             session.field_state = _field_at_lap(all_laps, session, inf.lap)
         try:
             state = session.build_state(inf.lap)
@@ -862,13 +908,44 @@ def score_race(
             state, inf, all_laps, driver_id
         ):
             continue
-        if targeted:
-            rec = _recommend_at_lap(session, inf.lap, {}, mc_draws=mc_draws)
+        if scoring_mode == "physics":
+            rec = _recommend_at_lap(
+                session,
+                inf.lap,
+                {} if targeted else recs_by_lap,
+                mc_draws=mc_draws,
+                scoring="physics",
+                use_cache=not targeted,
+            )
+            phys_klass = None
         else:
-            rec = _recommend_at_lap(session, inf.lap, recs_by_lap, mc_draws=mc_draws)
+            rec = _recommend_at_lap(
+                session,
+                inf.lap,
+                {},
+                mc_draws=0,
+                scoring=scoring_mode,
+                cql_weight=cql_weight,
+                field=session.field_state,
+                use_cache=False,
+            )
+            phys_rec = _recommend_at_lap(
+                session,
+                inf.lap,
+                {},
+                mc_draws=mc_draws,
+                scoring="physics",
+                field=session.field_state,
+                use_cache=False,
+            )
+            phys_klass, _, _ = classify_decision(
+                phys_rec, inf, state, rainfall=rainfall, include_wet=include_wet
+            )
         klass, team_s, aris_s = classify_decision(
             rec, inf, state, rainfall=rainfall, include_wet=include_wet
         )
+        if scoring_mode == "physics":
+            phys_klass = klass
         stay_match = (not inf.team_pitted) and inf.kind != "pit"
         ly = last_year_matches_pit(last_pits, inf.lap) if inf.kind == "pit" else None
         decisions.append(
@@ -888,6 +965,8 @@ def score_race(
                 state_rainfall=bool(state.rainfall),
                 state_weather_rainfall=state.weather_rainfall,
                 state_tyre_life=int(state.tyre_life or 0),
+                team_action_class=team_action_class(inf),
+                physics_classification=phys_klass,
             )
         )
 

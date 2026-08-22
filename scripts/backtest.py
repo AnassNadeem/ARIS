@@ -21,6 +21,7 @@ sys.path.insert(0, str(_ROOT))
 
 from aris.eval.backtest import (  # noqa: E402
     OutcomeScore,
+    action_class_breakdown,
     dataclass_to_jsonable,
     last_year_baseline_rate,
     match_rate,
@@ -94,6 +95,18 @@ def main() -> int:
         help="Score INTER/WET inflections (default off; dry 87 stays locked)",
     )
     parser.add_argument(
+        "--scoring",
+        default="physics",
+        choices=["physics", "cql", "blend"],
+        help="recommend() scoring mode (default physics; CQL bypasses propose cache)",
+    )
+    parser.add_argument(
+        "--cql-weight",
+        type=float,
+        default=0.5,
+        help="Blend weight on cql_q_delta when --scoring blend",
+    )
+    parser.add_argument(
         "--per-inflection-output",
         action="store_true",
         help="Print every scored inflection (state compound/rain, team action, ARIS, class)",
@@ -137,6 +150,8 @@ def main() -> int:
             undercut_events_only=args.undercut_events_only,
             overcut_events_only=args.overcut_events_only,
             per_inflection_output=args.per_inflection_output,
+            scoring=args.scoring,
+            cql_weight=args.cql_weight,
         )
         if rc:
             return rc
@@ -155,6 +170,8 @@ def walk_year(
     undercut_events_only: bool = False,
     overcut_events_only: bool = False,
     per_inflection_output: bool = False,
+    scoring: str = "physics",
+    cql_weight: float = 0.5,
 ) -> int:
     calendar = resolve_calendar(year)
     if limit > 0:
@@ -175,6 +192,7 @@ def walk_year(
     print(
         f"=== Walk-forward backtest {year}: {len(calendar)} races, "
         f"mc_draws={mc_draws} include_wet={include_wet} "
+        f"scoring={scoring} cql_weight={cql_weight} "
         f"event_filter={event_filter} ===",
         flush=True,
     )
@@ -195,6 +213,8 @@ def walk_year(
             include_wet=include_wet,
             undercut_events_only=undercut_events_only,
             overcut_events_only=overcut_events_only,
+            scoring=scoring,
+            cql_weight=cql_weight,
         )
         elapsed = time.perf_counter() - started
         races.append(result)
@@ -249,6 +269,8 @@ def walk_year(
         "year": year,
         "n_races": len(races),
         "include_wet": include_wet,
+        "scoring": scoring,
+        "cql_weight": cql_weight,
         "event_filter": event_filter,
         "undercut_events_only": undercut_events_only,
         "overcut_events_only": overcut_events_only,
@@ -365,6 +387,22 @@ def walk_year(
         flush=True,
     )
     print(f"wrote {summary_path} and {full_path}", flush=True)
+    breakdown = action_class_breakdown(all_decisions)
+    print("\n=== Per-action breakdown ===", flush=True)
+    print(f"scoring={scoring} cql_weight={cql_weight}", flush=True)
+    for cls_name, row in breakdown.items():
+        n = row["n"]
+        if n == 0:
+            print(f"  {cls_name}: n=0", flush=True)
+            continue
+        print(
+            f"  {cls_name}: Physics correct {row['physics']}/{n}  "
+            f"{'CQL' if scoring != 'physics' else 'current'} correct "
+            f"{row['current']}/{n}",
+            flush=True,
+        )
+    summary["action_class_breakdown"] = breakdown
+    summary_path.write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")
     return 0
 
 

@@ -1,11 +1,13 @@
 # Model status — where ARIS actually stands
 
 Interview-ready account of the predictive / decision core as of
-Tier 3 (2026-08-21). This page supersedes scattered phase docs as the
+Tier 4 (2026-08-23). This page supersedes scattered phase docs as the
 one place to point someone asking **how good is this, really**. Those
 phase docs remain the evidence trail. Public-facing numbers in
 `README.md` match this page. A wet INTER heuristic exists and is
 labelled uncalibrated; the dry 87-event slice is still the headline.
+CQL ranking exists as **opt-in research**; default `recommend()`
+scoring remains **physics**.
 
 Every number is aimed vs actual. Overlay env
 `ARIS_TRUE_COMPOUND_SLOPES` is **unset**. G1.5 slopes stay the tyre
@@ -36,6 +38,7 @@ sensor. The Zandvoort demo identity is unchanged.
 | Tyre slopes from lap time | physical C1<…<C5 | G2/G3/G4 miss; T2-A identity **moved** | **G1.5 locked**; `ARIS_USE_CIRCUIT_DEG` stays off |
 | Wet / rain-affected races | a wet strategy | heuristic only — **not calibrated**; dry 87 still **0.345**; combined **0.345 (38/110)** (0.340 gate **PASSED**); 2025 wet **19/61 tied with stay-out** (accepted limitation) | INTER tagged `wet_heuristic`; rain from FastF1 `weather_data['Rainfall']`, not SC `4`; already-on-INTER also uses session rain as fallback |
 | Zandvoort recommend identity | Pit 33 HARD / Pit 30 HARD / Stay out | same on the **default** path | demo path **untouched** unless T2-A is forced on |
+| CQL / blend vs physics (dry 87) | blend **> 30/87** to become default | CQL **6/87**; best blend **30/87 @ w=0.2** (tie) | **gate failed**; default stays `physics` |
 
 ---
 
@@ -555,13 +558,48 @@ for that policy to consume. It is not a live ranking win.
 | Lights-out all 48 | ≤ −1.70 | **−1.73** | **YES** |
 | Zandvoort identity | PASS | PASS | **YES** |
 | All tests | 0 failures | `tests/` pass; ingest integration skipped (FastF1 schedule APIs down) | **YES** |
-| **Overall** | all of the above | — | **READY FOR T4** |
+| **Overall** | all of the above | — | **READY FOR T4** (executed; see T4 CQL below) |
+
+---
+
+## T4 CQL (2026-08-23)
+
+Conservative Q-learning over 2018–2023 P1–P10 dry transitions.
+Evidence trail: [`docs/PHASE-T4-CQL-SUMMARY.md`](./PHASE-T4-CQL-SUMMARY.md).
+
+| Item | Value |
+|---|---|
+| CQL match-rate | **6/87** (mode `scoring="cql"`) |
+| Blend at optimal weight | **30/87 @ w=0.2** (α=1.0); also 30/87 at α=0.5 w=0.2/0.5 and α=2.0 w=0.2/0.4 |
+| Gate | **failed** — need **> 30/87** to ship blend as default |
+| Default scoring going forward | **`physics`** — CQL/blend remain opt-in |
+| Training | 2018–2023, P1–P10 classified, no wet/red laps, no lap 1 / last lap / out-laps |
+| Dataset N | **62,711** (honest; STAY_OUT 97.22%; not padded) |
+| Architecture | 2-layer MLP 128–128, dropout 0.1, CQL **α=1.0** (α=0.5 / 2.0 retried; no beat) |
+| Reward | `finish_pos` (1–10), γ=0.95, Monte Carlo return `G_t`; MSE; no bootstrap |
+| State | 18 features; train-set z-score on continuous indices; `models/cql_normalisation.json` |
+
+**Per-action breakdown (dry 87, α=1.0):**
+
+| Action class | n | Physics correct | CQL correct |
+|---|---|---|---|
+| STAY_OUT | 24 | 7/24 | 0/24 |
+| PIT_S | 7 | 0/7 | 0/7 |
+| PIT_M | 14 | 0/14 | 1/14 |
+| PIT_H | 42 | 23/42 | 5/42 |
+| PIT_OTHER | 0 | — | — |
+| **Total** | **87** | **30/87** | **6/87** |
+
+CQL prefers pit whenever a pit card exists (`cql_q_delta` vs stay-out
+is negative). That deletes stay-out matches and most physics HARD-pit
+timing hits. Low blend weight collapses to physics; high weight
+inherits the pit bias. α does not teach *when* to box.
 
 ---
 
 ## Research window
 
-T3 field work landed on the Dutch GP weekend. T2-A stays flagged.
+T4 CQL landed as opt-in research; the ship gate failed. T2-A stays flagged.
 Cornering-load (R1.4) remains queued — see
 [`docs/PHASE-R1-CORNERING-LOAD-SUMMARY.md`](./PHASE-R1-CORNERING-LOAD-SUMMARY.md)
 and
@@ -588,6 +626,9 @@ G1.5 stays the tyre prior.
 - That 2025 wet beats always-stay-out. It is **tied** at 19/61.
 - That field undercut or overcut is a shipped ranking improvement.
   Both scored **0 pp** on their targeted subsets; the arcs are closed.
+- That CQL or a physics/CQL blend is a better mid-race ranker than
+  physics. CQL is **6/87**. Best blend **ties** 30/87. Default stays
+  physics.
 
 Further reading: `docs/tyre-degradation-research.md`,
 `docs/physics-calibration-research.md`, `docs/how-recommend-works.md`,
@@ -595,5 +636,6 @@ Further reading: `docs/tyre-degradation-research.md`,
 `docs/PHASE-R2-POSITION-DELTA-SUMMARY.md`, `docs/PHASE-R21-SUMMARY.md`,
 `docs/PHASE-R22-SUMMARY.md`, `docs/PHASE-T3-SUMMARY.md`,
 `docs/PHASE-T3-CONSOLIDATION-SUMMARY.md`,
-`docs/PHASE-T3-PATCH-SUMMARY.md`. Current numbers live in the
-T3-patch section above.
+`docs/PHASE-T3-PATCH-SUMMARY.md`,
+`docs/PHASE-T4-CQL-SUMMARY.md`. Current numbers live in the
+T4 CQL section above.
