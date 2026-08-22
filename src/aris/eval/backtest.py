@@ -108,6 +108,10 @@ class DecisionScore:
     aris_sim_s: float | None = None
     stay_out_match: bool = False
     last_year_match: bool | None = None
+    state_compound: str = ""
+    state_rainfall: bool = False
+    state_weather_rainfall: bool | None = None
+    state_tyre_life: int = 0
 
 
 @dataclass
@@ -880,6 +884,10 @@ def score_race(
                 aris_sim_s=aris_s,
                 stay_out_match=stay_match,
                 last_year_match=ly,
+                state_compound=str(state.compound or ""),
+                state_rainfall=bool(state.rainfall),
+                state_weather_rainfall=state.weather_rainfall,
+                state_tyre_life=int(state.tyre_life or 0),
             )
         )
 

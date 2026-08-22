@@ -32,6 +32,27 @@ from aris.eval.backtest import (  # noqa: E402
 )
 
 _OUT_DIR = _ROOT / "results" / "backtest"
+_DRY = frozenset({"SOFT", "MEDIUM", "HARD", "C1", "C2", "C3", "C4", "C5"})
+_WET = frozenset({"INTERMEDIATE", "INTER", "WET"})
+
+
+def _format_inflection_line(d) -> str:
+    inf = d.inflection
+    team_c = str(inf.compound or "-").upper()
+    state_c = (d.state_compound or "-").upper()
+    team_slick = team_c in _DRY or any(token in team_c for token in ("SOFT", "MEDIUM", "HARD"))
+    on_wet = state_c in _WET or "INTER" in state_c
+    miss = d.classification not in {"match", "divergence_insufficient_info"}
+    drying = miss and on_wet and bool(d.state_rainfall) and bool(inf.team_pitted) and team_slick
+    tag = " DRYING_CANDIDATE" if drying else ""
+    return (
+        f"INFLECTION year={d.year} gp={d.gp} driver={d.driver_code} "
+        f"lap={inf.lap} kind={inf.kind} team_pitted={inf.team_pitted} "
+        f"team_compound={team_c} state_compound={state_c} "
+        f"state_tyre_life={d.state_tyre_life} rainfall={d.state_rainfall} "
+        f"weather_rainfall={d.state_weather_rainfall} "
+        f"aris={d.aris_label!r} class={d.classification}{tag}"
+    )
 
 
 def main() -> int:
@@ -72,6 +93,11 @@ def main() -> int:
         action="store_true",
         help="Score INTER/WET inflections (default off; dry 87 stays locked)",
     )
+    parser.add_argument(
+        "--per-inflection-output",
+        action="store_true",
+        help="Print every scored inflection (state compound/rain, team action, ARIS, class)",
+    )
     filt = parser.add_mutually_exclusive_group()
     filt.add_argument(
         "--undercut-events-only",
@@ -110,6 +136,7 @@ def main() -> int:
             include_wet=args.include_wet,
             undercut_events_only=args.undercut_events_only,
             overcut_events_only=args.overcut_events_only,
+            per_inflection_output=args.per_inflection_output,
         )
         if rc:
             return rc
@@ -127,6 +154,7 @@ def walk_year(
     include_wet: bool = False,
     undercut_events_only: bool = False,
     overcut_events_only: bool = False,
+    per_inflection_output: bool = False,
 ) -> int:
     calendar = resolve_calendar(year)
     if limit > 0:
@@ -182,6 +210,9 @@ def walk_year(
             + (f" ERROR={result.error}" if result.error else ""),
             flush=True,
         )
+        if per_inflection_output:
+            for d in result.decisions:
+                print(_format_inflection_line(d), flush=True)
         gp_slug = str(meta["gp"]).replace(" ", "_")
         race_path = out_dir / f"{meta['year']}_r{meta['round_no']}_{gp_slug}.json"
         race_path.write_text(

@@ -46,9 +46,10 @@ not been cut.
 heuristic exists (`src/aris/physics/wet.py`) and is tagged `wet_heuristic` on
 the radio call. The dry headline remains the **87-event 0.345** slice.
 `--include-wet` scores INTER/WET inflections only; Spain-style `rainfall=True`
-dry races stay out of that 87. The wet slice after T3-final is **0.345
+dry races stay out of that 87. The wet slice after T3-patch is **0.345
 (38/110)** — the 0.340 gate passes; still an uncalibrated heuristic, not
-a headline. Field undercut / overcut stay behind flags.
+a headline. T3-B/C field undercut / overcut arcs are formally closed
+(0 pp on targeted events); flags stay off. **READY FOR T4.**
 
 ---
 

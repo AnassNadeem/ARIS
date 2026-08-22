@@ -167,7 +167,13 @@ def compute_field_undercut_value(
     *,
     car_ahead_code: str | None,
 ) -> tuple[float, str]:
-    """Field-aware undercut vs the car ahead. Falls back to T2-D explicitly."""
+    """Field-aware undercut vs the car ahead. Falls back to T2-D explicitly.
+
+    Dirty-air (0.15 s/lap when gap_ahead < 1s for 3+ laps) is computed here
+    only — never on the default simulate() path. Applied as a one-shot on a
+    winning field delta, not as a remaining-race stay-out penalty.
+    """
+    dirty_air = compute_dirty_air_penalty(list(state.gap_ahead_history or []))
     if not car_ahead_code or not rival_estimates:
         return compute_undercut_bonus(state), "t2d_missing"
     ahead = next(
@@ -182,7 +188,7 @@ def compute_field_undercut_value(
         state, ahead, pit_compound, circuit_pit_loss, slopes or {}
     )
     if delta < 0:
-        return max(delta, FIELD_UNDERCUT_CAP), "field"
+        return max(delta - dirty_air, FIELD_UNDERCUT_CAP), "field"
     return compute_undercut_bonus(state), "t2d"
 
 
@@ -480,12 +486,8 @@ def recommend(
             )
         )
 
-    dirty_air = 0.0
-    if field_undercut_enabled():
-        dirty_air = compute_dirty_air_penalty(list(state.gap_ahead_history or []))
-
     for action in actions:
-        outcome = simulate(state, action, dirty_air_penalty=dirty_air)
+        outcome = simulate(state, action)
         baseline = outcome.total_race_time_s - outcome.delta_vs_stay_out_s
         if action.kind == ActionKind.STAY_OUT and not action.pit_laps:
             bonus = 0.0
@@ -503,9 +505,7 @@ def recommend(
         # (pit vs stay, lap, compound) is what we score, not MC bands.
         raw_delta = outcome.delta_vs_stay_out_s
         if mc_draws and mc_draws > 0:
-            mc = run_mc(
-                state, action, n_draws=mc_draws, dirty_air_penalty=dirty_air
-            )
+            mc = run_mc(state, action, n_draws=mc_draws)
             raw_delta = mc.mean_delta_vs_stay_out_s
             mean_time = mc.mean_time_s
             std_time = float(mc.std_time_s) + extra_std

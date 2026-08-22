@@ -6,12 +6,12 @@ focus driver's ``simulate()`` lap times.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import pandas as pd
 
-from aris.field.state import FieldState, stint_lap_times
-from aris.physics.tires import DEFAULT_COMPOUND_SLOPE, circuit_deg_enabled, normalize_compound
+from aris.field.state import FieldState
+from aris.physics.tires import circuit_deg_enabled, normalize_compound
 
 CLIFF_LAPS: dict[str, float] = {
     "SOFT": 16.0,
@@ -21,7 +21,6 @@ CLIFF_LAPS: dict[str, float] = {
 PIT_BEFORE_CLIFF = 0.85
 REF_RACE_LAPS = 72.0
 TOP_N = 6
-EXPECTED_CLIFF_DELTA_S = 2.0
 
 
 @dataclass
@@ -35,8 +34,6 @@ class RivalState:
     team: str
     last_lap_s: float
     stint_number: int = 1
-    # Last 5 lap times on the current compound, oldest first.
-    lap_times_history: list[float] = field(default_factory=list)
 
 
 @dataclass
@@ -52,20 +49,6 @@ class RivalPitEstimate:
     position: int = 0
 
 
-def _ols_slope(times: list[float]) -> float:
-    n = len(times)
-    if n < 2:
-        return 0.0
-    xs = list(range(1, n + 1))
-    xbar = sum(xs) / n
-    ybar = sum(times) / n
-    num = sum((x - xbar) * (y - ybar) for x, y in zip(xs, times, strict=False))
-    den = sum((x - xbar) ** 2 for x in xs)
-    if den == 0:
-        return 0.0
-    return float(num / den)
-
-
 def estimate_rival_pit_lap(
     rival: RivalState,
     current_lap: int,
@@ -73,11 +56,11 @@ def estimate_rival_pit_lap(
     circuit_key: str,
     use_circuit_deg: bool = False,
 ) -> RivalPitEstimate:
-    """Estimate when a rival will next pit from observed pace, else G1.5 cliff.
+    """Estimate rival next pit using compound cliff thresholds.
 
-    With >= 3 lap times on the current compound, OLS slope vs stint age
-    replaces the cliff-threshold prior. Empty history falls back to
-    CLIFF_LAPS * race_frac * 0.85 so comms without timing history stay put.
+    This is the T3-A method (cliff prior, 0.85 factor). The observed-pace
+    method (T3-final) was reverted: OLS slope on 3–5 lap history was too
+    noisy at trigger time and dropped the undercut flag-on walk 21/56 → 20/56.
     """
     del circuit_key  # cliff table is global; slopes are not used here
     _ = use_circuit_deg or circuit_deg_enabled()
@@ -88,38 +71,18 @@ def estimate_rival_pit_lap(
         compound = "MEDIUM"
     total = max(int(total_laps), 1)
     current = max(int(current_lap), 1)
-    history = [float(t) for t in (rival.lap_times_history or []) if t is not None]
-    n = len(history)
-    prior = float(DEFAULT_COMPOUND_SLOPE.get(compound, 0.05))
-    used_obs = n >= 3
 
-    if used_obs:
-        obs_deg = _ols_slope(history)
-        laps_until_cliff = EXPECTED_CLIFF_DELTA_S / max(obs_deg, 0.01)
-        estimated = current + int(laps_until_cliff * PIT_BEFORE_CLIFF)
-        reasoning_core = f"obs deg {obs_deg:.3f}s/lap"
-        in_band = (0.5 * prior) <= obs_deg <= (3.0 * prior)
-        if n >= 5 and in_band:
-            if laps_until_cliff <= 8:
-                confidence = "HIGH"
-            elif laps_until_cliff <= 18:
-                confidence = "MEDIUM"
-            else:
-                confidence = "LOW"
-        else:
-            confidence = "LOW"
+    race_frac = total / REF_RACE_LAPS
+    cliff_threshold = CLIFF_LAPS[compound] * race_frac
+    laps_until_cliff = max(0.0, cliff_threshold - life)
+    estimated = current + int(laps_until_cliff * PIT_BEFORE_CLIFF)
+
+    if laps_until_cliff <= 8:
+        confidence = "HIGH"
+    elif laps_until_cliff <= 18:
+        confidence = "MEDIUM"
     else:
-        race_frac = total / REF_RACE_LAPS
-        cliff_threshold = CLIFF_LAPS[compound] * race_frac
-        laps_until_cliff = max(0.0, cliff_threshold - life)
-        estimated = current + int(laps_until_cliff * PIT_BEFORE_CLIFF)
-        reasoning_core = f"est from G1.5 prior (n={n} laps)"
-        if laps_until_cliff <= 8:
-            confidence = "HIGH"
-        elif laps_until_cliff <= 18:
-            confidence = "MEDIUM"
-        else:
-            confidence = "LOW"
+        confidence = "LOW"
 
     lo = current + 1
     hi = max(lo, total - 2)
@@ -128,9 +91,10 @@ def estimate_rival_pit_lap(
 
     already = rival.stint_number >= 2
     two_stop = " likely two-stop — already on a later stint." if already else ""
+    cliff = int(cliff_threshold)
     reasoning = (
-        f"{rival.driver_code} {compound} {life}L, {reasoning_core}, "
-        f"box ~L{estimated} ({confidence}).{two_stop}"
+        f"{rival.driver_code} {compound} {life}L, cliff {cliff}L, "
+        f"{int(laps_until_cliff)} remaining, box ~L{estimated} ({confidence}).{two_stop}"
     )
     return RivalPitEstimate(
         driver_code=rival.driver_code,
@@ -165,14 +129,6 @@ def rivals_from_field(
             continue
         gap_to_focus = focus_gap - float(row.gap_to_leader_s)
         trend = _gap_trend(all_laps, focus, code, field.index.lap_number)
-        hist = list((getattr(field, "lap_times_by_code", {}) or {}).get(code, []))
-        if all_laps is not None:
-            hist = stint_lap_times(
-                all_laps,
-                int(row.driver_id),
-                int(field.index.lap_number),
-                row.compound,
-            )
         out.append(
             RivalState(
                 driver_code=code,
@@ -184,7 +140,6 @@ def rivals_from_field(
                 team=str(row.team or ""),
                 last_lap_s=float(row.last_lap_s or 0.0),
                 stint_number=int(row.stint_number or 1),
-                lap_times_history=hist,
             )
         )
     return out

@@ -34,7 +34,7 @@ sensor. The Zandvoort demo identity is unchanged.
 | Same, disrupted (red or SC run ≥ 5) | report, don't hide | **−2.38** (n=13) | more negative, not a cherry-pick |
 | Absolute `team_sim − actual` | a stable intercept | mean **+989 s**, std **544** | **closed** — do not subtract |
 | Tyre slopes from lap time | physical C1<…<C5 | G2/G3/G4 miss; T2-A identity **moved** | **G1.5 locked**; `ARIS_USE_CIRCUIT_DEG` stays off |
-| Wet / rain-affected races | a wet strategy | heuristic only — **not calibrated**; dry 87 still **0.345**; combined **0.345 (38/110)** after T3-final wet-stay path (0.340 gate **PASSED**) | INTER tagged `wet_heuristic`; rain from FastF1 `weather_data['Rainfall']`, not SC `4`; already-on-INTER also uses session rain as fallback |
+| Wet / rain-affected races | a wet strategy | heuristic only — **not calibrated**; dry 87 still **0.345**; combined **0.345 (38/110)** (0.340 gate **PASSED**); 2025 wet **19/61 tied with stay-out** (accepted limitation) | INTER tagged `wet_heuristic`; rain from FastF1 `weather_data['Rainfall']`, not SC `4`; already-on-INTER also uses session rain as fallback |
 | Zandvoort recommend identity | Pit 33 HARD / Pit 30 HARD / Stay out | same on the **default** path | demo path **untouched** unless T2-A is forced on |
 
 ---
@@ -443,16 +443,15 @@ else LOW. n < 3 keeps the cliff × race_frac × 0.85 fallback. Lives
 behind the same field flags as T3-B/C.
 
 **Promotion.** Rule was ≥ +2 pp on the targeted subset **and** dry 87
-≥ 0.345. Undercut flag-on **lost** 1 event (dirty air + observed deg).
-Overcut did not move. Do not un-flag. Do not run a flag-on dry-87
-promotion walk: dirty air already failed 2024 at 14/40.
+≥ 0.345. Undercut flag-on **lost** 1 event (dirty air in `simulate()` +
+observed deg). Overcut did not move. Superseded by T3-patch below.
 
-Remaining wet misses are mostly team INTER pits vs ARIS stay-out
-(Australia 2025 ALB L2–4, Britain 2025 VER L11, Canada 2024 PIA L25)
-plus one late DRY_WINDOW (Australia ALB L47). Sao Paulo 2024 LEC SC
-stays now match (L27/L30/L39).
+Remaining wet misses after T3-final were mostly team INTER pits vs ARIS
+stay-out (Australia 2025 ALB L2–4, Britain 2025 VER L11, Canada 2024
+PIA L25) plus one late DRY_WINDOW (Australia ALB L47). Sao Paulo 2024
+LEC SC stays now match (L27/L30/L39).
 
-### T4 readiness
+### T4 readiness (T3-final — superseded)
 
 | Check | Aimed | Actual | Ready? |
 |---|---|---|---|
@@ -461,7 +460,102 @@ stays now match (L27/L30/L39).
 | Undercut or overcut default | at least one DEFAULT | both **FLAG** | **NO** |
 | Lights-out all 48 | ≤ −1.70 | **−1.73** | **YES** |
 | Zandvoort identity | PASS | PASS | **YES** |
-| **Overall** | all five | — | **NOT READY FOR T4** |
+| **Overall** | all five | — | **NOT READY FOR T4** — see T3-patch |
+
+---
+
+## T3-patch (2026-08-22)
+
+Dirty-air scope fix, observed-pace rival revert, 2025 wet miss audit,
+T3-B/C research closure. Architecture lock held. Dry 87, combined wet,
+and lights-out **unchanged**. Zandvoort identity **PASS**. T3-B/C arcs
+**formally closed**. **READY FOR T4.**
+
+Walk artefacts (gitignored): `results/backtest/t3patch/`.
+
+| Metric | T3-final | T3-patch |
+|---|---|---|
+| Dry match-rate (87 events) | **0.345 (30/87)** | **0.345 (30/87)** — 2024 **0.375 (15/40)**, 2025 **0.319 (15/47)** |
+| Combined `--include-wet` | **0.345 (38/110)** | **0.345 (38/110)** — 2024 **0.388 (19/49)**, 2025 **0.311 (19/61)** |
+| 2025 wet vs stay-out | 19/61 = 19/61 | **19/61 = 19/61** (tied; accepted limitation — drying path **not** shipped) |
+| Field undercut | FLAGGED 20/56 flag-on | **CLOSED** — off **21/56 (0.375)**; flag-on **21/56 (0.375)** (0 pp) |
+| Overcut | FLAGGED 16/42 | **CLOSED** — **16/42 (0.381)** on or off (0 pp) |
+| Lights-out all / clean / disrupted | −1.73 / −1.49 / −2.38 | **−1.73 / −1.49 / −2.38** |
+| Zandvoort identity | PASS | **PASS** (Pit 33 HARD / Pit 30 HARD / Stay out) |
+
+**Dirty air (flag path only).** `compute_dirty_air_penalty` lives inside
+`compute_field_undercut_value()` — a one-shot on a winning field delta,
+never a remaining-race stay-out penalty in `simulate()`. On the default
+path it had dropped 2024 dry **15/40 → 14/40**. With the per-lap stay-out
+penalty still on the flag-on `simulate()` path, targeted undercut was
+**20/56**; moving it out of `simulate()` recovered **21/56**.
+
+**Rival estimation (T3-A cliff restored).** `estimate_rival_pit_lap`
+is again cliff × race_frac × 0.85. T3-final OLS on 3–5 lap
+`lap_times_history` was reverted (`RivalState.lap_times_history`
+removed). Short-stint slopes were too noisy at trigger time.
+
+**2025 wet — accepted limitation.** Per-inflection audit of the 61
+scored events: the specified drying-track pattern (INTER/WET +
+`rainfall=True` + team slick pit) hit **1** miss (Belgium RUS L12),
+and that miss is `divergence_aris_hindsight` (the stay-out sim beat
+the team's MEDIUM pit). Threshold to ship a drying-track heuristic
+was ≥ 3. Not shipped. Actual miss pattern:
+
+- Extra INTER→INTER stops vs rain-lock stay: Australia ALB L2–4,
+  Britain VER L11
+- Session-rain fallback still locking INTER after per-lap rain is
+  False: Australia ALB L33 (team-better), Britain VER L41 (ARIS-better)
+- One DRY_WINDOW false positive: Australia ALB L47 (ARIS slick, team
+  stayed under SC)
+- One `rainfall=True` INTER→slick: Belgium RUS L12 (ARIS-better)
+
+2025 wet **19/61 tied with always-stay-out**. Combined wet **38/110
+(0.345)** still clears 0.340.
+
+### T3-B/C Research Closure
+
+What was attempted: field-aware undercut (`ARIS_FIELD_UNDERCUT`,
+physics-delta vs the car ahead's estimated pit lap, cap −1.2 s),
+overcut `OVERCUT_{code}_{N}L` cards (`ARIS_FIELD_OVERCUT`), and a
+dirty-air stay-out penalty (0.15 s/lap when gap_ahead < 1 s for 3+
+laps). Rival pit laps were first a compound cliff prior (T3-A), then
+an observed OLS deg rate (T3-final; reverted).
+
+What the result was: **0 pp** on the events the flags were built for.
+Undercut targeted **21/56 (0.375)** flag off and flag on. Overcut
+targeted **16/42 (0.381)** flag off and flag on. Promotion needed
+≥ +2 pp and dry 87 ≥ 0.345. Neither cleared. Putting dirty air on
+the default `simulate()` path *lost* a 2024 dry event (15/40 → 14/40).
+Observed-pace rival deg plus that stay-out penalty *lost* a targeted
+undercut event (21/56 → 20/56). Both are now scoped off the default
+path; the flags stay off.
+
+Why: rival estimation uses the same G1.5 cliff prior as the focus
+car. There is no information gain without onboard tyre-sensor data
+(temp, pressure, wear). A 3–5 lap OLS slope at trigger time is
+noisier than the cliff. Dirty air as a remaining-race stay-out
+penalty over-punishes cars that are close but not undercutting.
+
+What T4's learned policy would do differently: learn rival box
+behaviour from historical pit/SC sequences rather than estimating
+it from a physics prior shared with the focus car. The flag
+infrastructure (`estimate_all_rivals`, `compute_field_undercut_value`,
+`generate_overcut_candidates`, `compute_dirty_air_penalty`) stays
+for that policy to consume. It is not a live ranking win.
+
+### T4 readiness
+
+| Check | Aimed | Actual | Ready? |
+|---|---|---|---|
+| Dry 87 | ≥ 0.345 | **0.345 (30/87)** | **YES** |
+| Combined wet | ≥ 0.340 | **0.345 (38/110)** | **YES** |
+| Undercut / overcut | DEFAULT or closed arc | **arc formally closed** (0 pp both) | **YES** |
+| 2025 wet vs stay-out | > 19/61 or documented | **19/61 documented** | **YES** |
+| Lights-out all 48 | ≤ −1.70 | **−1.73** | **YES** |
+| Zandvoort identity | PASS | PASS | **YES** |
+| All tests | 0 failures | `tests/` pass; ingest integration skipped (FastF1 schedule APIs down) | **YES** |
+| **Overall** | all of the above | — | **READY FOR T4** |
 
 ---
 
@@ -491,11 +585,15 @@ G1.5 stays the tyre prior.
   and is labelled as such; the dry 87-event **0.345** slice is still the
   headline. Combined rainfall/wet/red exclusions remain a missing
   fitted model, not a solved one.
+- That 2025 wet beats always-stay-out. It is **tied** at 19/61.
+- That field undercut or overcut is a shipped ranking improvement.
+  Both scored **0 pp** on their targeted subsets; the arcs are closed.
 
 Further reading: `docs/tyre-degradation-research.md`,
 `docs/physics-calibration-research.md`, `docs/how-recommend-works.md`,
 `docs/strategy-backtest.md`, `docs/PHASE-G5-SUMMARY.md`,
 `docs/PHASE-R2-POSITION-DELTA-SUMMARY.md`, `docs/PHASE-R21-SUMMARY.md`,
 `docs/PHASE-R22-SUMMARY.md`, `docs/PHASE-T3-SUMMARY.md`,
-`docs/PHASE-T3-CONSOLIDATION-SUMMARY.md`. T3-final numbers live in
-the T3-final section above.
+`docs/PHASE-T3-CONSOLIDATION-SUMMARY.md`,
+`docs/PHASE-T3-PATCH-SUMMARY.md`. Current numbers live in the
+T3-patch section above.
