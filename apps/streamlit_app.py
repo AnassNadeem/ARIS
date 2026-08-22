@@ -1,4 +1,4 @@
-"""ARIS entrypoint — landing + Strategy + lap explorer.
+"""ARIS V3 — React shell on Streamlit Cloud.
 
 Run locally:
     streamlit run apps/streamlit_app.py
@@ -33,33 +33,14 @@ except (FileNotFoundError, KeyError):
 
 st.set_page_config(page_title="ARIS", page_icon="🏁", layout="wide")
 
-live = st.Page(
-    "pages/03_Live.py",
-    title="Live",
-    icon="🔴",
-    url_path="Live",
-    default=True,
-)
-home = st.Page("pages/00_Home.py", title="Home", icon="🏁")
-strategy = st.Page(
-    "pages/01_Strategy.py",
-    title="Strategy",
-    icon="📡",
-    url_path="Strategy",
-)
-explorer = st.Page(
-    "pages/02_Lap_Explorer.py",
-    title="Lap explorer",
-    icon="📈",
-    url_path="Lap_explorer",
-)
+home = st.Page("pages/00_Home.py", title="Home", url_path="home", default=True)
+replay = st.Page("pages/04_Replay.py", title="Replay", url_path="replay")
+live = st.Page("pages/03_Live.py", title="Live", url_path="live")
+standings = st.Page("pages/05_Standings.py", title="Standings", url_path="standings")
+calendar = st.Page("pages/06_Calendar.py", title="Calendar", url_path="calendar")
 
-# Explicit links — client.showSidebarNavigation is off so pages/ is not auto-listed.
-with st.sidebar:
-    st.page_link(live, label="Live", icon="🔴")
-    st.page_link(home, label="Home", icon="🏁")
-    st.page_link(strategy, label="Strategy", icon="📡")
-    st.page_link(explorer, label="Lap explorer", icon="📈")
-
-pg = st.navigation([live, home, strategy, explorer])
+try:
+    pg = st.navigation([home, replay, live, standings, calendar], position="hidden")
+except TypeError:
+    pg = st.navigation([home, replay, live, standings, calendar])
 pg.run()

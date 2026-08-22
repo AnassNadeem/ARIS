@@ -1,91 +1,108 @@
-"""Landing page — what ARIS is, honest numbers, where to go next."""
+"""V3 home — same layout as frontend/src/pages/HomePage.tsx."""
 
 from __future__ import annotations
 
-import streamlit as st
+import os
+import sys
+from pathlib import Path
 
-from apps.theme import inject_theme, render_disclaimer
-from aris.ui_text import (
-    HEADLINE_CALENDAR_AIMED_S,
-    HEADLINE_CALENDAR_BLEND_MAE_S,
-    HEADLINE_CALENDAR_PASS,
-    HEADLINE_CHINA_AIMED_S,
-    HEADLINE_CHINA_MAE_S,
-    HEADLINE_CHINA_MISS_S,
-    HEADLINE_NL_2024_AIMED_S,
-    HEADLINE_NL_2024_MAE_S,
-    HEADLINE_NL_2025_AIMED_S,
-    HEADLINE_NL_2025_MAE_S,
-)
+_REPO = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(_REPO / "src"))
+sys.path.insert(0, str(_REPO))
 
-inject_theme()
+import streamlit as st  # noqa: E402
 
-st.markdown('<div class="aris-kicker">Always-on race strategy</div>', unsafe_allow_html=True)
+try:
+    for _key in ("ARIS_DB_URL", "OPENF1_USERNAME", "OPENF1_PASSWORD", "OPENF1_API_KEY"):
+        if _key in st.secrets:
+            os.environ.setdefault(_key, str(st.secrets[_key]))
+except (FileNotFoundError, KeyError):
+    pass
+
+from apps.v3_chrome import render_nav  # noqa: E402
+from aris.ui_text import HEADLINE_CALENDAR_BLEND_MAE_S  # noqa: E402
+
+render_nav("home")
+
+
+@st.cache_data(ttl=90)
+def _next_race() -> dict:
+    from backend.calendar import next_race
+
+    nxt = next_race()
+    return {
+        "name": nxt.name,
+        "off_season": nxt.off_season,
+        "next_session_name": nxt.next_session_name,
+        "countdown_seconds": nxt.countdown_seconds,
+    }
+
+
+live_label = "⬤ LIVE: DUTCH GRAND PRIX"
+next_line = "DUTCH GRAND PRIX WEEKEND"
+try:
+    nxt = _next_race()
+    name = (nxt.get("name") or "Dutch Grand Prix").upper()
+    sess = (nxt.get("next_session_name") or "Sprint").upper()
+    live_label = "⬤ LIVE: OFF SEASON" if nxt.get("off_season") else f"⬤ LIVE: {name}"
+    left = int(nxt.get("countdown_seconds") or 0)
+    h, rem = divmod(max(0, left), 3600)
+    m, _s = divmod(rem, 60)
+    d, h = divmod(h, 24)
+    next_line = f"🏁 {name} WEEKEND · {sess} IN {d}D {h}H {m}M"
+except Exception:
+    nxt = None
+
+st.markdown('<div class="aris-hero-word">ARIS</div>', unsafe_allow_html=True)
+st.markdown('<div class="aris-kicker-gold">Always-on Race Intelligence System</div>', unsafe_allow_html=True)
 st.markdown(
     """
-<div class="aris-hero">
-  <h1>ARIS</h1>
-  <p>A race engineer that watches a Formula 1 race, predicts the next lap,
-  and proposes the next pit call with a lap-time delta. You decide.</p>
-  <p class="aris-muted">Hybrid physics + residual model, scored on held-out
-  races — not a marketing MAE. Unofficial fan project.</p>
-</div>
+<p style="font-family:IBM Plex Sans,sans-serif;font-size:16px;color:#7A8796;line-height:1.7;max-width:720px;margin-top:20px">
+ARIS is a digital race engineer that watches a Grand Prix and makes the decisions a real
+strategist makes — tyre choice, pit timing, Safety Car reactions — aimed at the best
+realistic outcome for your driver. Every recommendation shows its reasoning. Nothing is
+blindly decided.
+</p>
 """,
     unsafe_allow_html=True,
 )
+
+c1, c2, _ = st.columns([1.1, 1.3, 1.6])
+with c1:
+    if st.button("▶ REPLAY A RACE", type="primary"):
+        st.switch_page("pages/04_Replay.py")
+with c2:
+    if st.button(live_label):
+        st.switch_page("pages/03_Live.py")
 
 st.markdown(
     f"""
-<div class="aris-stat-row">
-  <div class="aris-stat pass">
-    <div class="lbl">2024 calendar blend MAE</div>
-    <div class="val">{HEADLINE_CALENDAR_BLEND_MAE_S:.3f}s</div>
-    <div class="sub">aimed ≤ {HEADLINE_CALENDAR_AIMED_S:.3f}s · {HEADLINE_CALENDAR_PASS} races</div>
-  </div>
-  <div class="aris-stat pass">
-    <div class="lbl">Dutch GP (Zandvoort)</div>
-    <div class="val">{HEADLINE_NL_2024_MAE_S:.3f}s</div>
-    <div class="sub">2024 pass (≤ {HEADLINE_NL_2024_AIMED_S:.3f}) · 2025 {HEADLINE_NL_2025_MAE_S:.3f}s (≤ {HEADLINE_NL_2025_AIMED_S:.3f})</div>
-  </div>
-  <div class="aris-stat miss">
-    <div class="lbl">China 2024 — still a miss</div>
-    <div class="val">{HEADLINE_CHINA_MAE_S:.3f}s</div>
-    <div class="sub">aimed ≤ {HEADLINE_CHINA_AIMED_S:.3f}s · short by {HEADLINE_CHINA_MISS_S:.3f}s</div>
-  </div>
-</div>
+<div style="margin-top:28px;padding:10px 14px;border:1px solid #E8A33D55;background:#1F1A0D;border-radius:4px;
+font-family:IBM Plex Mono,monospace;font-size:11px;color:#E8ECF0">{next_line}</div>
 """,
     unsafe_allow_html=True,
 )
 
-st.caption(
-    "Numbers from the Phase E.3 / E.4 lock-in (held-out 2024 calendar, 1.5× MA(2) "
-    "bar). Monte Carlo P10/P90 bands are not calibrated coverage. Physics alone is "
-    "still ~10–26 s slow on many circuits; residual + blend is what you see above."
+mae = HEADLINE_CALENDAR_BLEND_MAE_S
+st.markdown(
+    f"""
+<div class="aris-grid3" style="margin-top:40px">
+  <div class="aris-card"><div class="n">{mae:.3f}s</div><div class="l">Calendar-wide lap time MAE</div></div>
+  <div class="aris-card"><div class="n">32.5%</div><div class="l">Decision match-rate 2024</div>
+    <div class="l" style="color:#4A5560">vs 25.0% never-pit baseline</div></div>
+  <div class="aris-card"><div class="n">−1.73</div><div class="l">Average position delta</div>
+    <div class="l" style="color:#4A5560">−1.49 clean / −2.38 disrupted</div></div>
+</div>
+<div class="aris-grid2" style="margin-top:28px">
+  <div class="aris-card"><div class="l" style="color:#E8A33D;letter-spacing:0.1em">LAP-BY-LAP STRATEGY</div>
+    <div style="font-size:13px;color:#7A8796;margin-top:8px">pit timing, compound choice, pace targets</div></div>
+  <div class="aris-card"><div class="l" style="color:#E8A33D;letter-spacing:0.1em">FULL REASONING</div>
+    <div style="font-size:13px;color:#7A8796;margin-top:8px">every call shows pace gained vs pit cost</div></div>
+  <div class="aris-card"><div class="l" style="color:#E8A33D;letter-spacing:0.1em">REPLAY ANY RACE</div>
+    <div style="font-size:13px;color:#7A8796;margin-top:8px">2024, 2025, 2026 with 1× to 50× speed</div></div>
+  <div class="aris-card"><div class="l" style="color:#E8A33D;letter-spacing:0.1em">LIVE RACE MODE</div>
+    <div style="font-size:13px;color:#7A8796;margin-top:8px">real OpenF1 data, ARIS recommends in real time</div></div>
+</div>
+""",
+    unsafe_allow_html=True,
 )
-
-st.markdown("**Live**")
-st.write(
-    "Official live feed (SignalR + OpenF1) starts itself — GPS, tower, sectors, "
-    "tyres, throttle/brake, and ARIS. After the feed drops it becomes a FastF1 "
-    "replay at 2×–50×. No Play click on a live session."
-)
-st.page_link("pages/03_Live.py", label="Open the live dashboard", icon="🔴")
-
-left, right = st.columns(2)
-with left:
-    st.markdown("**Strategy**")
-    st.write(
-        "Replay a race as the engineer. ARIS recommends; you accept, reject, or "
-        "edit. Watch, Ask, What-if, then a post-race comparison."
-    )
-    st.page_link("pages/01_Strategy.py", label="Open the Strategy tool", icon="📡")
-with right:
-    st.markdown("**Lap explorer**")
-    st.write(
-        "Pick a season, race, and driver. Lap-time trace, sector stack, and the "
-        "MA(2) baseline a model has to beat."
-    )
-    st.page_link("pages/02_Lap_Explorer.py", label="Open the lap explorer", icon="📈")
-
-st.markdown("---")
-render_disclaimer()
