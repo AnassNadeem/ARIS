@@ -53,6 +53,8 @@ class Recommendation(BaseModel):
     extrapolation_beyond_laps: int = 0
     extrapolation_weight: float = 1.0
     wet_heuristic: bool = False
+    cql_q_delta: float = 0.0
+    rank_score: float = 0.0
 
 
 class RecommendationResult(BaseModel):
@@ -417,6 +419,8 @@ def recommend(
     mc_draws: int = DEFAULT_DRAWS,
     include_tactical: bool = True,
     field=None,
+    scoring: str = "physics",
+    cql_weight: float = 0.5,
 ) -> RecommendationResult:
     # include_tactical retained for API compatibility; hardcoded DRS/defend
     # deltas were removed in Phase C — line actions are scored via simulate().
@@ -628,7 +632,32 @@ def recommend(
                 )
             )
 
-    scored.sort(key=lambda r: r.delta_vs_stay_out_s)
+    mode = (scoring or "physics").strip().lower()
+    if mode != "physics":
+        from aris.models.cql import cql_score_candidates, load_cql_model
+
+        q_net, norm = load_cql_model()
+        if q_net is not None:
+            cql_score_candidates(state, scored, q_net, norm)
+            for rec in scored:
+                if mode == "cql":
+                    rec.rank_score = rec.cql_q_delta
+                elif mode == "blend":
+                    rec.rank_score = (
+                        (1.0 - float(cql_weight)) * rec.delta_vs_stay_out_s
+                        + float(cql_weight) * rec.cql_q_delta
+                    )
+                else:
+                    rec.rank_score = rec.delta_vs_stay_out_s
+        else:
+            for rec in scored:
+                rec.rank_score = rec.delta_vs_stay_out_s
+    else:
+        for rec in scored:
+            rec.rank_score = rec.delta_vs_stay_out_s
+
+    # Physics delta is the tie-break so same-compound cards keep timing order.
+    scored.sort(key=lambda r: (r.rank_score, r.delta_vs_stay_out_s))
     if wet_on:
         wet_recs = [r for r in scored if r.wet_heuristic]
         if wet_recs:
@@ -647,6 +676,7 @@ def recommend(
 
     for i, rec in enumerate(top, start=1):
         rec.rank = i
+        rec.delta_vs_stay_out_s = rec.rank_score
 
     return RecommendationResult(
         state_lap=state.lap_number,
