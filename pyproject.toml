@@ -41,6 +41,9 @@ dev = [
     "jupyterlab",
     "nbconvert",
 ]
+cql = [
+    "torch",
+]
 
 [build-system]
 requires = ["hatchling"]
