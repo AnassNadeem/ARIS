@@ -17,6 +17,7 @@ import { AnalyticsCatalogue } from "@/components/layout/AnalyticsCatalogue";
 import { ConnectionStatus } from "@/components/ui/ConnectionStatus";
 import { catalogueEntry, renderPanel } from "@/lib/panelRegistry";
 import { MockRaceFeed } from "@/lib/mockRaceFeed";
+import { createRaceSocket } from "@/lib/raceSocket";
 import { broadcastRaceState } from "@/lib/broadcastChannel";
 
 const ANALYTICS_TABSET_ID = "analytics-tabset";
@@ -128,19 +129,29 @@ export function ARISConsole({ mode }: { mode: "replay" | "live" }) {
     }
   }, [isARISOn, model]);
 
+  // Real backend connection: attempts ws://localhost:8000. If a real ARIS
+  // backend is running it takes over and the mock feed steps aside; if not,
+  // the mock feed keeps the console demonstrable (matches the API mock
+  // fallback pattern used throughout lib/api.ts).
   useEffect(() => {
-    setConnectionStatus("connecting");
     const feed = new MockRaceFeed(useRaceStore);
     feedRef.current = feed;
     feed.start();
-    const t = setTimeout(() => setConnectionStatus("connected", 340), 600);
+    setConnectionStatus("connecting");
+    const fallbackTimer = setTimeout(() => setConnectionStatus("connected", 340), 900);
+
+    const socket = createRaceSocket(mode, `${session?.year}-${session?.round}`);
+    socket.onOpen = () => feed.stop();
+    socket.connect();
+
     return () => {
       feed.stop();
-      clearTimeout(t);
+      socket.disconnect();
+      clearTimeout(fallbackTimer);
       setConnectionStatus("disconnected");
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [mode]);
 
   useEffect(() => {
     broadcastRaceState({ type: "tick", payload: { cars, ghostCar, currentLap, totalLaps } });
