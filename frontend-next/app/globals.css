@@ -1,0 +1,116 @@
+@import "tailwindcss";
+
+:root {
+  --color-carbon: #0a0a0a;
+  --color-surface: #1a1a1a;
+  --color-surface-2: #131313;
+  --color-border: #2a2a2a;
+  --color-red: #e8002d;
+  --color-white: #ffffff;
+  --color-green: #39ff14;
+  --color-muted: #888888;
+  --color-muted-2: #5a5a5a;
+  --color-amber: #f5a623;
+  --font-inter: var(--font-inter);
+  --font-mono: var(--font-jbmono);
+}
+
+@theme inline {
+  --color-carbon: var(--color-carbon);
+  --color-surface: var(--color-surface);
+  --color-surface-2: var(--color-surface-2);
+  --color-border: var(--color-border);
+  --color-red: var(--color-red);
+  --color-arwhite: var(--color-white);
+  --color-green: var(--color-green);
+  --color-muted: var(--color-muted);
+  --color-muted-2: var(--color-muted-2);
+  --color-amber: var(--color-amber);
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-jbmono);
+}
+
+html {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background: var(--color-carbon);
+  color: var(--color-white);
+  font-family: var(--font-inter), Inter, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--color-red);
+  color: var(--color-white);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-carbon);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-muted-2);
+}
+
+.font-mono-data {
+  font-family: var(--font-jbmono), "JetBrains Mono", monospace;
+}
+
+/* flexlayout-react base theme overrides, dark/technical */
+.flexlayout__layout {
+  --color-text: #ffffff;
+  --color-background: #0a0a0a;
+  background-color: transparent;
+}
+.flexlayout__tabset {
+  background-color: #131313;
+}
+.flexlayout__tab {
+  background-color: #0a0a0a;
+  color: #ffffff;
+  overflow: hidden;
+}
+.flexlayout__tabset-selected,
+.flexlayout__tabset_tabbar_outer {
+  background-color: #1a1a1a;
+  border-bottom: 1px solid #2a2a2a;
+}
+.flexlayout__tab_button {
+  font-family: var(--font-jbmono), monospace;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #888888;
+}
+.flexlayout__tab_button--selected,
+.flexlayout__tab_button:hover {
+  color: #ffffff;
+}
+.flexlayout__tab_button--selected {
+  border-top: 2px solid #e8002d;
+}
+.flexlayout__splitter {
+  background-color: #2a2a2a;
+}
+.flexlayout__splitter:hover {
+  background-color: #e8002d;
+}
+.flexlayout__border {
+  background-color: #131313;
+}
+.flexlayout__tabset_header {
+  background-color: #131313;
+  color: #888888;
+}
