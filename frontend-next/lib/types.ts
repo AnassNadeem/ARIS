@@ -126,6 +126,26 @@ export interface RaceHistoryRow {
   raceRecord: string;
 }
 
+export interface WeatherSessionForecast {
+  session: string;
+  condition: "sun" | "cloud" | "rain";
+  airTempC: number;
+  trackTempC: number;
+  rainChancePct: number;
+}
+
+export interface WeatherTrendPoint {
+  lap: number;
+  airTempC: number;
+  trackTempC: number;
+  rainChancePct: number;
+}
+
+export interface WeatherForecastData {
+  sessions: WeatherSessionForecast[];
+  trend: WeatherTrendPoint[];
+}
+
 export interface RecentRaceCard {
   year: number;
   round: number;

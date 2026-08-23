@@ -4,7 +4,14 @@ import type {
   DriverListing,
   RecentRaceCard,
   RoundCard,
+  WeatherForecastData,
 } from "@/lib/types";
+
+// Deterministic pseudo-random in [0, 1) so mock data is stable across renders/SSR.
+function prand(seed: number): number {
+  const x = Math.sin(seed * 12.9898) * 43758.5453;
+  return x - Math.floor(x);
+}
 
 // 2025 grid — team colours match FastF1 / F1 TV convention closely enough
 // for a portfolio demo. Not pulled live.
@@ -125,6 +132,37 @@ export function mockRecentRaces(limit = 3): RecentRaceCard[] {
       sessionType: r.isSprint ? "S" : "R",
     };
   });
+}
+
+// Deterministic session-weekend weather: a forecast strip (per session) plus
+// an in-race trend so the panel reads as both "what's coming" and "what's
+// happening now".
+export function mockWeatherForecast(totalLaps = 72): WeatherForecastData {
+  const sessionNames = ["FP1", "FP2", "FP3", "Qualifying", "Race"];
+  const sessions = sessionNames.map((session, i) => {
+    const rainRoll = prand(i * 4.4 + 1);
+    const condition: "sun" | "cloud" | "rain" = rainRoll > 0.82 ? "rain" : rainRoll > 0.55 ? "cloud" : "sun";
+    return {
+      session,
+      condition,
+      airTempC: Math.round(20 + prand(i * 2.1) * 8),
+      trackTempC: Math.round(28 + prand(i * 3.3) * 14),
+      rainChancePct: Math.round(rainRoll * 100),
+    };
+  });
+
+  const trend = Array.from({ length: totalLaps }, (_, i) => {
+    const lap = i + 1;
+    const drift = Math.sin((lap / totalLaps) * Math.PI * 1.4) * 3;
+    return {
+      lap,
+      airTempC: Number((22 + drift + prand(lap * 0.6) * 1.2).toFixed(1)),
+      trackTempC: Number((34 + drift * 1.6 + prand(lap * 0.9) * 2).toFixed(1)),
+      rainChancePct: Math.round(Math.max(0, prand(lap * 1.3) * 30 - 10 + Math.sin(lap / 12) * 10)),
+    };
+  });
+
+  return { sessions, trend };
 }
 
 export function mockZandvoortCars(): Record<string, CarState> {

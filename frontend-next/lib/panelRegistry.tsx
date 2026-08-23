@@ -10,6 +10,7 @@ import { PositionTrace } from "@/components/panels/PositionTrace";
 import { StintSummary } from "@/components/panels/StintSummary";
 import { TyreStrategyBar } from "@/components/panels/TyreStrategyBar";
 import { PitStopTimeline } from "@/components/panels/PitStopTimeline";
+import { WeatherForecast } from "@/components/panels/WeatherForecast";
 import { ARISComms } from "@/components/aris/ARISComms";
 
 export type PanelCategory = "core" | "analytics";
@@ -39,7 +40,7 @@ export const PANEL_CATALOGUE: PanelCatalogueEntry[] = [
   { componentId: "speedtrace", label: "Speed trace", status: "coming-soon", category: "analytics", description: "Speed vs track distance for a selected lap. Requires per-lap telemetry data from FastF1." },
   { componentId: "throttlebrake", label: "Throttle / brake", status: "coming-soon", category: "analytics", description: "Throttle and brake trace vs track distance." },
   { componentId: "corneranalysis", label: "Corner analysis", status: "coming-soon", category: "analytics", description: "Mini-sector times per corner." },
-  { componentId: "weatheroverlay", label: "Weather overlay", status: "coming-soon", category: "analytics", description: "Track temp, air temp, rainfall over race distance." },
+  { componentId: "weatheroverlay", label: "Weather forecast", status: "built", category: "analytics", description: "Session-by-session forecast plus track/air temp and rain probability over race distance." },
   { componentId: "dirtyair", label: "Dirty air zone", status: "coming-soon", category: "analytics", description: "Laps where gap to car ahead < 1.0 s." },
   { componentId: "undercutwindow", label: "Undercut window", status: "coming-soon", category: "analytics", description: "ARIS undercut probability over race distance." },
   { componentId: "ghostdelta", label: "Ghost delta", status: "coming-soon", category: "analytics", description: "Time delta between real driver and ARIS ghost driver." },
@@ -61,6 +62,7 @@ const BUILT_COMPONENTS: Record<string, ComponentType> = {
   stintsummary: StintSummary,
   tyrestrategy: TyreStrategyBar,
   pitstoptimeline: PitStopTimeline,
+  weatheroverlay: WeatherForecast,
 };
 
 /** Renders a panel's content directly, so callers never create a component during render. */

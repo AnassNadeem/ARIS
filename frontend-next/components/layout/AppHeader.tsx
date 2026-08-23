@@ -39,24 +39,24 @@ export function AppHeader({
         <button
           onClick={() => (backHref ? router.push(backHref) : router.back())}
           title="Back"
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted hover:bg-surface hover:text-white"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-lg text-muted hover:bg-surface hover:text-white"
         >
           ←
         </button>
       )}
       <Link
         href="/"
-        className="flex shrink-0 items-center gap-2 font-mono-data text-xs font-bold uppercase tracking-widest text-white"
+        className="flex shrink-0 items-center gap-2 font-mono-data text-sm font-bold uppercase tracking-widest text-white"
       >
         <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red" />
         ARIS
       </Link>
-      <nav className="ml-1 hidden items-center gap-1 sm:flex">
+      <nav className="ml-1 hidden items-center gap-2 sm:flex">
         {NAV_LINKS.map((l) => (
           <Link
             key={l.href}
             href={l.href}
-            className={`rounded px-2 py-1 font-mono-data text-[11px] uppercase tracking-wide ${
+            className={`rounded px-2 py-1 font-mono-data text-[13px] uppercase tracking-wide ${
               pathname === l.href ? "text-white" : "text-muted hover:text-white"
             }`}
           >
