@@ -2,6 +2,7 @@ import type {
   CarState,
   Compound,
   DriverListing,
+  RecentRaceCard,
   RoundCard,
 } from "@/lib/types";
 
@@ -93,6 +94,37 @@ export function mockRoundsForYear(year: number): RoundCard[] {
     isSprint: Boolean(c.sprint),
     arisEligible: true,
   }));
+}
+
+// The last N completed rounds, most recent first — used for the home page
+// "Replay a race" preview cards. Dates are backdated from today so the cards
+// always read as "already happened".
+export function mockRecentRaces(limit = 3): RecentRaceCard[] {
+  const winners = [
+    { code: "VER", name: "Max Verstappen" },
+    { code: "NOR", name: "Lando Norris" },
+    { code: "PIA", name: "Oscar Piastri" },
+    { code: "LEC", name: "Charles Leclerc" },
+    { code: "RUS", name: "George Russell" },
+  ];
+  const rounds = mockRoundsForYear(2025).slice(0, 14).reverse();
+  const now = new Date();
+  return rounds.slice(0, limit).map((r, i) => {
+    const date = new Date(now);
+    date.setDate(date.getDate() - (i + 1) * 7);
+    const w = winners[i % winners.length];
+    return {
+      year: 2025,
+      round: r.round,
+      circuitName: r.circuitName,
+      countryFlag: r.countryFlag,
+      raceName: `${r.circuitName} Grand Prix`,
+      date: date.toISOString(),
+      winner: w.name,
+      winnerCode: w.code,
+      sessionType: r.isSprint ? "S" : "R",
+    };
+  });
 }
 
 export function mockZandvoortCars(): Record<string, CarState> {

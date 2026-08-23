@@ -5,6 +5,7 @@ import Link from "next/link";
 import { getNextRace } from "@/lib/api";
 import { useCountdown } from "@/lib/useCountdown";
 import type { NextRaceInfo } from "@/lib/types";
+import { ARISToggle } from "@/components/aris/ARISToggle";
 
 export function NoLiveSession({ onEnterDemo }: { onEnterDemo: () => void }) {
   const [info, setInfo] = useState<NextRaceInfo | null>(null);
@@ -47,12 +48,20 @@ export function NoLiveSession({ onEnterDemo }: { onEnterDemo: () => void }) {
               </div>
             ))}
           </div>
-          <button
-            onClick={onEnterDemo}
-            className="mt-6 rounded-[8px] bg-red px-5 py-2.5 font-mono-data text-xs uppercase text-white hover:brightness-110"
-          >
-            → Enter live session (demo)
-          </button>
+          <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <button
+              onClick={onEnterDemo}
+              className="rounded-[8px] bg-red px-5 py-2.5 font-mono-data text-xs uppercase text-white hover:brightness-110"
+            >
+              → Enter live session (demo)
+            </button>
+            <div className="w-full max-w-xs">
+              <div className="mb-2 font-mono-data text-[10px] uppercase text-muted">
+                ARIS for this session
+              </div>
+              <ARISToggle />
+            </div>
+          </div>
         </section>
 
         {/* Circuit info + strategy */}

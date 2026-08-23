@@ -1,5 +1,6 @@
 import {
   MOCK_DRIVERS_2025,
+  mockRecentRaces,
   mockRoundsForYear,
   zandvoortOvalCoords,
 } from "@/lib/mockData";
@@ -9,6 +10,7 @@ import type {
   DriverListing,
   NextRaceInfo,
   RaceHistoryRow,
+  RecentRaceCard,
   RoundCard,
   SessionMeta,
   StatusResponse,
@@ -90,6 +92,11 @@ export async function getRaceHistory(circuit: string): Promise<RaceHistoryRow[]>
     { year: 2022, winner: "Max Verstappen", pole: "Max Verstappen", fastestLapDriver: "Lewis Hamilton", fastestLapTime: "1:11.097", raceRecord: "1:08.885 (2021)" },
     { year: 2021, winner: "Max Verstappen", pole: "Max Verstappen", fastestLapDriver: "Max Verstappen", fastestLapTime: "1:08.885", raceRecord: "1:08.885 (2021)" },
   ];
+}
+
+export async function getRecentRaces(limit = 3): Promise<RecentRaceCard[]> {
+  const live = await tryFetch<RecentRaceCard[]>(`/api/recent-races?limit=${limit}`);
+  return live ?? mockRecentRaces(limit);
 }
 
 export async function getNextRace(): Promise<NextRaceInfo> {

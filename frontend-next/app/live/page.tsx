@@ -3,11 +3,13 @@
 import { useState } from "react";
 import { useRaceStore } from "@/store/raceStore";
 import { ARISConsole } from "@/components/layout/ARISConsole";
+import { AppHeader } from "@/components/layout/AppHeader";
 import { NoLiveSession } from "@/components/live/NoLiveSession";
 
 export default function LivePage() {
   const [liveActive, setLiveActive] = useState(false);
   const setSession = useRaceStore((s) => s.setSession);
+  const arisDriver = useRaceStore((s) => s.arisDriver);
   const setARISDriver = useRaceStore((s) => s.setARISDriver);
 
   function enterDemoLiveSession() {
@@ -19,9 +21,9 @@ export default function LivePage() {
       countryFlag: "🇳🇱",
       totalLaps: 72,
       date: new Date().toISOString(),
-      driverCode: "VER",
+      driverCode: arisDriver ?? "VER",
     });
-    setARISDriver("VER");
+    setARISDriver(arisDriver ?? "VER");
     setLiveActive(true);
   }
 
@@ -29,5 +31,10 @@ export default function LivePage() {
     return <ARISConsole mode="live" />;
   }
 
-  return <NoLiveSession onEnterDemo={enterDemoLiveSession} />;
+  return (
+    <>
+      <AppHeader backHref="/" />
+      <NoLiveSession onEnterDemo={enterDemoLiveSession} />
+    </>
+  );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   Actions,
   DockLocation,
@@ -12,6 +12,7 @@ import {
 } from "flexlayout-react";
 import "flexlayout-react/style/dark.css";
 import { useRaceStore } from "@/store/raceStore";
+import { AppHeader } from "@/components/layout/AppHeader";
 import { PanelWrapper, renderTabWithTearOff } from "@/components/layout/PanelWrapper";
 import { AnalyticsCatalogue } from "@/components/layout/AnalyticsCatalogue";
 import { ConnectionStatus } from "@/components/ui/ConnectionStatus";
@@ -19,6 +20,11 @@ import { catalogueEntry, renderPanel } from "@/lib/panelRegistry";
 import { MockRaceFeed } from "@/lib/mockRaceFeed";
 import { createRaceSocket } from "@/lib/raceSocket";
 import { broadcastRaceState } from "@/lib/broadcastChannel";
+
+// How far a drag of the bottom "grow canvas" handle can extend the layout,
+// in pixels, before the console area needs to be scrolled to reach it.
+const MAX_EXTRA_CANVAS_HEIGHT = 4000;
+const CANVAS_HEIGHT_STEP = 420;
 
 const ANALYTICS_TABSET_ID = "analytics-tabset";
 const COMMS_TABSET_ID = "comms-tabset";
@@ -58,7 +64,7 @@ function buildDefaultModel(isARISOn: boolean): IJsonModel {
               type: "tabset",
               id: COMMS_TABSET_ID,
               weight: 22,
-              children: [tab("comms", "ARIS Comms", { enableClose: false })],
+              children: [tab("comms", "ARIS Comms")],
             },
           ]
         : []),
@@ -109,9 +115,42 @@ export function ARISConsole({ mode }: { mode: "replay" | "live" }) {
   const arisOnAtMount = useRef(isARISOn);
   const feedRef = useRef<MockRaceFeed | null>(null);
 
+  // ARIS strategy scoring only applies to Race / Sprint Race sessions.
+  const arisCapable = !session || session.sessionType === "R" || session.sessionType === "S";
+
+  const [extraHeight, setExtraHeight] = useState(0);
+  const extraHeightRef = useRef(0);
+
   useEffect(() => {
     setConsoleMode(mode);
   }, [mode, setConsoleMode]);
+
+  useEffect(() => {
+    if (!arisCapable && isARISOn) setARISOn(false);
+  }, [arisCapable, isARISOn, setARISOn]);
+
+  function growCanvas(deltaPx: number) {
+    const next = Math.max(0, Math.min(MAX_EXTRA_CANVAS_HEIGHT, extraHeightRef.current + deltaPx));
+    extraHeightRef.current = next;
+    setExtraHeight(next);
+  }
+
+  function handleGrowHandlePointerDown(e: ReactPointerEvent<HTMLDivElement>) {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startExtra = extraHeightRef.current;
+    function onMove(ev: PointerEvent) {
+      const next = Math.max(0, Math.min(MAX_EXTRA_CANVAS_HEIGHT, startExtra + (ev.clientY - startY)));
+      extraHeightRef.current = next;
+      setExtraHeight(next);
+    }
+    function onUp() {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    }
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }
 
   // Dynamically add/remove the Comms tab if ARIS is toggled after mount.
   useEffect(() => {
@@ -122,7 +161,7 @@ export function ARISConsole({ mode }: { mode: "replay" | "live" }) {
         const root = model.getRootRow();
         if (root) {
           model.doAction(
-            Actions.addNode(tab("comms", "ARIS Comms", { enableClose: false }), root.getId(), DockLocation.RIGHT, -1),
+            Actions.addNode(tab("comms", "ARIS Comms"), root.getId(), DockLocation.RIGHT, -1),
           );
         }
       }
@@ -181,33 +220,66 @@ export function ARISConsole({ mode }: { mode: "replay" | "live" }) {
 
   return (
     <div className="flex h-screen w-screen flex-col bg-carbon">
-      <div className="flex h-11 shrink-0 items-center gap-4 border-b border-border bg-surface-2 px-3">
-        <span className="font-mono-data text-[11px] font-semibold text-white">
-          {session?.circuitName ?? "ARIS"} · {session?.year ?? ""}
-        </span>
-        <span className="font-mono-data text-[11px] text-muted">
-          Lap {currentLap} / {totalLaps}
-        </span>
-        <button
-          onClick={() => setARISOn(!isARISOn)}
-          className={`rounded px-2 py-0.5 font-mono-data text-[10px] uppercase ${
-            isARISOn ? "bg-red/15 text-red" : "border border-border text-muted hover:text-white"
-          }`}
+      <AppHeader
+        compact
+        backHref={mode === "replay" ? "/replay" : "/live"}
+        right={
+          <>
+            <span className="hidden font-mono-data text-[11px] font-semibold text-white sm:inline">
+              {session?.circuitName ?? "ARIS"} · {session?.year ?? ""}
+            </span>
+            <span className="font-mono-data text-[11px] text-muted">
+              Lap {currentLap} / {totalLaps}
+            </span>
+            <button
+              onClick={() => arisCapable && setARISOn(!isARISOn)}
+              disabled={!arisCapable}
+              title={!arisCapable ? "ARIS runs on Race and Sprint Race sessions only." : undefined}
+              className={`rounded px-2 py-0.5 font-mono-data text-[10px] uppercase ${
+                !arisCapable
+                  ? "cursor-not-allowed border border-border text-muted-2 opacity-50"
+                  : isARISOn
+                    ? "bg-red/15 text-red"
+                    : "border border-border text-muted hover:text-white"
+              }`}
+            >
+              {isARISOn ? `● ARIS ${arisMode}` : "○ ARIS OFF"}
+            </button>
+            <ConnectionStatus />
+            <button
+              onClick={() => growCanvas(CANVAS_HEIGHT_STEP)}
+              title="Grow the console downward so more panels fit without opening a new window"
+              className="rounded border border-border px-2 py-1 font-mono-data text-[10px] uppercase text-muted hover:border-white hover:text-white"
+            >
+              ⤓ More space
+            </button>
+            <AnalyticsCatalogue onAdd={handleAddPanel} />
+          </>
+        }
+      />
+      <div className="relative min-h-0 flex-1 overflow-y-auto">
+        <div className="relative" style={{ height: `calc(100% + ${extraHeight}px)` }}>
+          <Layout
+            ref={layoutRef}
+            model={model}
+            factory={factory}
+            onRenderTab={renderTabWithTearOff}
+            realtimeResize
+          />
+        </div>
+        <div
+          onPointerDown={handleGrowHandlePointerDown}
+          onDoubleClick={() => growCanvas(-extraHeightRef.current)}
+          title="Drag to grow the console downward, then scroll to arrange more panels. Double-click to reset."
+          className="sticky bottom-0 left-0 z-20 flex h-3 w-full cursor-row-resize select-none items-center justify-center gap-2 border-t border-border bg-surface-2 hover:bg-border"
         >
-          {isARISOn ? `● ARIS ${arisMode}` : "○ ARIS OFF"}
-        </button>
-        <span className="ml-auto" />
-        <ConnectionStatus />
-        <AnalyticsCatalogue onAdd={handleAddPanel} />
-      </div>
-      <div className="relative min-h-0 flex-1">
-        <Layout
-          ref={layoutRef}
-          model={model}
-          factory={factory}
-          onRenderTab={renderTabWithTearOff}
-          realtimeResize
-        />
+          <span className="h-0.5 w-8 rounded bg-muted-2" />
+          {extraHeight > 0 && (
+            <span className="font-mono-data text-[9px] text-muted-2">
+              +{extraHeight}px — scroll to see more, double-click to reset
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );

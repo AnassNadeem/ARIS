@@ -2,7 +2,7 @@
 
 import { useRaceStore } from "@/store/raceStore";
 
-const SPEEDS: (1 | 2 | 4 | 8 | 16)[] = [1, 2, 4, 8, 16];
+const SPEEDS: (1 | 2 | 4 | 8 | 16 | 25 | 50)[] = [1, 2, 4, 8, 16, 25, 50];
 
 export function PlaybackControls() {
   const consoleMode = useRaceStore((s) => s.consoleMode);

@@ -9,23 +9,25 @@ import type { RoundCard } from "@/lib/types";
 
 const YEARS = [2025, 2024, 2023, 2022, 2021, 2020, 2019, 2018];
 
-type SessionPill = { type: string; label: string; eligible: boolean };
+// FP/Quali sessions are replayable, but ARIS strategy scoring only applies to
+// Race and Sprint Race sessions — selecting one auto-disables ARIS.
+type SessionPill = { type: string; label: string; arisCapable: boolean };
 
 function sessionPillsFor(round: RoundCard): SessionPill[] {
   const base: SessionPill[] = round.isSprint
     ? [
-        { type: "FP1", label: "FP1", eligible: false },
-        { type: "SQ", label: "SQ", eligible: false },
-        { type: "S", label: "SPR", eligible: true },
-        { type: "Q", label: "Q", eligible: false },
-        { type: "R", label: "R", eligible: true },
+        { type: "FP1", label: "FP1", arisCapable: false },
+        { type: "SQ", label: "SQ", arisCapable: false },
+        { type: "S", label: "SPR", arisCapable: true },
+        { type: "Q", label: "Q", arisCapable: false },
+        { type: "R", label: "R", arisCapable: true },
       ]
     : [
-        { type: "FP1", label: "FP1", eligible: false },
-        { type: "FP2", label: "FP2", eligible: false },
-        { type: "FP3", label: "FP3", eligible: false },
-        { type: "Q", label: "Q", eligible: false },
-        { type: "R", label: "R", eligible: true },
+        { type: "FP1", label: "FP1", arisCapable: false },
+        { type: "FP2", label: "FP2", arisCapable: false },
+        { type: "FP3", label: "FP3", arisCapable: false },
+        { type: "Q", label: "Q", arisCapable: false },
+        { type: "R", label: "R", arisCapable: true },
       ];
   return base;
 }
@@ -33,12 +35,14 @@ function sessionPillsFor(round: RoundCard): SessionPill[] {
 export function SessionSelector({ onLoaded }: { onLoaded: () => void }) {
   const setSession = useRaceStore((s) => s.setSession);
   const setARISDriver = useRaceStore((s) => s.setARISDriver);
+  const setARISOn = useRaceStore((s) => s.setARISOn);
   const arisDriver = useRaceStore((s) => s.arisDriver);
 
   const [year, setYear] = useState(2024);
   const [rounds, setRounds] = useState<RoundCard[]>([]);
   const [round, setRound] = useState<RoundCard | null>(null);
   const [sessionType, setSessionType] = useState<string>("R");
+  const [sessionArisCapable, setSessionArisCapable] = useState(true);
   const [driver, setDriver] = useState<string>(arisDriver ?? "VER");
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -77,11 +81,15 @@ export function SessionSelector({ onLoaded }: { onLoaded: () => void }) {
   }
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-carbon/95 p-4 backdrop-blur-sm">
-      <div className="flex max-h-[92vh] w-full max-w-4xl flex-col gap-6 overflow-y-auto rounded-[8px] border border-border bg-surface p-6">
+    <main className="flex-1 bg-carbon px-6 py-10">
+      <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 rounded-[8px] border border-border bg-surface p-6">
         <div>
           <h2 className="font-mono-data text-xs uppercase tracking-[0.15em] text-muted">Session selector</h2>
           <h1 className="mt-1 text-2xl font-bold text-white">Load a race to replay</h1>
+          <p className="mt-1 font-mono-data text-[11px] text-muted-2">
+            Race and Sprint Race sessions support full ARIS strategy scoring. Practice and
+            Qualifying are replayable too, with ARIS off.
+          </p>
         </div>
 
         <div className="flex items-center gap-3">
@@ -123,21 +131,22 @@ export function SessionSelector({ onLoaded }: { onLoaded: () => void }) {
                     {pills.map((p) => (
                       <button
                         key={p.type}
-                        disabled={!p.eligible}
-                        title={!p.eligible ? "ARIS runs on Race and Sprint Race sessions only." : undefined}
+                        title={!p.arisCapable ? "Replayable — ARIS runs on Race and Sprint Race sessions only." : undefined}
                         onClick={() => {
                           setRound(r);
                           setSessionType(p.type);
+                          setSessionArisCapable(p.arisCapable);
+                          if (!p.arisCapable) setARISOn(false);
                         }}
                         className={`rounded px-1.5 py-0.5 font-mono-data text-[9px] ${
-                          !p.eligible
-                            ? "cursor-not-allowed text-muted-2"
-                            : selected && sessionType === p.type
-                              ? "bg-red text-white"
+                          selected && sessionType === p.type
+                            ? "bg-red text-white"
+                            : !p.arisCapable
+                              ? "bg-surface-2 text-muted hover:bg-border hover:text-white"
                               : "bg-surface-2 text-white hover:bg-border"
                         }`}
                       >
-                        {!p.eligible && "🔒 "}
+                        {!p.arisCapable && "◌ "}
                         {p.label}
                       </button>
                     ))}
@@ -169,7 +178,10 @@ export function SessionSelector({ onLoaded }: { onLoaded: () => void }) {
 
         <div>
           <div className="mb-2 font-mono-data text-xs uppercase text-muted">ARIS</div>
-          <ARISToggle />
+          <ARISToggle
+            disabled={!sessionArisCapable}
+            disabledReason="ARIS runs on Race and Sprint Race sessions only — this session will replay with ARIS off."
+          />
         </div>
 
         {loading ? (
@@ -189,6 +201,6 @@ export function SessionSelector({ onLoaded }: { onLoaded: () => void }) {
           </button>
         )}
       </div>
-    </div>
+    </main>
   );
 }

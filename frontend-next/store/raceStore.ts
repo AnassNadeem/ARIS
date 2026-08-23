@@ -28,7 +28,7 @@ export interface RaceStore {
 
   // Playback (replay only)
   isPlaying: boolean;
-  playbackSpeed: 1 | 2 | 4 | 8 | 16;
+  playbackSpeed: 1 | 2 | 4 | 8 | 16 | 25 | 50;
   scZones: { startLap: number; endLap: number; kind: "SC" | "VSC" | "RED" }[];
 
   // Connection
@@ -52,7 +52,7 @@ export interface RaceStore {
   setTotalLaps: (laps: number) => void;
   setRacePhase: (phase: RacePhase) => void;
   setIsPlaying: (playing: boolean) => void;
-  setPlaybackSpeed: (speed: 1 | 2 | 4 | 8 | 16) => void;
+  setPlaybackSpeed: (speed: 1 | 2 | 4 | 8 | 16 | 25 | 50) => void;
   setConnectionStatus: (status: RaceStore["connectionStatus"], lagMs?: number) => void;
   pushComms: (entry: CommsEntry) => void;
   setPendingRecommendation: (rec: ARISRecommendation | null) => void;

@@ -126,6 +126,18 @@ export interface RaceHistoryRow {
   raceRecord: string;
 }
 
+export interface RecentRaceCard {
+  year: number;
+  round: number;
+  circuitName: string;
+  countryFlag: string;
+  raceName: string;
+  date: string;
+  winner: string;
+  winnerCode: string;
+  sessionType: "R" | "S";
+}
+
 export interface NextRaceInfo {
   raceName: string;
   circuitName: string;
