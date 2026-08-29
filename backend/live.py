@@ -91,6 +91,8 @@ _GHOST_INFLIGHT: set[str] = set()
 # "ok" (DB data found, just no divergence yet) | "session_not_ingested" (no
 # usable ARIS-DB rows for this driver/session).
 _GHOST_STATUS: dict[str, str] = {}
+# Selected-plan override for ghost precompute: "{year}_{round}_{DRIVER}" → GhostPlan-like dict.
+_GHOST_PLAN: dict[str, dict[str, Any]] = {}
 
 GhostReason = str  # "no_driver_selected" | "session_not_ingested" | "no_divergence"
 
@@ -154,6 +156,31 @@ def _try_explain_ghost(year: Any, round_num: Any, session_key: int, focus: str) 
         len(ticks),
     )
     return True
+
+
+def _field_cum_from_pack(pack: dict | None) -> dict[int, dict[str, float]]:
+    """Cumulative classified lap times from a replay pack, keyed by lap then driver."""
+    from aris.ghost import field_cumulative_by_lap
+
+    per: dict[str, dict[int, float]] = {}
+    for row in (pack or {}).get("laps") or []:
+        if not isinstance(row, dict):
+            continue
+        code = str(row.get("driver_code") or "").upper()
+        lap = int(row.get("lap_number") or 0)
+        if not code or lap < 1:
+            continue
+        raw = row.get("lap_duration")
+        if raw is None:
+            raw = row.get("lap_time_s")
+        try:
+            t = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if t <= 0:
+            continue
+        per.setdefault(code, {})[lap] = t
+    return field_cumulative_by_lap(per)
 
 
 def _ghost_on_track(ghost: dict | None, positions: list, driver: str | None) -> dict | None:
@@ -234,21 +261,29 @@ def _ghost_at_lap(
     return None, "no_divergence"
 
 
-def _schedule_ghost_precompute(pack: dict, session_key: int, driver: str | None = None) -> None:
+def _schedule_ghost_precompute(
+    pack: dict, session_key: int, driver: str | None = None, plan: dict | None = None
+) -> None:
     session_type_str = str(pack.get("session_type") or "")
     if session_type_str not in ("R", "S"):
         return
     year = pack.get("year")
     round_num = pack.get("round_number")
     focus = str(driver).upper() if driver else ""
-    cache_key = _ghost_driver_key(year, round_num, focus) if focus else f"{year}_{round_num}_{session_key}"
+    cache_key = (
+        _ghost_driver_key(year, round_num, focus)
+        if focus
+        else f"{year}_{round_num}_{session_key}"
+    )
+    if plan and focus:
+        _GHOST_PLAN[cache_key] = plan
     if cache_key in _GHOST_CACHE or cache_key in _GHOST_INFLIGHT:
         return
     _GHOST_INFLIGHT.add(cache_key)
 
     async def _run() -> None:
         try:
-            await asyncio.to_thread(_precompute_ghost_sync, pack, session_key, driver)
+            await asyncio.to_thread(_precompute_ghost_sync, pack, session_key, driver, plan)
         finally:
             _GHOST_INFLIGHT.discard(cache_key)
 
@@ -256,16 +291,21 @@ def _schedule_ghost_precompute(pack: dict, session_key: int, driver: str | None 
         loop = asyncio.get_running_loop()
         loop.create_task(_run())
     except RuntimeError:
-        _precompute_ghost_sync(pack, session_key, driver)
+        _precompute_ghost_sync(pack, session_key, driver, plan)
         _GHOST_INFLIGHT.discard(cache_key)
 
 
-def _precompute_ghost_sync(pack: dict, session_key: int, driver_code: str | None = None) -> None:
+def _precompute_ghost_sync(
+    pack: dict,
+    session_key: int,
+    driver_code: str | None = None,
+    plan: dict | None = None,
+) -> None:
     """Sync helper (runs in thread pool) — build ghost cache from ARIS DB.
 
     Fetches laps for the requested driver (or the first pack driver),
-    infers ``real_action`` from the ``pit_in`` column, runs ``recommend()``
-    at each pre-pit inflection lap, then calls ``precompute_ghost_for_session``.
+    infers ``real_action`` from the ``pit_in`` column, then scores the ghost
+    against the selected plan when supplied, otherwise ``recommend()`` at lap 1.
 
     Fails silently when the ARIS DB has no data for this session (common for
     live sessions that haven't been ingested yet).
@@ -283,16 +323,20 @@ def _precompute_ghost_sync(pack: dict, session_key: int, driver_code: str | None
 
         codes: dict = pack.get("codes") or {}
         driver_codes = [str(c) for c in codes.values() if c]
-        focus = str(driver_code).upper() if driver_code else (driver_codes[0] if driver_codes else "")
+        focus = str(driver_code).upper() if driver_code else (
+            driver_codes[0] if driver_codes else ""
+        )
         if not focus:
             return
         per_driver_key = _ghost_driver_key(year, round_num, focus)
-        if per_driver_key in _GHOST_CACHE:
+        if plan:
+            _GHOST_PLAN[per_driver_key] = plan
+        else:
+            plan = _GHOST_PLAN.get(per_driver_key)
+        if per_driver_key in _GHOST_CACHE and not plan:
             return
 
         from aris.io import db as aris_db
-        from aris.recommend import recommend as aris_recommend
-        from aris.state import build_race_state
         from sqlalchemy import text as _sql
 
         db_eng = aris_db.engine()
@@ -367,28 +411,52 @@ def _precompute_ghost_sync(pack: dict, session_key: int, driver_code: str | None
                 }
             )
 
-        # Lights-out ARIS plan: recommend() once at lap 1 (retry lap 2 on reset).
+        # Lights-out plan: selected strategy if supplied, else recommend() at lap 1.
         aris_recs: list[dict] = []
-        for check_lap in (1, 2):
-            if check_lap > total_laps_val:
-                continue
-            try:
-                state = build_race_state(db_session_id, driver_id, check_lap)
-                rec_result = aris_recommend(state, top_k=3, mc_draws=0)
-                from aris.ghost import pick_strategy_recommendation
+        explicit = plan if isinstance(plan, dict) and plan.get("pit_laps") is not None else None
+        if explicit is not None:
+            pits = [int(x) for x in (explicit.get("pit_laps") or [])]
+            compounds = [
+                str(c)
+                for c in (explicit.get("compounds") or explicit.get("pit_compounds") or [])
+            ]
+            aris_recs.append(
+                {
+                    "lap": 1,
+                    "label": str(explicit.get("label") or explicit.get("name") or ""),
+                    "action": {
+                        "kind": "stay_out" if not pits else "pit_lap",
+                        "pit_laps": pits,
+                        "pit_compounds": compounds,
+                        "pit_lap": pits[0] if pits else None,
+                        "pit_compound": compounds[0] if compounds else "HARD",
+                    },
+                }
+            )
+        else:
+            from aris.recommend import recommend as aris_recommend
+            from aris.state import build_race_state
 
-                top = pick_strategy_recommendation(rec_result)
-                if top and str(top.get("label") or "") != "STRATEGY_RESET":
-                    aris_recs.append(
-                        {
-                            "lap": check_lap,
-                            "label": top.get("label") or "",
-                            "action": top.get("action") or {},
-                        }
-                    )
-                    break
-            except Exception:
-                continue
+            for check_lap in (1, 2):
+                if check_lap > total_laps_val:
+                    continue
+                try:
+                    state = build_race_state(db_session_id, driver_id, check_lap)
+                    rec_result = aris_recommend(state, top_k=3, mc_draws=0)
+                    from aris.ghost import pick_strategy_recommendation
+
+                    top = pick_strategy_recommendation(rec_result)
+                    if top and str(top.get("label") or "") != "STRATEGY_RESET":
+                        aris_recs.append(
+                            {
+                                "lap": check_lap,
+                                "label": top.get("label") or "",
+                                "action": top.get("action") or {},
+                            }
+                        )
+                        break
+                except Exception:
+                    continue
 
         country = str(pack.get("country") or pack.get("circuit") or "")
         if not country:
@@ -407,6 +475,8 @@ def _precompute_ghost_sync(pack: dict, session_key: int, driver_code: str | None
             "laps": laps_data,
             "total_laps": total_laps_val,
             "driver_id": driver_id,
+            "field_cum_by_lap": _field_cum_from_pack(pack),
+            "plan": explicit,
         }
 
         ghost_map = precompute_ghost_for_session(
@@ -415,6 +485,10 @@ def _precompute_ghost_sync(pack: dict, session_key: int, driver_code: str | None
             aris_recommendations=aris_recs,
         )
         if not ghost_map and _try_explain_ghost(year, round_num, session_key, driver_code):
+            return
+        latest_plan = _GHOST_PLAN.get(per_driver_key)
+        if latest_plan and not explicit:
+            # Selected plan arrived while recommend() was running — don't clobber.
             return
         _store_ghost_map(year, round_num, session_key, driver_code, ghost_map)
         _log.info(
@@ -1400,6 +1474,15 @@ def invalidate_replay_pack(session_key: int) -> None:
     except Exception:
         pass
     _log.info("replay pack invalidated session_key=%s keys=%s", session_key, sorted(keys))
+    if isinstance(pack, dict):
+        from backend.sessions import drop_pos_chunk_keys
+
+        drop_pos_chunk_keys(
+            pack.get("year"),
+            pack.get("round_number"),
+            pack.get("session_type"),
+            pack.get("pos_chunks") or (pack.get("ff1") or {}).get("pos_chunks"),
+        )
 
 
 def load_replay_pack_disk(
@@ -1509,6 +1592,7 @@ def hydrate_replay_pack_cache(
         if "stage" not in disk:
             disk["stage"] = "full" if _ff1_pack_ready(disk) else "minimal"
         _REPLAY_PACKS[session_key] = disk
+        ensure_replay_pos_chunk(disk, 1)
         _log.info(
             "key=%s memory_hit=False disk_hit=True stage=%s",
             key,
@@ -1602,6 +1686,10 @@ def _apply_ff1_to_pack(pack: dict[str, Any], ff1: dict[str, Any], *, synthetic_g
         ff1["synthetic_gps"] = True
     elif ff1.get("pos_samples"):
         ff1["synthetic_gps"] = False
+    if ff1.get("pos_chunks"):
+        pack["pos_chunks"] = list(ff1["pos_chunks"])
+    if ff1.get("pos_chunk_loaded"):
+        pack["pos_chunk_loaded"] = ff1["pos_chunk_loaded"]
     pack["ff1"] = ff1
     pack["source"] = "fastf1"
     pack["green_flag_s"] = _green_flag_s(pack.get("race_control") or [], pack.get("date_start"))
@@ -2259,12 +2347,13 @@ def _calendar_session_status(year: int | None, round_number: int | None, mapped:
 
 
 async def _staged_fastf1_fill(
-    pack: dict[str, Any], session_key: int, *, executor: Any = None
+    pack: dict[str, Any], session_key: int, *, executor: Any = None, include_gps: bool = True
 ) -> dict[str, Any]:
-    """Publish metadata → minimal (laps + map + synthetic GPS) → full (real GPS).
+    """Publish metadata → minimal (laps + map + synthetic GPS) → full (chunked GPS).
 
-    Caller holds the per-session pack lock. Waiters must not await that lock;
-    they poll `_REPLAY_PACKS` via `_wait_for_pack_stage`.
+    Caller holds the per-session pack lock for the minimal stage. GPS loads
+    after the lock is released so HTTP can keep serving. Waiters must not
+    await that lock; they poll `_REPLAY_PACKS` via `_wait_for_pack_stage`.
     """
     year = pack.get("year")
     rnd = pack.get("round_number")
@@ -2317,6 +2406,24 @@ async def _staged_fastf1_fill(
         save_replay_pack_disk(session_key, pack)
         return pack
 
+    if not include_gps:
+        return pack
+
+    return await _fill_gps_chunks(pack, session_key, executor=executor)
+
+
+async def _fill_gps_chunks(
+    pack: dict[str, Any], session_key: int, *, executor: Any = None
+) -> dict[str, Any]:
+    """Background GPS: position_data only, persisted as 10-lap chunks. No car_data."""
+    year = pack.get("year")
+    rnd = pack.get("round_number")
+    mapped = str(pack.get("session_type") or "R")
+    if not (year and rnd) or _ff1_pack_ready(pack):
+        return pack
+    from backend.sessions import log_process_mem
+
+    log_process_mem("before gps chunks")
     await _upgrade_pack_fastf1(
         session_key,
         int(year),
@@ -2338,6 +2445,7 @@ async def _staged_fastf1_fill(
         ensure_path_traces(pack)
         _set_pack_stage(pack, "full")
         save_replay_pack_disk(session_key, pack)
+    log_process_mem("after gps chunks")
     return pack
 
 
@@ -2426,6 +2534,11 @@ async def _run_pack_load(
         _log.info("Replay request for year %s — blocked (not in 2024–2026)", year)
         return _REPLAY_PACKS.get(session_key) or {}
     mapped = _normalize_session_type(session_type)
+    pack: dict[str, Any] = {}
+    need_gps = False
+    from backend.sessions import log_process_mem
+
+    log_process_mem("pack job start")
     try:
         async with _pack_lock(session_key):
             if refresh:
@@ -2457,75 +2570,99 @@ async def _run_pack_load(
                     memory_hit,
                     disk_hit,
                 )
-                return await _staged_fastf1_fill(cached, session_key, executor=executor)
-
-            pack_year = year
-            pack_round = round_number
-            start = end = None
-            if pack_year and pack_round:
-                start, end = calendar_session_window(int(pack_year), int(pack_round), mapped)
-            if end is None and start is not None:
-                end = start + timedelta(hours=_SESSION_HOURS.get(mapped, 1.5))
-            cold_load_started = time.monotonic()
-            _PACK_LOAD_STARTED[session_key] = cold_load_started
-            _PACK_LOAD_ERROR.pop(session_key, None)
-            cold_load_started_utc = datetime.now(timezone.utc).isoformat()
-            _log.info(
-                "Loading replay session %s via FastF1",
-                f"{pack_year} R{pack_round} {mapped}",
-            )
-            _log.info(
-                "replay pack MISS session_key=%s year=%s round=%s type=%s start_utc=%s — FastF1 only",
-                session_key,
-                pack_year,
-                pack_round,
-                mapped,
-                cold_load_started_utc,
-            )
-            pack = _new_replay_pack(session_key, pack_year, pack_round, mapped, start, end)
-            _REPLAY_PACKS[session_key] = pack
-            _set_pack_stage(pack, "metadata")
-
-            status = _calendar_session_status(pack_year, pack_round, mapped)
-            pack["session_status"] = status
-            if status != "COMPLETED":
-                _log.info(
-                    "replay session %s status=%s — skipping FastF1 (live uses OpenF1)",
-                    f"{pack_year} R{pack_round} {mapped}",
-                    status,
+                pack = await _staged_fastf1_fill(
+                    cached, session_key, executor=executor, include_gps=False
                 )
-                return pack
-
-            if pack_year and pack_round:
-                pack = await _staged_fastf1_fill(pack, session_key, executor=executor)
+                need_gps = not _ff1_pack_ready(pack)
             else:
-                _log.error("replay pack MISS needs year/round session_key=%s", session_key)
-            cold_load_elapsed = time.monotonic() - cold_load_started
-            _log.info(
-                "cold-load COMPLETE session_key=%s year=%s round=%s type=%s "
-                "start_utc=%s duration_s=%.2f stage=%s ready=%s",
-                session_key,
-                pack_year,
-                pack_round,
-                mapped,
-                cold_load_started_utc,
-                cold_load_elapsed,
-                replay_pack_stage(pack if isinstance(pack, dict) else {}),
-                _ff1_pack_ready(pack if isinstance(pack, dict) else {}),
+                pack, need_gps = await _cold_load_minimal(
+                    session_key, year, round_number, mapped, executor=executor
+                )
+        if need_gps:
+            pack = await _fill_gps_chunks(
+                _REPLAY_PACKS.get(session_key) or pack, session_key, executor=executor
             )
-            print(
-                f"[ARIS] cold-load {pack_year} R{pack_round} {mapped} "
-                f"duration_s={cold_load_elapsed:.2f} session_key={session_key} "
-                f"stage={replay_pack_stage(pack if isinstance(pack, dict) else {})}",
-                flush=True,
-            )
-            return _REPLAY_PACKS.get(session_key) or pack
+        return _REPLAY_PACKS.get(session_key) or pack
     except Exception:
         _log.exception("replay pack job failed session_key=%s", session_key)
         _PACK_LOAD_ERROR[session_key] = f"FastF1 replay load failed for session_key={session_key}"
         return _REPLAY_PACKS.get(session_key) or {}
     finally:
         _FF1_UPGRADE_INFLIGHT.discard(session_key)
+
+
+async def _cold_load_minimal(
+    session_key: int,
+    year: int | None,
+    round_number: int | None,
+    mapped: str,
+    *,
+    executor: Any = None,
+) -> tuple[dict[str, Any], bool]:
+    """Metadata → minimal under the pack lock. GPS is filled after the lock drops."""
+    pack_year = year
+    pack_round = round_number
+    start = end = None
+    if pack_year and pack_round:
+        start, end = calendar_session_window(int(pack_year), int(pack_round), mapped)
+    if end is None and start is not None:
+        end = start + timedelta(hours=_SESSION_HOURS.get(mapped, 1.5))
+    cold_load_started = time.monotonic()
+    _PACK_LOAD_STARTED[session_key] = cold_load_started
+    _PACK_LOAD_ERROR.pop(session_key, None)
+    cold_load_started_utc = datetime.now(timezone.utc).isoformat()
+    _log.info(
+        "Loading replay session %s via FastF1",
+        f"{pack_year} R{pack_round} {mapped}",
+    )
+    _log.info(
+        "replay pack MISS session_key=%s year=%s round=%s type=%s start_utc=%s — FastF1 only",
+        session_key,
+        pack_year,
+        pack_round,
+        mapped,
+        cold_load_started_utc,
+    )
+    pack = _new_replay_pack(session_key, pack_year, pack_round, mapped, start, end)
+    _REPLAY_PACKS[session_key] = pack
+    _set_pack_stage(pack, "metadata")
+
+    status = _calendar_session_status(pack_year, pack_round, mapped)
+    pack["session_status"] = status
+    if status != "COMPLETED":
+        _log.info(
+            "replay session %s status=%s — skipping FastF1 (live uses OpenF1)",
+            f"{pack_year} R{pack_round} {mapped}",
+            status,
+        )
+        return pack, False
+
+    if pack_year and pack_round:
+        pack = await _staged_fastf1_fill(
+            pack, session_key, executor=executor, include_gps=False
+        )
+    else:
+        _log.error("replay pack MISS needs year/round session_key=%s", session_key)
+    cold_load_elapsed = time.monotonic() - cold_load_started
+    _log.info(
+        "cold-load COMPLETE session_key=%s year=%s round=%s type=%s "
+        "start_utc=%s duration_s=%.2f stage=%s ready=%s",
+        session_key,
+        pack_year,
+        pack_round,
+        mapped,
+        cold_load_started_utc,
+        cold_load_elapsed,
+        replay_pack_stage(pack if isinstance(pack, dict) else {}),
+        _ff1_pack_ready(pack if isinstance(pack, dict) else {}),
+    )
+    print(
+        f"[ARIS] cold-load {pack_year} R{pack_round} {mapped} "
+        f"duration_s={cold_load_elapsed:.2f} session_key={session_key} "
+        f"stage={replay_pack_stage(pack if isinstance(pack, dict) else {})}",
+        flush=True,
+    )
+    return pack, not _ff1_pack_ready(pack)
 
 
 async def _ensure_replay_pack(
@@ -2813,7 +2950,78 @@ def _ff1_pack_ready(pack: dict[str, Any]) -> bool:
     ff1 = pack.get("ff1") or {}
     if ff1.get("synthetic_gps"):
         return False
-    return pack.get("source") == "fastf1" and bool(ff1.get("pos_samples"))
+    if pack.get("source") == "fastf1" and bool(ff1.get("pos_samples")):
+        return True
+    chunks = pack.get("pos_chunks") or ff1.get("pos_chunks") or []
+    return pack.get("source") == "fastf1" and bool(chunks)
+
+
+def _pos_chunk_tuple(item: Any) -> tuple[int, int] | None:
+    if isinstance(item, dict):
+        return int(item.get("lo") or 0), int(item.get("hi") or 0)
+    if isinstance(item, (list, tuple)) and len(item) >= 2:
+        return int(item[0]), int(item[1])
+    return None
+
+
+def _apply_pos_chunk_to_pack(pack: dict[str, Any], lo: int, hi: int, samples: dict[str, Any]) -> None:
+    ff1 = dict(pack.get("ff1") or {})
+    ff1["pos_samples"] = samples
+    ff1["synthetic_gps"] = False
+    ff1["pos_chunk_loaded"] = {"lo": int(lo), "hi": int(hi)}
+    pack["ff1"] = ff1
+    pack["pos_chunk_loaded"] = {"lo": int(lo), "hi": int(hi)}
+    pack["source"] = "fastf1"
+    pack.pop("path_traces", None)
+    pack.pop("path_traces_v", None)
+    if pack.get("path_x"):
+        ensure_path_traces(pack)
+
+
+def ensure_replay_pos_chunk(pack: dict[str, Any], lap: int) -> dict[str, Any]:
+    """Swap the in-memory GPS window for `lap`. Disk only — never FastF1."""
+    from backend.sessions import load_pos_chunk_disk, pos_chunk_range_for_lap
+
+    year = pack.get("year")
+    rnd = pack.get("round_number")
+    mapped = str(pack.get("session_type") or "R")
+    if not (year and rnd):
+        return pack
+    lo, hi = pos_chunk_range_for_lap(lap)
+    loaded = pack.get("pos_chunk_loaded") or (pack.get("ff1") or {}).get("pos_chunk_loaded")
+    if isinstance(loaded, dict) and int(loaded.get("lo") or -1) == lo and int(loaded.get("hi") or -1) == hi:
+        return pack
+    samples = load_pos_chunk_disk(int(year), int(rnd), mapped, lo, hi)
+    if not samples:
+        return pack
+    _apply_pos_chunk_to_pack(pack, lo, hi, samples)
+    return pack
+
+
+async def peek_replay_pos_chunk(
+    session_key: int,
+    lap: int,
+    year: int | None = None,
+    round_number: int | None = None,
+    session_type: str | None = None,
+) -> dict[str, Any]:
+    """Prefetch endpoint: load the 10-lap GPS window for `lap` from disk."""
+    decoded = decode_synthetic_session_key(session_key)
+    if decoded is not None:
+        year = year or decoded[0]
+        round_number = round_number or decoded[1]
+        if not session_type:
+            session_type = decoded[2]
+    hydrate_replay_pack_cache(session_key, year, round_number, session_type, log_hits=False)
+    pack = _REPLAY_PACKS.get(session_key) or {}
+    ensure_replay_pos_chunk(pack, int(lap))
+    loaded = pack.get("pos_chunk_loaded")
+    return {
+        "session_key": session_key,
+        "lap": int(lap),
+        "pos_chunk_loaded": loaded,
+        "ok": bool(loaded),
+    }
 
 
 def _schedule_ff1_upgrade(pack: dict[str, Any], session_key: int) -> None:
@@ -3325,6 +3533,7 @@ def precompute_ghost_for_session(
     try:
         from aris.ghost import (
             GhostPlan,
+            plan_from_pits,
             schedule_from_recommendation,
             score_parallel_ghost,
         )
@@ -3354,7 +3563,15 @@ def precompute_ghost_for_session(
         plan_rec = min(recs, key=lambda r: int(r.get("lap") or 10**9))
 
     decision_lap = int((plan_rec or {}).get("lap") or 1)
-    if plan_rec:
+    explicit = session_data.get("plan")
+    if isinstance(explicit, dict) and explicit.get("pit_laps") is not None:
+        plan = plan_from_pits(
+            list(explicit.get("pit_laps") or []),
+            list(explicit.get("compounds") or explicit.get("pit_compounds") or []),
+            start_compound,
+            label=str(explicit.get("label") or explicit.get("name") or ""),
+        )
+    elif plan_rec:
         plan = schedule_from_recommendation(
             plan_rec, start_compound=start_compound, lap_number=decision_lap
         )
@@ -3396,7 +3613,138 @@ def precompute_ghost_for_session(
         lap_rows=ordered,
         plan=plan,
         typical_lap_s=typical,
+        field_cum_by_lap=session_data.get("field_cum_by_lap") or None,
     )
+
+
+def recompute_ghost_from_plan(
+    *,
+    year: int,
+    round_number: int,
+    driver: str,
+    current_lap: int,
+    pit_laps: list[int],
+    compounds: list[str],
+    session_key: int | None = None,
+    label: str = "",
+) -> dict[str, Any]:
+    """Recompute ghost ticks from ``current_lap`` under a new pit schedule.
+
+    Ticks before ``current_lap`` are kept from the cached original plan.
+    Fast when a replay pack is already warm (no FastF1 fetch).
+    """
+    from aris.ghost import r2_ghost_tick
+
+    code = str(driver).upper()
+    pack: dict | None = None
+    if session_key:
+        pack = _REPLAY_PACKS.get(int(session_key))
+    if pack is None:
+        for _key, candidate in list(_REPLAY_PACKS.items()):
+            if not isinstance(candidate, dict):
+                continue
+            if int(candidate.get("year") or 0) == int(year) and int(
+                candidate.get("round_number") or 0
+            ) == int(round_number):
+                pack = candidate
+                session_key = int(_key) if session_key is None else int(session_key)
+                break
+    if pack is None:
+        raise RuntimeError("replay pack not warm — load the race before ghost-recompute")
+
+    sk = int(session_key or pack.get("session_key") or 0)
+    plan = {
+        "pit_laps": [int(x) for x in pit_laps],
+        "compounds": [str(c) for c in compounds],
+        "label": label,
+    }
+    cache_key = _ghost_driver_key(year, round_number, code)
+    prior = dict(_GHOST_CACHE.get(cache_key) or {})
+    session_data = _session_data_from_pack(pack, code, sk, plan)
+    if not session_data.get("laps"):
+        raise RuntimeError("pack has no laps for ghost recompute")
+    fresh = precompute_ghost_for_session(session_data, code, [])
+    if not fresh:
+        raise RuntimeError("ghost recompute produced no ticks")
+    lap_cut = max(1, int(current_lap))
+    merged: dict[int, dict | None] = {}
+    for lap, tick in prior.items():
+        if int(lap) < lap_cut:
+            merged[int(lap)] = tick
+    for lap, tick in fresh.items():
+        if int(lap) >= lap_cut:
+            merged[int(lap)] = tick
+    _GHOST_PLAN[cache_key] = plan
+    _store_ghost_map(year, round_number, sk, code, merged)
+    ticks_out = []
+    for lap in sorted(k for k in merged if int(k) >= lap_cut):
+        tick = merged.get(int(lap))
+        if not isinstance(tick, dict):
+            continue
+        ticks_out.append(r2_ghost_tick(int(lap), tick, plan["pit_laps"]))
+    return {
+        "driver": code,
+        "year": int(year),
+        "round": int(round_number),
+        "current_lap": lap_cut,
+        "strategy": {
+            "pit_laps": plan["pit_laps"],
+            "compounds": plan["compounds"],
+            "label": label,
+        },
+        "ticks": ticks_out,
+    }
+
+
+def _session_data_from_pack(
+    pack: dict, driver: str, session_key: int, plan: dict | None = None
+) -> dict[str, Any]:
+    """Build precompute_ghost_for_session input from a warm replay pack (no DB)."""
+    code = str(driver).upper()
+    laps_data: list[dict] = []
+    for row in pack.get("laps") or []:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("driver_code") or "").upper() != code:
+            continue
+        lap_n = int(row.get("lap_number") or 0)
+        if lap_n < 1:
+            continue
+        pit_in = bool(row.get("is_pit_in_lap") or row.get("pit_in"))
+        compound = str(row.get("compound") or "HARD")
+        dur = row.get("lap_duration")
+        if dur is None:
+            dur = row.get("lap_time_s")
+        try:
+            lap_s = float(dur) if dur is not None else None
+        except (TypeError, ValueError):
+            lap_s = None
+        laps_data.append(
+            {
+                "lap_number": lap_n,
+                "real_action": f"PIT_NOW_{compound.upper()}" if pit_in else "STAY_OUT",
+                "compound": compound,
+                "tyre_life": int(row.get("tyre_life") or 1),
+                "fuel_kg": 30.0,
+                "position": int(row.get("position") or 10),
+                "lap_time_s": lap_s,
+                "track_status": str(row.get("track_status") or "1"),
+            }
+        )
+    return {
+        "session_key": session_key,
+        "session_type": str(pack.get("session_type") or "R"),
+        "year": int(pack.get("year") or 0),
+        "round_no": int(pack.get("round_number") or 0),
+        "country": str(pack.get("country") or pack.get("circuit") or ""),
+        "laps": laps_data,
+        "total_laps": int(
+            pack.get("total_laps") or max((r["lap_number"] for r in laps_data), default=0)
+        ),
+        "driver_id": 0,
+        "field_cum_by_lap": _field_cum_from_pack(pack),
+        "plan": plan,
+    }
 
 
 async def replay_frame(
@@ -3427,6 +3775,14 @@ async def replay_frame(
     windows_raw = ff1.get("quali_windows") or quali_windows_for_session_type(str(pack.get("session_type") or ""))
     phase = _quali_phase(windows_raw, elapsed) if windows_raw else None
     laps = _laps_upto(pack.get("laps") or [], clock)
+    race_lap = _current_race_lap(
+        pack.get("laps") or [],
+        clock,
+        start,
+        _race_start_s(pack) if str(pack.get("session_type") or "") in {"R", "S"} else pack.get("green_flag_s"),
+    )
+    ensure_replay_pos_chunk(pack, race_lap)
+    ff1 = pack.get("ff1") or {}
     weather_row = _weather_at(pack.get("weather") or [], clock)
     rc_upto = []
     for row in pack.get("race_control") or []:
@@ -3988,6 +4344,9 @@ def _pack_status_payload(
             if str(pack.get("session_type") or session_type or "") in {"R", "S"}
             else pack.get("green_flag_s")
         ),
+        "pos_chunks": pack.get("pos_chunks") or (pack.get("ff1") or {}).get("pos_chunks") or [],
+        "pos_chunk_loaded": pack.get("pos_chunk_loaded")
+        or (pack.get("ff1") or {}).get("pos_chunk_loaded"),
     }
 
 
@@ -4496,7 +4855,7 @@ async def live_laps(
     as_of: datetime | None = None, replay_session_key: int | None = None
 ) -> LiveLapsResponse:
     if replay_session_key is not None:
-        pack = await _ensure_replay_pack(replay_session_key)
+        pack = await _ensure_replay_pack(replay_session_key, wait_for="minimal")
         clock = now_utc(as_of) if as_of is not None else pack.get("date_end")
         if not isinstance(clock, datetime):
             clock = now_utc()
@@ -4626,7 +4985,7 @@ async def live_telemetry(
 ) -> LiveTelemetryResponse:
     want = driver_code.upper()
     if replay_session_key is not None:
-        pack = await _ensure_replay_pack(replay_session_key)
+        pack = await _ensure_replay_pack(replay_session_key, wait_for="minimal")
         clock = now_utc(as_of) if as_of is not None else pack.get("date_end")
         if not isinstance(clock, datetime):
             clock = now_utc()
@@ -4695,7 +5054,7 @@ async def live_race_control(
     as_of: datetime | None = None, replay_session_key: int | None = None
 ) -> LiveRaceControlResponse:
     if replay_session_key is not None:
-        pack = await _ensure_replay_pack(replay_session_key)
+        pack = await _ensure_replay_pack(replay_session_key, wait_for="minimal")
         clock = now_utc(as_of) if as_of is not None else pack.get("date_end")
         messages: list[RaceControlMessage] = []
         for row in pack.get("race_control") or []:
@@ -4744,7 +5103,7 @@ async def live_stints(
     as_of: datetime | None = None, replay_session_key: int | None = None
 ) -> LiveStintsResponse:
     if replay_session_key is not None:
-        pack = await _ensure_replay_pack(replay_session_key)
+        pack = await _ensure_replay_pack(replay_session_key, wait_for="minimal")
         clock = now_utc(as_of) if as_of is not None else pack.get("date_end")
         if not isinstance(clock, datetime):
             clock = now_utc()
@@ -4795,7 +5154,7 @@ async def live_weather(
     status: LiveStatus | None = None,
 ) -> LiveWeatherResponse:
     if replay_session_key is not None:
-        pack = await _ensure_replay_pack(replay_session_key)
+        pack = await _ensure_replay_pack(replay_session_key, wait_for="minimal")
         clock = now_utc(as_of) if as_of is not None else pack.get("date_end")
         row = _weather_at(pack.get("weather") or [], clock if isinstance(clock, datetime) else None)
         return _weather_from_row(row, is_live=True)

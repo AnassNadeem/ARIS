@@ -1,0 +1,53 @@
+name: prebuild-race-r2
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Monday 18:00 UTC — every race Sunday has ended by Monday morning.
+    - cron: "0 18 * * 1"
+  push:
+    branches: [main]
+    paths:
+      - "scripts/prebuild_race_r2.py"
+      - "deploy/r2_upload.py"
+      - ".github/workflows/prebuild_race.yml"
+
+jobs:
+  prebuild:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install script dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install fastf1 boto3 pandas numpy pydantic sqlalchemy \
+            "psycopg[binary]" python-dotenv scikit-learn pyyaml httpx diskcache requests
+
+      - name: Prebuild completed races
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          ARIS_DB_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python scripts/prebuild_race_r2.py --all-completed --skip-existing
+
+      - name: Upload any remaining local JSON
+        if: always()
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+        run: |
+          python deploy/r2_upload.py --path replay/ || true

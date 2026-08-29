@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import gc
 import logging
+import os
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -54,6 +56,141 @@ def _pack_cache_key(year: int, round_number: int, session_type: str) -> str:
     """Stable replay-pack / FastF1 session key — same string for read and write."""
     stype = str(session_type or "R").upper()
     return f"replay_pack_v1:{int(year)}:{int(round_number)}:{stype}"
+
+
+POS_CHUNK_LAPS = 10
+
+
+def process_rss_mb() -> int:
+    """Current process RSS in megabytes. 0 if the platform cannot report it."""
+    try:
+        if os.name == "nt":
+            import ctypes
+            from ctypes import POINTER, byref, sizeof, wintypes
+
+            class _PROCESS_MEMORY_COUNTERS(ctypes.Structure):
+                _fields_ = [
+                    ("cb", wintypes.DWORD),
+                    ("PageFaultCount", wintypes.DWORD),
+                    ("PeakWorkingSetSize", ctypes.c_size_t),
+                    ("WorkingSetSize", ctypes.c_size_t),
+                    ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                    ("PagefileUsage", ctypes.c_size_t),
+                    ("PeakPagefileUsage", ctypes.c_size_t),
+                ]
+
+            fn = ctypes.windll.kernel32.K32GetProcessMemoryInfo
+            fn.restype = wintypes.BOOL
+            fn.argtypes = [wintypes.HANDLE, POINTER(_PROCESS_MEMORY_COUNTERS), wintypes.DWORD]
+            counters = _PROCESS_MEMORY_COUNTERS()
+            counters.cb = sizeof(_PROCESS_MEMORY_COUNTERS)
+            if fn(ctypes.windll.kernel32.GetCurrentProcess(), byref(counters), counters.cb):
+                return int(counters.WorkingSetSize / (1024 * 1024))
+            return 0
+        with open("/proc/self/status", encoding="utf-8") as fh:
+            for line in fh:
+                if line.startswith("VmRSS:"):
+                    return int(line.split()[1]) // 1024
+    except Exception:
+        pass
+    return 0
+
+
+def log_process_mem(tag: str = "") -> int:
+    """Emit `Process running mem=XXX` for Heroku logs. Returns RSS MB."""
+    mb = process_rss_mb()
+    suffix = f" {tag}" if tag else ""
+    msg = f"Process running mem={mb}MB{suffix}"
+    _log.info(msg)
+    print(msg, flush=True)
+    return mb
+
+
+def pos_chunk_cache_key(year: int, round_number: int, session_type: str, lo: int, hi: int) -> str:
+    """Disk key for a 10-lap position window, e.g. replay_pack_v1:2025:15:R:pos:0-10."""
+    return f"{_pack_cache_key(year, round_number, session_type)}:pos:{int(lo)}-{int(hi)}"
+
+
+def pos_chunk_range_for_lap(lap: int) -> tuple[int, int]:
+    """Half-open lap window covering `lap` (1-indexed). Lap 1–10 → (0, 10)."""
+    n = max(1, int(lap))
+    lo = ((n - 1) // POS_CHUNK_LAPS) * POS_CHUNK_LAPS
+    return lo, lo + POS_CHUNK_LAPS
+
+
+def iter_pos_chunk_ranges(max_lap: int) -> list[tuple[int, int]]:
+    max_lap = max(1, int(max_lap or 1))
+    return [(lo, lo + POS_CHUNK_LAPS) for lo in range(0, max_lap, POS_CHUNK_LAPS)]
+
+
+def save_pos_chunk_disk(
+    year: int,
+    round_number: int,
+    session_type: str,
+    lo: int,
+    hi: int,
+    pos_samples: dict[str, list[Any]],
+) -> bool:
+    key = pos_chunk_cache_key(year, round_number, session_type, lo, hi)
+    try:
+        from backend.cache import get_disk
+
+        get_disk().set(
+            key,
+            {"pos_samples": pos_samples, "lo": int(lo), "hi": int(hi)},
+            expire=None,
+        )
+        _log.info("pos chunk SAVE key=%s drivers=%s", key, len(pos_samples))
+        return True
+    except Exception:
+        _log.exception("pos chunk SAVE failed key=%s", key)
+        return False
+
+
+def load_pos_chunk_disk(
+    year: int, round_number: int, session_type: str, lo: int, hi: int
+) -> dict[str, list[Any]] | None:
+    key = pos_chunk_cache_key(year, round_number, session_type, lo, hi)
+    try:
+        from backend.cache import get_disk
+
+        stored = get_disk().get(key)
+    except Exception:
+        return None
+    if isinstance(stored, dict) and isinstance(stored.get("pos_samples"), dict):
+        return stored["pos_samples"]
+    return None
+
+
+def drop_pos_chunk_keys(
+    year: int | None,
+    round_number: int | None,
+    session_type: str | None,
+    ranges: list[Any] | None,
+) -> None:
+    if not (year and round_number and ranges):
+        return
+    try:
+        from backend.cache import get_disk
+
+        store = get_disk()
+    except Exception:
+        return
+    mapped = str(session_type or "R")
+    for item in ranges:
+        if isinstance(item, dict):
+            lo, hi = int(item.get("lo") or 0), int(item.get("hi") or 0)
+        elif isinstance(item, (list, tuple)) and len(item) >= 2:
+            lo, hi = int(item[0]), int(item[1])
+        else:
+            continue
+        try:
+            store.pop(pos_chunk_cache_key(int(year), int(round_number), mapped, lo, hi), default=None)
+        except Exception:
+            pass
 
 
 def _scheduled_laps(year: int, round_number: int) -> int | None:
@@ -1820,6 +1957,192 @@ def _ff1_clock_bounds(
     return t0, last_end
 
 
+def _lap_start_epochs(laps_rows: list[dict[str, Any]]) -> dict[int, float]:
+    starts: dict[int, float] = {}
+    for row in laps_rows:
+        n = int(row.get("lap_number") or 0)
+        if n <= 0:
+            continue
+        start = _parse_maybe_dt(row.get("date_start"))
+        if start is None:
+            continue
+        t = start.timestamp()
+        prev = starts.get(n)
+        if prev is None or t < prev:
+            starts[n] = t
+    return starts
+
+
+def pos_chunk_time_window(
+    starts: dict[int, float], lo: int, hi: int
+) -> tuple[float | None, float | None]:
+    """Inclusive start / exclusive end timestamps for a pos chunk.
+
+    Chunk (0, 10) includes formation-lap samples (t0 is None). Chunk (10, 20)
+    starts at the first lap-11 timestamp.
+    """
+    t0 = starts.get(int(lo) + 1) if int(lo) > 0 else None
+    t1 = starts.get(int(hi) + 1)
+    return t0, t1
+
+
+def slice_pos_samples(
+    pos_samples: dict[str, list[Any]],
+    t0: float | None,
+    t1: float | None,
+) -> dict[str, list[Any]]:
+    out: dict[str, list[Any]] = {}
+    for code, samples in (pos_samples or {}).items():
+        kept: list[Any] = []
+        for row in samples or []:
+            try:
+                t = float(row[0])
+            except (TypeError, ValueError, IndexError):
+                continue
+            if t0 is not None and t < t0:
+                continue
+            if t1 is not None and t >= t1:
+                continue
+            kept.append(row)
+        if kept:
+            out[str(code)] = kept
+    return out
+
+
+def persist_pos_chunks(
+    year: int,
+    round_number: int,
+    session_type: str,
+    pos_samples: dict[str, list[Any]],
+    laps_rows: list[dict[str, Any]],
+) -> list[dict[str, int]]:
+    """Slice full GPS into 10-lap windows and cache each separately.
+
+    Returns the catalog ``[{lo, hi}, ...]``. The caller should keep only the
+    first window in the in-memory pack.
+    """
+    max_lap = 1
+    for row in laps_rows or []:
+        try:
+            max_lap = max(max_lap, int(row.get("lap_number") or 0))
+        except (TypeError, ValueError):
+            continue
+    starts = _lap_start_epochs(laps_rows)
+    catalog: list[dict[str, int]] = []
+    mapped = str(session_type or "R")
+    for lo, hi in iter_pos_chunk_ranges(max_lap):
+        t0, t1 = pos_chunk_time_window(starts, lo, hi)
+        chunk = slice_pos_samples(pos_samples, t0, t1)
+        save_pos_chunk_disk(int(year), int(round_number), mapped, lo, hi, chunk)
+        catalog.append({"lo": lo, "hi": hi})
+    return catalog
+
+
+def _parse_one_pos_df(
+    df: Any,
+    drv_key: Any,
+    code_by_num: dict[int, str],
+    bounds: CircuitMapBounds | None,
+    pos_cap: int,
+) -> tuple[str, list[tuple[float, float, float, str]]] | None:
+    if df is None or getattr(df, "empty", True) or "X" not in getattr(df, "columns", []):
+        return None
+    code = code_by_num.get(int(drv_key)) if str(drv_key).isdigit() else str(drv_key)
+    if not code:
+        code = str(drv_key)
+    n = len(df)
+    step = _ff1_keep_step(n, pos_cap)
+    samples: list[tuple[float, float, float, str]] = []
+    last_kept: float | None = None
+    for i in range(0, n, step):
+        rec = df.iloc[i]
+        ts = _parse_maybe_dt(rec["Date"] if "Date" in df.columns else None)
+        if ts is None:
+            continue
+        t = ts.timestamp()
+        if last_kept is not None and (t - last_kept) < _FF1_POS_MIN_DT and i + step < n:
+            continue
+        last_kept = t
+        raw_x = float(rec["X"]) if pd.notna(rec["X"]) else 0.0
+        raw_y = float(rec["Y"]) if pd.notna(rec["Y"]) else 0.0
+        if bounds is not None:
+            px, py = _apply_bounds(raw_x, raw_y, bounds)
+        else:
+            px, py = raw_x, raw_y
+        st = str(rec["Status"]) if "Status" in df.columns and pd.notna(rec.get("Status")) else "OnTrack"
+        samples.append((t, px, py, st))
+    if n > 0 and samples:
+        rec = df.iloc[n - 1]
+        ts = _parse_maybe_dt(rec["Date"] if "Date" in df.columns else None)
+        if ts is not None and samples[-1][0] < ts.timestamp() - 1e-6:
+            raw_x = float(rec["X"]) if pd.notna(rec["X"]) else 0.0
+            raw_y = float(rec["Y"]) if pd.notna(rec["Y"]) else 0.0
+            px, py = _apply_bounds(raw_x, raw_y, bounds) if bounds is not None else (raw_x, raw_y)
+            st = str(rec["Status"]) if "Status" in df.columns and pd.notna(rec.get("Status")) else "OnTrack"
+            samples.append((ts.timestamp(), px, py, st))
+    if not samples:
+        return None
+    return str(code), samples
+
+
+def load_position_data_only(sess: Any) -> dict[str, Any]:
+    """FastF1 ``position_data`` without ever fetching ``car_data``."""
+    from fastf1 import api
+
+    try:
+        return api.position_data(sess.api_path) or {}
+    except Exception as extra:
+        _log.info("FastF1 position_data unavailable: %s", extra)
+        return {}
+
+
+def parse_and_chunk_position_data(
+    sess: Any,
+    year: int,
+    round_number: int,
+    session_type: str,
+    bounds: CircuitMapBounds | None,
+    code_by_num: dict[int, str],
+    laps_rows: list[dict[str, Any]],
+    *,
+    pos_cap: int | None = None,
+) -> tuple[dict[str, list[tuple[float, float, float, str]]], list[dict[str, int]]]:
+    """Load GPS, persist 10-lap chunks, return the first chunk + catalog.
+
+    Never loads car_data. Drops FastF1 dataframes as each driver is parsed.
+    """
+    log_process_mem("before position_data")
+    raw = load_position_data_only(sess)
+    cap = int(pos_cap) if pos_cap else _FF1_POS_CAP
+    pos_samples: dict[str, list[tuple[float, float, float, str]]] = {}
+    try:
+        for drv_key in list(raw.keys()):
+            df = raw.pop(drv_key, None)
+            try:
+                parsed = _parse_one_pos_df(df, drv_key, code_by_num, bounds, cap)
+            finally:
+                del df
+            if parsed is None:
+                continue
+            code, samples = parsed
+            pos_samples[code] = samples
+    finally:
+        raw.clear()
+        gc.collect()
+    log_process_mem("after position_data parse")
+    catalog = persist_pos_chunks(year, round_number, session_type, pos_samples, laps_rows)
+    first: dict[str, list[tuple[float, float, float, str]]] = {}
+    if catalog:
+        lo, hi = int(catalog[0]["lo"]), int(catalog[0]["hi"])
+        starts = _lap_start_epochs(laps_rows)
+        t0, t1 = pos_chunk_time_window(starts, lo, hi)
+        first = slice_pos_samples(pos_samples, t0, t1)
+    pos_samples.clear()
+    gc.collect()
+    log_process_mem("after pos chunk persist")
+    return first, catalog
+
+
 def build_ff1_replay_assets(
     year: int,
     round_number: int,
@@ -1857,7 +2180,7 @@ def build_ff1_replay_assets(
                 year,
                 round_number,
                 cand,
-                telemetry=telemetry,
+                telemetry=False,
                 weather=weather,
                 messages=messages,
             )
@@ -1992,122 +2315,29 @@ def build_ff1_replay_assets(
         except Exception as extra:
             _log.info("FastF1 weather parse failed: %s", extra)
 
-    def _pedal_pct(value: Any, *, binary_ok: bool = False) -> float:
-        if value is True:
-            return 100.0
-        if value is False or value is None:
-            return 0.0
-        try:
-            if pd.isna(value):
-                return 0.0
-        except (TypeError, ValueError):
-            pass
-        try:
-            raw = float(value)
-        except (TypeError, ValueError):
-            return 0.0
-        if binary_ok and raw in (0.0, 1.0):
-            return 100.0 if raw == 1.0 else 0.0
-        return max(0.0, min(100.0, raw))
-
     pos_samples: dict[str, list[tuple[float, float, float, str]]] = {}
     car_samples: dict[str, list[tuple[float, float, float, float, float]]] = {}
+    pos_chunks: list[dict[str, int]] = []
+    pos_chunk_loaded: dict[str, int] | None = None
     if telemetry:
         t_gps = time.monotonic()
-        pos_data = getattr(sess, "pos_data", None) or {}
         try:
-            for drv_key, df in pos_data.items():
-                if df is None or getattr(df, "empty", True) or "X" not in df.columns:
-                    continue
-                code = code_by_num.get(int(drv_key)) if str(drv_key).isdigit() else str(drv_key)
-                if not code:
-                    code = str(drv_key)
-                n = len(df)
-                cap = int(pos_cap) if pos_cap else _FF1_POS_CAP
-                step = _ff1_keep_step(n, cap)
-                samples: list[tuple[float, float, float, str]] = []
-                last_kept: float | None = None
-                for i in range(0, n, step):
-                    rec = df.iloc[i]
-                    ts = _parse_maybe_dt(rec["Date"] if "Date" in df.columns else None)
-                    if ts is None:
-                        continue
-                    t = ts.timestamp()
-                    if last_kept is not None and (t - last_kept) < _FF1_POS_MIN_DT and i + step < n:
-                        continue
-                    last_kept = t
-                    raw_x = float(rec["X"]) if pd.notna(rec["X"]) else 0.0
-                    raw_y = float(rec["Y"]) if pd.notna(rec["Y"]) else 0.0
-                    if bounds is not None:
-                        px, py = _apply_bounds(raw_x, raw_y, bounds)
-                    else:
-                        px, py = raw_x, raw_y
-                    st = str(rec["Status"]) if "Status" in df.columns and pd.notna(rec.get("Status")) else "OnTrack"
-                    samples.append((t, px, py, st))
-                if n > 0 and samples:
-                    rec = df.iloc[n - 1]
-                    ts = _parse_maybe_dt(rec["Date"] if "Date" in df.columns else None)
-                    if ts is not None and samples[-1][0] < ts.timestamp() - 1e-6:
-                        raw_x = float(rec["X"]) if pd.notna(rec["X"]) else 0.0
-                        raw_y = float(rec["Y"]) if pd.notna(rec["Y"]) else 0.0
-                        px, py = _apply_bounds(raw_x, raw_y, bounds) if bounds is not None else (raw_x, raw_y)
-                        st = str(rec["Status"]) if "Status" in df.columns and pd.notna(rec.get("Status")) else "OnTrack"
-                        samples.append((ts.timestamp(), px, py, st))
-                if samples:
-                    pos_samples[code] = samples
+            pos_samples, pos_chunks = parse_and_chunk_position_data(
+                sess,
+                year,
+                round_number,
+                used,
+                bounds,
+                code_by_num,
+                laps_rows,
+                pos_cap=pos_cap,
+            )
+            if pos_chunks:
+                pos_chunk_loaded = dict(pos_chunks[0])
         except Exception as extra:
-            _log.info("FastF1 pos_data parse failed: %s", extra)
+            _log.info("FastF1 position_data parse failed: %s", extra)
         _log.info("GPS loaded in %.2fs", time.monotonic() - t_gps)
         print(f"[ARIS] GPS loaded in {time.monotonic() - t_gps:.2f}s", flush=True)
-
-        car_data = getattr(sess, "car_data", None) or {}
-        try:
-            for drv_key, df in car_data.items():
-                if df is None or getattr(df, "empty", True):
-                    continue
-                cols = {str(c).lower(): c for c in df.columns}
-                date_col = cols.get("date")
-                if date_col is None:
-                    continue
-                thr_col = cols.get("throttle")
-                brk_col = cols.get("brake")
-                spd_col = cols.get("speed")
-                drs_col = cols.get("drs")
-                code = code_by_num.get(int(drv_key)) if str(drv_key).isdigit() else str(drv_key)
-                if not code:
-                    code = str(drv_key)
-                n = len(df)
-                step = _ff1_keep_step(n, _FF1_CAR_CAP)
-                samples: list[tuple[float, float, float, float, float]] = []
-                last_kept = None
-                for i in range(0, n, step):
-                    rec = df.iloc[i]
-                    ts = _parse_maybe_dt(rec[date_col])
-                    if ts is None:
-                        continue
-                    t = ts.timestamp()
-                    if last_kept is not None and (t - last_kept) < _FF1_CAR_MIN_DT and i + step < n:
-                        continue
-                    last_kept = t
-                    speed = 0.0
-                    if spd_col is not None and pd.notna(rec[spd_col]):
-                        speed = float(rec[spd_col])
-                    drs = 0.0
-                    if drs_col is not None and pd.notna(rec[drs_col]):
-                        drs = float(rec[drs_col])
-                    samples.append(
-                        (
-                            t,
-                            _pedal_pct(rec[thr_col] if thr_col is not None else 0),
-                            _pedal_pct(rec[brk_col] if brk_col is not None else 0, binary_ok=True),
-                            speed,
-                            drs,
-                        )
-                    )
-                if samples:
-                    car_samples[code] = samples
-        except Exception as extra:
-            _log.info("FastF1 car_data parse failed: %s", extra)
 
     rc_rows = _ff1_race_control_rows(sess) if messages else []
     clock_start, clock_end = _ff1_clock_bounds(sess, laps_rows, pos_samples, date_start, date_end)
@@ -2143,6 +2373,8 @@ def build_ff1_replay_assets(
         "weather": weather_rows,
         "pos_samples": pos_samples,
         "car_samples": car_samples,
+        "pos_chunks": pos_chunks,
+        "pos_chunk_loaded": pos_chunk_loaded,
         "quali_windows": windows,
         "stints": list(stints_acc.values()),
         "positions": positions_rows,

@@ -368,6 +368,96 @@ def test_precompute_ghost_from_lap_one():
     assert result[8]["ghost_tyre"] == "HARD"
 
 
+def test_precompute_ghost_uses_selected_plan_not_recommend_default():
+    from backend.live import precompute_ghost_for_session
+
+    laps = []
+    for i in range(1, 25):
+        laps.append(
+            {
+                "lap_number": i,
+                "real_action": "STAY_OUT",
+                "compound": "MEDIUM",
+                "tyre_life": i,
+                "fuel_kg": 30.0,
+                "position": 1,
+                "lap_time_s": 74.0,
+            }
+        )
+    session_data = {
+        "session_key": 1,
+        "session_type": "R",
+        "year": 2025,
+        "round_no": 15,
+        "country": "Netherlands",
+        "total_laps": 24,
+        "driver_id": 1,
+        "laps": laps,
+        "plan": {"pit_laps": [20], "compounds": ["HARD"], "label": "user-selected"},
+    }
+    result = precompute_ghost_for_session(session_data, "VER", [])
+    assert result.get(20) is not None
+    assert result[20]["plan_pit_laps"] == [20]
+    assert result[20]["ghost_tyre"] == "HARD"
+    assert result[19]["ghost_tyre"] == "MEDIUM"
+
+
+def test_ghost_recompute_preserves_history_before_current_lap():
+    from backend import live as live_mod
+
+    laps = []
+    for i in range(1, 13):
+        laps.append(
+            {
+                "driver_code": "VER",
+                "lap_number": i,
+                "lap_duration": 74.0,
+                "compound": "MEDIUM",
+                "tyre_life": i,
+                "position": 1,
+                "is_pit_in_lap": False,
+                "track_status": "1",
+            }
+        )
+    pack = {
+        "year": 2025,
+        "round_number": 15,
+        "session_type": "R",
+        "country": "Netherlands",
+        "total_laps": 12,
+        "laps": laps,
+        "session_key": 42,
+    }
+    live_mod._REPLAY_PACKS[42] = pack
+    live_mod._GHOST_CACHE.clear()
+    first = live_mod.recompute_ghost_from_plan(
+        year=2025,
+        round_number=15,
+        driver="VER",
+        current_lap=1,
+        pit_laps=[4],
+        compounds=["HARD"],
+        session_key=42,
+        label="first",
+    )
+    assert first["ticks"]
+    assert any(t["lap"] == 4 and t["aris_action"] == "PIT" for t in first["ticks"])
+    second = live_mod.recompute_ghost_from_plan(
+        year=2025,
+        round_number=15,
+        driver="VER",
+        current_lap=8,
+        pit_laps=[10],
+        compounds=["SOFT"],
+        session_key=42,
+        label="adopted",
+    )
+    assert all(t["lap"] >= 8 for t in second["ticks"])
+    cached = live_mod._GHOST_CACHE[live_mod._ghost_driver_key(2025, 15, "VER")]
+    assert cached[4]["plan_pit_laps"] == [4]
+    assert cached[10]["plan_pit_laps"] == [10]
+
+
 def test_ghost_on_track_offsets_path_frac():
     from types import SimpleNamespace
 

@@ -154,20 +154,23 @@ def _compute_ghost_vs_real(data: ExplainBundle, code: str) -> dict[str, Any]:
         ghost_times = list(ghost_times) + [last] * (n - len(ghost_times))
     ghost_times = ghost_times[:n]
     ghost_rank_times: list[float] = []
-    for i, lap_no in enumerate(real_laps):
-        tick = ticks.get(int(lap_no)) or {}
-        delta = float(tick.get("ghost_cumulative_delta") or 0.0)
-        ghost_rank_times.append(float(real_cum[i]) - delta)
-    ghost_field = {**field_cum, code: ghost_rank_times}
-    ghost_pos, ghost_gap = _rank_and_gap(
-        code, ghost_rank_times, ghost_field, fallback_pos=real_pos
-    )
+    acc = 0.0
+    for t in ghost_times:
+        acc += float(t)
+        ghost_rank_times.append(acc)
+    ghost_pos, ghost_gap = _rank_extra_vs_field(ghost_rank_times, field_cum)
     ghost_compound = [
-        str((ticks.get(lap) or {}).get("ghost_compound") or (ticks.get(lap) or {}).get("ghost_tyre") or start_compound)
+        str(
+            (ticks.get(lap) or {}).get("ghost_compound")
+            or (ticks.get(lap) or {}).get("ghost_tyre")
+            or start_compound
+        )
         for lap in real_laps
     ]
     if not any(ghost_compound):
-        ghost_compound = _compound_by_lap(real_laps, start_compound, plan.pit_laps, plan.pit_compounds)
+        ghost_compound = _compound_by_lap(
+            real_laps, start_compound, plan.pit_laps, plan.pit_compounds
+        )
 
     # Keep field-rank positions, but stamp them onto ticks so map/tower match debrief.
     for i, lap_no in enumerate(real_laps):
@@ -175,7 +178,12 @@ def _compute_ghost_vs_real(data: ExplainBundle, code: str) -> dict[str, Any]:
         if not isinstance(tick, dict):
             continue
         tick = dict(tick)
-        tick["ghost_position"] = ghost_pos[i] if i < len(ghost_pos) else tick.get("ghost_position")
+        tick["ghost_position"] = (
+            ghost_pos[i] if i < len(ghost_pos) else tick.get("ghost_position")
+        )
+        tick["gap_to_leader_s"] = (
+            ghost_gap[i] if i < len(ghost_gap) else tick.get("gap_to_leader_s")
+        )
         tick["typical_lap_s"] = typical
         if tick.get("delta_history"):
             tick["delta_history"][-1]["ghost_pos"] = tick["ghost_position"]
@@ -386,6 +394,27 @@ def _rank_and_gap(
         rank = next((j + 1 for j, (_t, c) in enumerate(scores) if c == focus), 1)
         positions.append(rank)
         gaps.append(max(0.0, float(focus_cum[i]) - leader))
+    return positions, gaps
+
+
+def _rank_extra_vs_field(
+    extra_cum: list[float],
+    field_cum: dict[str, list[float]],
+) -> tuple[list[int], list[float]]:
+    """Rank an extra (ghost) cumulative series against all real drivers."""
+    positions: list[int] = []
+    gaps: list[float] = []
+    for i, g in enumerate(extra_cum):
+        scores: list[tuple[float, str]] = [(float(g), "__GHOST__")]
+        for code, cum in field_cum.items():
+            if i >= len(cum):
+                continue
+            scores.append((float(cum[i]), str(code).upper()))
+        scores.sort(key=lambda kv: kv[0])
+        leader = scores[0][0]
+        rank = next((j + 1 for j, (_t, c) in enumerate(scores) if c == "__GHOST__"), 1)
+        positions.append(int(rank))
+        gaps.append(max(0.0, float(g) - leader))
     return positions, gaps
 
 

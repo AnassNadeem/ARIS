@@ -63,11 +63,13 @@ def test_zandvoort_ver_ghost_from_lap_one():
     assert keyed[1]["ghost_cumulative_delta"] == ticks[1]["ghost_cumulative_delta"]
 
 
-def test_zandvoort_ver_ghost_starts_at_grid_position():
+def test_zandvoort_ver_ghost_tower_matches_sim_rank_not_grid():
+    """Tower rank is ARIS cumulative simulation; real car stays P1 on the classified run."""
     result = get_ghost_vs_real("VER", "2025-15-R")
     assert result["real"]["position"][0] == 1
-    assert result["ghost"]["position"][0] == 1
-    assert result["ticks"][1]["ghost_position"] == 1
+    ticks = result["ticks"]
+    assert ticks.get(1) is not None
+    assert ticks[1]["ghost_position"] == result["ghost"]["position"][0]
 
 
 def test_ghost_and_real_pit_counts_match_sample_races():
@@ -79,5 +81,27 @@ def test_ghost_and_real_pit_counts_match_sample_races():
         real_n = len(result["real"]["pit_laps"])
         ghost_n = len(result["ghost"]["pit_laps"])
         if real_n != ghost_n:
-            failures.append(f"{code}: real {result['real']['pit_laps']} ghost {result['ghost']['pit_laps']}")
+            failures.append(
+                f"{code}: real {result['real']['pit_laps']} ghost {result['ghost']['pit_laps']}"
+            )
     assert not failures, "\n".join(failures)
+
+
+def test_ver_zandvoort_lap20_tower_matches_aris_cumulative_rank():
+    """Lap-20 tower position is the rank of ARIS simulated cum vs real field."""
+    result = get_ghost_vs_real("VER", "2025-15-R")
+    ticks = result["ticks"]
+    assert ticks.get(20) is not None
+    ghost_cum = sum(
+        float((ticks.get(lap) or {}).get("ghost_lap_s") or 0.0) for lap in range(1, 21)
+    )
+    assert ghost_cum > 0
+    idx = result["ghost"]["laps"].index(20)
+    assert ticks[20]["ghost_position"] == result["ghost"]["position"][idx]
+    assert abs(
+        float(ticks[20]["gap_to_leader_s"]) - float(result["ghost"]["gap_to_leader"][idx])
+    ) < 0.05
+    # Must not be the GPS-offset classified rank of the real car (P1 in this fixture).
+    assert ticks[20]["ghost_position"] != result["real"]["position"][idx] or ticks[20][
+        "gap_to_leader_s"
+    ] != result["real"]["gap_to_leader"][idx]

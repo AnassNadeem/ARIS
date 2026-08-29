@@ -15,6 +15,7 @@ import {
   circuitCoordsFromReplayOutline,
   prewarmSession,
 } from "@/lib/api";
+import { fetchGhost, fetchRaceField, fieldToDrivers, fieldToLapRows, fieldToStintRows, ghostTicksMap, plansMatch, r2Configured } from "@/lib/r2Replay";
 import { MOCK_DRIVERS_2025 } from "@/lib/mockData";
 import { isFullCircuitOutline } from "@/lib/circuitCache";
 import {
@@ -108,7 +109,7 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
   }, [driver, setARISDriver, setFocusDriver]);
 
   useEffect(() => {
-    if (!round) return;
+    if (!round || r2Configured()) return;
     void prewarmSession({ year, round_number: round.round, session_type: RACE_SESSION });
   }, [year, round]);
 
@@ -120,6 +121,55 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
       setStep("loading");
       setARISOn(withARIS);
       setMode(withARIS ? "aris" : "data");
+      const store = useRaceStore.getState();
+      const plan = store.selectedStrategy;
+      if (plan) store.setActiveStrategy(plan);
+
+      try {
+        if (r2Configured()) {
+          store.setWaiting(true, "Loading race from R2…");
+          const field = await fetchRaceField(year, round.round, (loaded, total) => {
+            const pct = total ? loaded / total : Math.min(0.9, loaded / 2_000_000);
+            useRaceStore.getState().setPackStatus({ stage: "minimal", progress: pct, gpsReady: false });
+          });
+          store.setR2RaceField(field);
+          store.setReplaySource("r2");
+          const total = field.meta.total_laps || round.totalLaps || 72;
+          setSession({
+            year,
+            round: round.round,
+            sessionType: RACE_SESSION,
+            circuitName: field.meta.circuit_name || round.circuitName,
+            countryFlag: round.countryFlag,
+            totalLaps: total,
+            date: field.meta.date_race || round.date,
+            driverCode: driver ?? "VER",
+          });
+          setTotalLaps(total);
+          store.setGridDrivers(fieldToDrivers(field).length ? fieldToDrivers(field) : drivers);
+          store.setLapRows(fieldToLapRows(field));
+          store.setStintRows(fieldToStintRows(field));
+          if (field.outline?.x?.length) {
+            store.setCircuitOutline({ x: field.outline.x, y: field.outline.y, available: true });
+          }
+          store.setPackStatus({ stage: "full", progress: 1, gpsReady: true });
+          setARISDriver(driver);
+          setFocusDriver(driver);
+          store.setARISModeLocked(withARIS);
+          if (driver && withARIS) {
+            const ghost = await fetchGhost(year, round.round, driver);
+            if (ghost && (!plan || plansMatch(plan, ghost))) {
+              store.setR2Ghost(ghost);
+              store.setGhostTicks(ghostTicksMap(ghost));
+            }
+          }
+          setLoadReady(true);
+          return;
+        }
+      } catch (err) {
+        console.warn("[ReplaySetupFlow] R2 fetch failed, falling back to Heroku", err);
+        useRaceStore.getState().setReplaySource("heroku");
+      }
 
       void prewarmSession({
         year,

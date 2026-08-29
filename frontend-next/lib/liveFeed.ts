@@ -1,8 +1,23 @@
 import { useRaceStore, type ReplayPackStage } from "@/store/raceStore";
 import { circuitCoordsFromReplayOutline } from "@/lib/api";
+import { postGhostRecompute } from "@/lib/api";
 import { isFullCircuitOutline } from "@/lib/circuitCache";
 import { mapTimingAndPositions, mergeByDriverCode, mergeCars, sessionFlagToPhase, timingFingerprint } from "@/lib/mapCars";
 import { asGhostTick, ghostCarFromTick, syntheticGhostCar, syntheticGhostTick } from "@/lib/ghostCar";
+import {
+  fetchGhost,
+  fetchRaceField,
+  fieldToDrivers,
+  fieldToLapRows,
+  fieldToStintRows,
+  ghostTicksMap,
+  lapToElapsed,
+  plansMatch,
+  r2Configured,
+  r2FrameAt,
+  r2TickToGhostTick,
+  raceDurationS,
+} from "@/lib/r2Replay";
 import type { ApiLapRow, ApiStintRow, CircuitCoords, LivePosition, LiveTimingRow } from "@/lib/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
@@ -91,6 +106,14 @@ function applyGhost(payload: SsePayload) {
   }
   const driver = store.arisDriver ?? store.session?.driverCode ?? store.focusDriver ?? null;
   const real = driver ? store.cars[driver] ?? null : null;
+  const localTick = driver ? store.ghostTicksByLap[store.currentLap] : undefined;
+  if (localTick && driver) {
+    const mapped = r2TickToGhostTick(localTick, driver, store.r2Ghost);
+    store.setGhostData(mapped);
+    store.setGhostCar(ghostCarFromTick(mapped, real, store.currentLap, store.totalLaps));
+    store.setGhostReason(null);
+    return;
+  }
   const raw = payload.ghost;
   const patched =
     raw && typeof raw === "object" && driver && !(raw as { driver_code?: string }).driver_code
@@ -275,6 +298,10 @@ export class ReplayFrameFeed {
   private lastTimingRows: LiveTimingRow[] = [];
   private lastPositions: LivePosition[] = [];
   private lastFrameAsOf: string | null = null;
+  private posChunks: { lo: number; hi: number }[] = [];
+  private prefetchedChunkLo = -1;
+  private r2Mode = false;
+  private r2DurationS = 0;
   onOpen?: () => void;
   onFailure?: () => void;
 
@@ -299,10 +326,15 @@ export class ReplayFrameFeed {
     this.lastTimingRows = [];
     this.lastPositions = [];
     this.lastFrameAsOf = null;
+    this.posChunks = [];
+    this.prefetchedChunkLo = -1;
+    this.r2Mode = false;
+    this.r2DurationS = 0;
     this.closed = false;
     this.refreshOnce = wantRefresh();
     if (this.refreshOnce) console.info("[ARIS] replay force refresh=1 — bypassing FastF1 caches");
     try {
+      if (await this.tryR2(year, round, sessionType)) return;
       const meta = await fetchJson(
         `${API_BASE}/api/live/session-key?year=${year}&round_number=${round}&session_type=${sessionType}${this.refreshOnce ? "&refresh=1" : ""}`,
         15000,
@@ -330,12 +362,98 @@ export class ReplayFrameFeed {
         return;
       }
       this.refreshOnce = false;
+      await this.applySelectedPlanGhost();
       void this.warmLookahead();
       this.timer = setInterval(() => void this.tick(), 250);
       await this.tick();
     } catch {
       setFeedStatus("disconnected");
       this.onFailure?.();
+    }
+  }
+
+  private async tryR2(year: number, round: number, _sessionType: string): Promise<boolean> {
+    const store = useRaceStore.getState();
+    if (!r2Configured() && !store.r2RaceField) return false;
+    try {
+      store.setWaiting(true, "Loading race from R2…");
+      let field = store.r2RaceField;
+      if (!field) {
+        field = await fetchRaceField(year, round, (loaded, total) => {
+          const pct = total ? loaded / total : Math.min(0.9, loaded / 2_000_000);
+          useRaceStore.getState().setPackStatus({ stage: "minimal", progress: pct, gpsReady: false });
+        });
+      }
+      if (this.closed) return true;
+      store.setR2RaceField(field);
+      store.setReplaySource("r2");
+      store.setTotalLaps(field.meta.total_laps);
+      store.setGridDrivers(fieldToDrivers(field));
+      store.setLapRows(fieldToLapRows(field));
+      store.setStintRows(fieldToStintRows(field));
+      if (field.outline?.x?.length) {
+        store.setCircuitOutline({ x: field.outline.x, y: field.outline.y, available: true });
+      }
+      store.setPackStatus({ stage: "full", progress: 1, gpsReady: true });
+      const driver = store.arisDriver ?? store.selectedDriver ?? store.focusDriver;
+      const plan = store.activeStrategy ?? store.selectedStrategy;
+      if (plan && !store.activeStrategy) store.setActiveStrategy(plan);
+      if (driver) {
+        let ghost = store.r2Ghost;
+        if (!ghost) ghost = await fetchGhost(year, round, driver);
+        if (ghost && (!plan || plansMatch(plan, ghost))) {
+          store.setR2Ghost(ghost);
+          store.setGhostTicks(ghostTicksMap(ghost));
+        } else if (plan) {
+          const recomputed = await postGhostRecompute({
+            year,
+            round,
+            driver,
+            currentLap: 1,
+            pitLaps: plan.pit_laps,
+            compounds: plan.pit_compounds,
+            label: plan.name,
+          });
+          if (recomputed?.ticks) store.mergeGhostTicksFrom(1, recomputed.ticks);
+        }
+      }
+      this.r2DurationS = Math.max(60, raceDurationS(field));
+      this.greenFlagS = Number(field.meta.green_flag_s || 0);
+      this.r2Mode = true;
+      this.onOpen?.();
+      store.setWaiting(false);
+      setFeedStatus("connected", 0);
+      this.timer = setInterval(() => void this.tick(), 250);
+      await this.tick();
+      return true;
+    } catch (err) {
+      console.warn("[ReplayFrameFeed] R2 fetch failed, falling back to Heroku pack-status", err);
+      store.setReplaySource("heroku");
+      store.setWaiting(true, "Loading session data…");
+      return false;
+    }
+  }
+
+  private async applySelectedPlanGhost() {
+    const store = useRaceStore.getState();
+    const plan = store.activeStrategy ?? store.selectedStrategy;
+    const driver = store.arisDriver ?? store.selectedDriver ?? store.focusDriver;
+    if (!plan || !driver) return;
+    if (plan && !store.activeStrategy) store.setActiveStrategy(plan);
+    try {
+      const recomputed = await postGhostRecompute({
+        year: this.year,
+        round: this.round,
+        driver,
+        currentLap: 1,
+        pitLaps: plan.pit_laps,
+        compounds: plan.pit_compounds,
+        label: plan.name,
+        sessionKey: this.sessionKey ?? undefined,
+      });
+      if (recomputed?.ticks) store.mergeGhostTicksFrom(1, recomputed.ticks);
+    } catch {
+      /* pack-status ghost (recommend at lap 1) remains as last resort */
     }
   }
 
@@ -361,6 +479,7 @@ export class ReplayFrameFeed {
         if (st.date_start) this.dateStart = new Date(st.date_start);
         if (st.date_end) this.dateEnd = new Date(st.date_end);
         if (st.green_flag_s) this.greenFlagS = Number(st.green_flag_s);
+        if (Array.isArray(st.pos_chunks)) this.posChunks = st.pos_chunks;
         const stage = applyPackStatus(st);
         applyCircuitPath(st);
         if (st.status === "error") {
@@ -432,6 +551,7 @@ export class ReplayFrameFeed {
       const st = await fetchJson(`${API_BASE}/api/replay/pack-status?${qs}`, 8000);
       if (this.closed) return;
       if (st) {
+        if (Array.isArray(st.pos_chunks)) this.posChunks = st.pos_chunks;
         const stage = applyPackStatus(st);
         applyCircuitPath(st);
         if (stage === "full") return;
@@ -511,6 +631,26 @@ export class ReplayFrameFeed {
     void fetchJson(`${API_BASE}/api/live/replay-frame?${this.frameQuery(ahead, { full: true })}`, 20000);
   }
 
+  /** Request the next 10-lap GPS window when replay is 2 laps from the boundary. */
+  private prefetchPosChunk(lap: number) {
+    if (this.sessionKey == null || this.posChunks.length === 0) return;
+    const current = this.posChunks.find((c) => lap > c.lo && lap <= c.hi) ?? this.posChunks[0];
+    if (!current) return;
+    const next = this.posChunks.find((c) => c.lo === current.hi);
+    if (!next) return;
+    if (lap < current.hi - 2) return;
+    if (this.prefetchedChunkLo === next.lo) return;
+    this.prefetchedChunkLo = next.lo;
+    const qs = new URLSearchParams({
+      session_key: String(this.sessionKey),
+      lap: String(next.lo + 1),
+      year: String(this.year),
+      round_number: String(this.round),
+      session_type: this.sessionType,
+    });
+    void fetchJson(`${API_BASE}/api/replay/pos-chunk?${qs}`, 8000);
+  }
+
   private async warmLookahead() {
     if (this.sessionKey == null || !this.dateStart) return;
     const origin = this.dateStart.getTime() + this.greenFlagS * 1000;
@@ -521,6 +661,10 @@ export class ReplayFrameFeed {
   }
 
   private async tick() {
+    if (this.r2Mode) {
+      this.tickR2();
+      return;
+    }
     if (this.closed || this.sessionKey == null || !this.dateStart || this.inFlight) return;
     this.inFlight = true;
     const store = useRaceStore.getState();
@@ -627,6 +771,45 @@ export class ReplayFrameFeed {
     }
   }
 
+  private tickR2() {
+    if (this.closed) return;
+    const store = useRaceStore.getState();
+    const field = store.r2RaceField;
+    if (!field) return;
+    const seek = store.seekLap;
+    if (seek != null) {
+      this.elapsedS = lapToElapsed(field, seek);
+      store.clearSeekLap();
+    }
+    const now = performance.now();
+    const dt = this.lastWall ? (now - this.lastWall) / 1000 : 0;
+    this.lastWall = now;
+    const playing = store.isPlaying && store.consolePlayState === "racing";
+    if (playing) this.elapsedS += dt * store.playbackSpeed;
+    const endS = raceDurationS(field);
+    if (playing && this.elapsedS >= endS) {
+      store.setRaceFinished(true);
+      store.setIsPlaying(false);
+    }
+    const frame = r2FrameAt(field, this.elapsedS);
+    this.applyPayload(
+      {
+        status: {
+          is_live: true,
+          current_lap: frame.lap,
+          total_laps: field.meta.total_laps,
+          session_flag: frame.sessionFlag,
+        },
+        timing: { rows: frame.timing, current_lap: frame.lap, rainfall: frame.rainfall },
+        weather: { rainfall: frame.rainfall },
+        positions: { positions: frame.positions },
+        circuit_path: field.outline,
+      },
+      seek != null,
+    );
+    setFeedStatus("connected", 0);
+  }
+
   private applyPayload(payload: SsePayload, seeking = false) {
     if (this.closed) return;
     const store = useRaceStore.getState();
@@ -642,6 +825,7 @@ export class ReplayFrameFeed {
     const total = frameTotal ?? store.totalLaps;
     applyCircuitPath(payload);
     if (!seeking && lap) store.setCurrentLap(Math.max(1, lap));
+    this.prefetchPosChunk(Math.max(1, lap || 1));
     if (payload.status?.session_flag) store.setRacePhase(sessionFlagToPhase(payload.status.session_flag));
     const raining = payload.weather?.rainfall ?? payload.timing?.rainfall;
     if (typeof raining === "boolean") store.setRainfall(raining);

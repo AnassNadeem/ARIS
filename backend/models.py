@@ -846,6 +846,53 @@ class RecommendRequest(BaseModel):
     mode: Literal["live", "replay", "pre_race"] = "replay"
     override_rainfall: bool | None = None
     force_refresh: bool = False
+    pit_laps: list[int] | None = None
+    compounds: list[str] | None = None
+
+
+class GhostRecomputeRequest(BaseModel):
+    driver: str
+    year: int
+    round: int
+    current_lap: int = 1
+    pit_laps: list[int] = Field(default_factory=list)
+    compounds: list[str] = Field(default_factory=list)
+    session_key: int | None = None
+    label: str = ""
+
+
+class GhostRecomputeTick(BaseModel):
+    lap: int
+    position: int
+    gap_to_leader_s: float
+    compound: str
+    tyre_life: int
+    stint: int
+    cumulative_delta_s: float
+    aris_action: str
+    aris_confidence: float
+
+
+class GhostRecomputeResponse(BaseModel):
+    driver: str
+    year: int
+    round: int
+    current_lap: int
+    strategy: dict[str, Any]
+    ticks: list[GhostRecomputeTick]
+
+
+class RecentRaceCard(BaseModel):
+    year: int
+    round: int
+    circuitName: str
+    countryFlag: str = ""
+    raceName: str = ""
+    date: datetime | str | None = None
+    winner: str | None = None
+    winnerCode: str | None = None
+    sessionType: str = "R"
+    r2_available: bool = False
 
 
 class RecommendAlternative(BaseModel):

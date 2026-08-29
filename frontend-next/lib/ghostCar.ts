@@ -39,6 +39,7 @@ export function asGhostTick(raw: unknown): GhostTickData | null {
     ghost_tyre_age: Number(g.ghost_tyre_age) || 0,
     ghost_position: Number(g.ghost_position) || 0,
     ghost_cumulative_delta: Number(g.ghost_cumulative_delta) || 0,
+    gap_to_leader_s: Number.isFinite(Number(g.gap_to_leader_s)) ? Number(g.gap_to_leader_s) : undefined,
     active: g.active !== false,
     outcome:
       outcome === "ARIS_CORRECT" || outcome === "ARIS_INCORRECT" || outcome === "INCONCLUSIVE"
@@ -100,7 +101,12 @@ export function ghostCarFromTick(
     lap_number: lap,
     compound,
     tyre_life: ghost.ghost_tyre_age,
-    gap_to_leader_s: real?.gap_to_leader_s != null ? real.gap_to_leader_s - delta : null,
+    gap_to_leader_s:
+      ghost.gap_to_leader_s != null
+        ? ghost.gap_to_leader_s
+        : real?.gap_to_leader_s != null
+          ? real.gap_to_leader_s - delta
+          : null,
     gap_ahead_s: null,
     gap_ahead_history: [],
     last_lap_s: null,

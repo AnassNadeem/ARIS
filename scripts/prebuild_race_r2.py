@@ -1,0 +1,829 @@
+#!/usr/bin/env python
+"""Pre-process completed races into static JSON for Cloudflare R2.
+
+    python scripts/prebuild_race_r2.py --year 2025 --round 15 --driver VER
+    python scripts/prebuild_race_r2.py --all-completed --skip-existing
+
+Reads FastF1 (and optionally Postgres) directly — no running Heroku backend.
+Fails with exit 1 on a FastF1 error for a single race. --all-completed logs
+the error and continues so a partial calendar still ships.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import math
+import os
+import sys
+import time
+from pathlib import Path
+from typing import Any
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
+# Do not prepend ROOT/.deps — that tree is a Heroku vendor bundle and can
+# shadow a working site-packages pydantic (pydantic_core native module).
+
+LOCAL_ROOT = ROOT / "data" / "replay_r2"
+MAX_FIELD_BYTES = 3 * 1024 * 1024
+DEFAULT_HZ = 2.0
+
+_log = logging.getLogger("aris.prebuild_r2")
+
+
+def _r2_ready() -> bool:
+    keys = (
+        "R2_ACCOUNT_ID",
+        "R2_ACCESS_KEY_ID",
+        "R2_SECRET_ACCESS_KEY",
+        "R2_BUCKET_NAME",
+    )
+    return all((os.environ.get(k) or "").strip() for k in keys)
+
+
+def _local_key(year: int, round_number: int, name: str) -> Path:
+    return LOCAL_ROOT / "replay" / str(year) / str(round_number) / name
+
+
+def _r2_exists(year: int, round_number: int, name: str) -> bool:
+    if not _r2_ready():
+        return _local_key(year, round_number, name).is_file()
+    try:
+        from deploy.r2_upload import object_exists, r2_client
+
+        client = r2_client()
+        bucket = os.environ["R2_BUCKET_NAME"]
+        key = f"replay/{year}/{round_number}/{name}"
+        return object_exists(client, bucket, key)
+    except Exception as extra:
+        _log.warning("R2 exists check failed (%s); falling back to local", extra)
+        return _local_key(year, round_number, name).is_file()
+
+
+def _upload(path: Path, key: str) -> None:
+    if not _r2_ready():
+        _log.info("R2 env unset — kept local copy at %s", path)
+        return
+    from deploy.r2_upload import r2_client, upload_file
+
+    upload_file(r2_client(), os.environ["R2_BUCKET_NAME"], path, key)
+
+
+def _write_json(path: Path, payload: Any) -> int:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = json.dumps(payload, separators=(",", ":"), ensure_ascii=True)
+    path.write_text(text, encoding="utf-8")
+    return path.stat().st_size
+
+
+def _num(v: Any) -> float | None:
+    if v is None:
+        return None
+    try:
+        if isinstance(v, float) and math.isnan(v):
+            return None
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _td_s(v: Any) -> float | None:
+    if v is None:
+        return None
+    try:
+        import pandas as pd
+
+        if pd.isna(v):
+            return None
+    except Exception:
+        pass
+    if hasattr(v, "total_seconds"):
+        try:
+            return float(v.total_seconds())
+        except Exception:
+            return None
+    return _num(v)
+
+
+def completed_jobs(
+    years: tuple[int, ...] = (2024, 2025, 2026),
+    *,
+    year: int | None = None,
+    round_number: int | None = None,
+) -> list[tuple[int, int, str]]:
+    from backend.calendar import ALLOWED_REPLAY_YEARS, get_calendar
+
+    out: list[tuple[int, int, str]] = []
+    want_years = (int(year),) if year else years
+    for y in want_years:
+        if int(y) not in ALLOWED_REPLAY_YEARS:
+            continue
+        cal = get_calendar(int(y), for_replay=True)
+        for rnd in cal.rounds:
+            if round_number is not None and int(rnd.round_number) != int(round_number):
+                continue
+            if str(rnd.status or "").upper() != "COMPLETED":
+                continue
+            name = str(rnd.circuit_name or rnd.name or f"R{rnd.round_number}")
+            out.append((int(y), int(rnd.round_number), name))
+    return out
+
+
+def _load_session(year: int, round_number: int):
+    from backend.cache import enable_fastf1_cache
+    from backend.sessions import load_session
+
+    enable_fastf1_cache()
+    sess = load_session(
+        int(year), int(round_number), "R", telemetry=False, weather=True, messages=True
+    )
+    if sess is None:
+        raise RuntimeError(f"FastF1 session missing for {year} R{round_number}")
+    return sess
+
+
+def _outline(sess: Any, year: int, round_number: int) -> dict[str, list[float]]:
+    del year, round_number
+    from backend.sessions import load_position_data_only
+
+    raw = load_position_data_only(sess)
+    for df in raw.values():
+        if df is None or getattr(df, "empty", True):
+            continue
+        if "X" not in df.columns or "Y" not in df.columns:
+            continue
+        step = max(1, len(df) // 400)
+        xs = [float(v) for v in df["X"].dropna().tolist()[::step]]
+        ys = [float(v) for v in df["Y"].dropna().tolist()[::step]]
+        if len(xs) >= 2:
+            return {"x": xs, "y": ys}
+    return {"x": [], "y": []}
+
+
+def _drivers(sess: Any) -> list[dict[str, Any]]:
+    from backend.standings import team_colour
+
+    out: list[dict[str, Any]] = []
+    results = getattr(sess, "results", None)
+    if results is None or getattr(results, "empty", True):
+        return out
+    ordered = results.sort_values("GridPosition") if "GridPosition" in results.columns else results
+    for rec in ordered.itertuples(index=False):
+        code = str(getattr(rec, "Abbreviation", "") or "")
+        if not code:
+            continue
+        grid = getattr(rec, "GridPosition", None)
+        try:
+            grid_n = int(grid) if grid is not None and str(grid) != "nan" else None
+        except (TypeError, ValueError):
+            grid_n = None
+        team = str(getattr(rec, "TeamName", "") or "")
+        name = str(getattr(rec, "FullName", "") or getattr(rec, "BroadcastName", "") or code)
+        colour = team_colour(team) or "#888888"
+        out.append(
+            {
+                "code": code,
+                "name": name,
+                "team": team,
+                "colour": colour,
+                "grid_position": grid_n,
+            }
+        )
+    return out
+
+
+def _laps_stints(sess: Any) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    import pandas as pd
+
+    laps_out: list[dict[str, Any]] = []
+    stints: dict[tuple[str, int], dict[str, Any]] = {}
+    laps = getattr(sess, "laps", None)
+    if laps is None or laps.empty:
+        raise RuntimeError("FastF1 laps empty")
+    for rec in laps.itertuples(index=False):
+        code = str(getattr(rec, "Driver", "") or "")
+        lap_n = int(getattr(rec, "LapNumber", 0) or 0)
+        if not code or lap_n < 1:
+            continue
+        compound = getattr(rec, "Compound", None)
+        try:
+            compound_s = None if compound is None or pd.isna(compound) else str(compound)
+        except (TypeError, ValueError):
+            compound_s = str(compound) if compound is not None else None
+        pos = getattr(rec, "Position", None)
+        try:
+            pos_n = int(pos) if pos is not None and not pd.isna(pos) else None
+        except (TypeError, ValueError):
+            pos_n = None
+        tyre = getattr(rec, "TyreLife", None)
+        try:
+            tyre_n = int(tyre) if tyre is not None and not pd.isna(tyre) else None
+        except (TypeError, ValueError):
+            tyre_n = None
+        stint_n = getattr(rec, "Stint", None)
+        try:
+            stint_i = int(stint_n) if stint_n is not None and not pd.isna(stint_n) else 1
+        except (TypeError, ValueError):
+            stint_i = 1
+        pit_in = pd.notna(getattr(rec, "PitInTime", None))
+        status = getattr(rec, "TrackStatus", None)
+        try:
+            track = None if status is None or pd.isna(status) else str(status)
+        except (TypeError, ValueError):
+            track = str(status) if status is not None else None
+        result_status = str(getattr(rec, "Deleted", "") or "")
+        laps_out.append(
+            {
+                "lap": lap_n,
+                "driver": code,
+                "position": pos_n,
+                "gap_to_leader_s": None,
+                "gap_ahead_s": None,
+                "compound": compound_s,
+                "tyre_life": tyre_n,
+                "stint_number": stint_i,
+                "pit_this_lap": bool(pit_in),
+                "is_dnf": False,
+                "is_dsq": "DSQ" in result_status.upper() or "DISQUAL" in result_status.upper(),
+                "track_status": track,
+                "lap_time_s": _td_s(getattr(rec, "LapTime", None)),
+            }
+        )
+        key = (code, stint_i)
+        if key not in stints:
+            stints[key] = {
+                "driver": code,
+                "stint": stint_i,
+                "compound": compound_s,
+                "lap_start": lap_n,
+                "lap_end": lap_n,
+            }
+        else:
+            stints[key]["lap_end"] = lap_n
+    _fill_gaps(laps_out)
+    _mark_dnf(laps_out, sess)
+    return laps_out, list(stints.values())
+
+
+def _fill_gaps(laps: list[dict[str, Any]]) -> None:
+    per: dict[str, float] = {}
+    for row in sorted(laps, key=lambda r: (int(r["lap"]), int(r.get("position") or 99))):
+        code = str(row["driver"])
+        t = row.get("lap_time_s")
+        if t:
+            per[code] = per.get(code, 0.0) + float(t)
+        row["_cum"] = per.get(code)
+    by_lap: dict[int, list[dict[str, Any]]] = {}
+    for row in laps:
+        by_lap.setdefault(int(row["lap"]), []).append(row)
+    for rows in by_lap.values():
+        ranked = sorted(
+            [r for r in rows if r.get("_cum") is not None],
+            key=lambda r: float(r["_cum"]),
+        )
+        if not ranked:
+            continue
+        leader = float(ranked[0]["_cum"])
+        prev = leader
+        for i, row in enumerate(ranked):
+            cum = float(row["_cum"])
+            row["gap_to_leader_s"] = round(cum - leader, 3)
+            row["gap_ahead_s"] = round(cum - prev, 3) if i else 0.0
+            prev = cum
+    for row in laps:
+        row.pop("_cum", None)
+
+
+def _mark_dnf(laps: list[dict[str, Any]], sess: Any) -> None:
+    results = getattr(sess, "results", None)
+    if results is None or getattr(results, "empty", True):
+        return
+    dnf: set[str] = set()
+    for rec in results.itertuples(index=False):
+        code = str(getattr(rec, "Abbreviation", "") or "")
+        status = str(getattr(rec, "Status", "") or "").upper()
+        finished = status in {"FINISHED", "FINISHED LAP", ""} or "+" in status
+        if not code or not status or finished:
+            continue
+        tokens = ("DNF", "RETIRE", "ACCIDENT", "ENGINE", "COLLISION", "WITHDREW")
+        named = any(tok in status for tok in tokens)
+        other = not status[0].isdigit() and "LAP" not in status
+        if named or other:
+            dnf.add(code)
+    if not dnf:
+        return
+    last_lap: dict[str, int] = {}
+    for row in laps:
+        last_lap[str(row["driver"])] = max(last_lap.get(str(row["driver"]), 0), int(row["lap"]))
+    for row in laps:
+        code = str(row["driver"])
+        if code in dnf and int(row["lap"]) == last_lap.get(code, 0):
+            row["is_dnf"] = True
+
+
+def _weather(sess: Any, laps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    import pandas as pd
+
+    wd = getattr(sess, "weather_data", None)
+    total = max((int(r["lap"]) for r in laps), default=0)
+    if wd is None or getattr(wd, "empty", True) or total < 1:
+        return [
+            {"lap": i, "rainfall": False, "track_temp_c": None, "air_temp_c": None}
+            for i in range(1, total + 1)
+        ]
+    rain = wd["Rainfall"] if "Rainfall" in wd.columns else None
+    track = wd["TrackTemp"] if "TrackTemp" in wd.columns else None
+    air = wd["AirTemp"] if "AirTemp" in wd.columns else None
+    n = len(wd)
+    out = []
+    for lap in range(1, total + 1):
+        idx = min(n - 1, int(round((lap - 1) / max(1, total) * (n - 1))))
+        rflag = False
+        if rain is not None:
+            try:
+                rflag = bool(rain.iloc[idx]) if not pd.isna(rain.iloc[idx]) else False
+            except Exception:
+                rflag = False
+        out.append(
+            {
+                "lap": lap,
+                "rainfall": rflag,
+                "track_temp_c": _num(track.iloc[idx]) if track is not None else None,
+                "air_temp_c": _num(air.iloc[idx]) if air is not None else None,
+            }
+        )
+    return out
+
+
+def _race_control(sess: Any) -> list[dict[str, Any]]:
+    from backend.sessions import _ff1_race_control_rows
+
+    rows = _ff1_race_control_rows(sess)
+    out = []
+    for row in rows:
+        out.append(
+            {
+                "lap": int(row.get("lap_number") or 0) or None,
+                "message": str(row.get("message") or ""),
+                "flag": row.get("flag"),
+                "category": row.get("category"),
+            }
+        )
+    return out
+
+
+def _green_flag_s(sess: Any, rc: list[dict[str, Any]]) -> float | None:
+    start = None
+    # t0_date needs telemetry; this prebuild loads weather/messages only.
+    try:
+        start = object.__getattribute__(sess, "_t0_date")
+    except Exception:
+        start = None
+    if start is None:
+        try:
+            start = sess.date
+        except Exception:
+            start = None
+    if start is None:
+        return 0.0
+    try:
+        from backend.sessions import _parse_maybe_dt
+
+        t0 = _parse_maybe_dt(start)
+    except Exception:
+        t0 = None
+    if t0 is None:
+        return 0.0
+    laps = getattr(sess, "laps", None)
+    if laps is not None and not laps.empty and "LapStartDate" in laps.columns:
+        first = laps[laps["LapNumber"] == 1]["LapStartDate"].dropna()
+        if not first.empty:
+            try:
+                from backend.sessions import _parse_maybe_dt
+
+                ds = _parse_maybe_dt(first.min())
+                if ds is not None:
+                    return max(0.0, (ds - t0).total_seconds())
+            except Exception:
+                pass
+    return 0.0
+
+
+def _pos_samples(
+    sess: Any, outline: dict[str, list[float]], hz: float
+) -> dict[str, list[dict[str, float]]]:
+    from backend.sessions import (
+        load_position_data_only,
+        project_points_along_path,
+        stabilize_path_fracs,
+    )
+
+    path_x = outline.get("x") or []
+    path_y = outline.get("y") or []
+    raw = load_position_data_only(sess)
+    min_dt = 1.0 / max(0.5, hz)
+    laps = getattr(sess, "laps", None)
+    lap_starts: dict[str, list[tuple[float, int, float]]] = {}
+    if laps is not None and not laps.empty:
+        import pandas as pd
+
+        for rec in laps.itertuples(index=False):
+            code = str(getattr(rec, "Driver", "") or "")
+            start = getattr(rec, "LapStartDate", None)
+            lap_n = int(getattr(rec, "LapNumber", 0) or 0)
+            dur = _td_s(getattr(rec, "LapTime", None)) or 90.0
+            if not code or lap_n < 1:
+                continue
+            try:
+                if start is None or pd.isna(start):
+                    continue
+                ts = start.timestamp() if hasattr(start, "timestamp") else None
+            except Exception:
+                ts = None
+            if ts is None:
+                continue
+            lap_starts.setdefault(code, []).append((float(ts), lap_n, float(dur)))
+        for code in lap_starts:
+            lap_starts[code].sort()
+
+    out: dict[str, list[dict[str, float]]] = {}
+    for drv_key, df in raw.items():
+        if df is None or getattr(df, "empty", True) or "X" not in getattr(df, "columns", []):
+            continue
+        code = str(drv_key)
+        if str(drv_key).isdigit() and laps is not None:
+            try:
+                hit = laps[laps["DriverNumber"] == int(drv_key)]
+                if not hit.empty:
+                    code = str(hit.iloc[0]["Driver"])
+            except Exception:
+                pass
+        xs: list[float] = []
+        ys: list[float] = []
+        times: list[float] = []
+        last_t: float | None = None
+        n = len(df)
+        for i in range(n):
+            rec = df.iloc[i]
+            ts = rec["Date"] if "Date" in df.columns else None
+            try:
+                t = ts.timestamp() if hasattr(ts, "timestamp") else None
+            except Exception:
+                t = None
+            if t is None:
+                continue
+            if last_t is not None and (t - last_t) < min_dt:
+                continue
+            last_t = t
+            try:
+                x = float(rec["X"])
+                y = float(rec["Y"])
+            except (TypeError, ValueError):
+                continue
+            times.append(float(t))
+            xs.append(x)
+            ys.append(y)
+        if len(times) < 2:
+            continue
+        if path_x and path_y:
+            fracs = stabilize_path_fracs(project_points_along_path(xs, ys, path_x, path_y))
+        else:
+            fracs = [i / max(1, len(times) - 1) for i in range(len(times))]
+        starts = lap_starts.get(code) or []
+        samples: list[dict[str, float]] = []
+        si = 0
+        for t, frac in zip(times, fracs, strict=False):
+            while si + 1 < len(starts) and starts[si + 1][0] <= t:
+                si += 1
+            if starts:
+                t0, lap_n, dur = starts[min(si, len(starts) - 1)]
+                into = max(0.0, t - t0)
+                lap_frac = (lap_n - 1) + min(0.999, into / max(1.0, dur))
+            else:
+                lap_frac = 0.0
+            samples.append(
+                {"lap_frac": round(float(lap_frac), 4), "path_frac": round(float(frac), 5)}
+            )
+        if samples:
+            out[code] = samples
+    return out
+
+
+def _session_key(sess: Any) -> int | None:
+    for attr in ("session_key", "sessionKey"):
+        v = getattr(sess, attr, None)
+        if v:
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                pass
+    ident = getattr(sess, "api_path", None) or ""
+    digits = "".join(ch for ch in str(ident) if ch.isdigit())
+    if digits:
+        try:
+            return int(digits[-8:])
+        except ValueError:
+            return None
+    return None
+
+
+def build_race_field(year: int, round_number: int, sess: Any) -> dict[str, Any]:
+    from backend.calendar import get_round
+
+    rnd = get_round(int(year), int(round_number))
+    outline = _outline(sess, year, round_number)
+    drivers = _drivers(sess)
+    laps, stints = _laps_stints(sess)
+    weather = _weather(sess, laps)
+    rc = _race_control(sess)
+    pos = _pos_samples(sess, outline, DEFAULT_HZ)
+    date_race = getattr(rnd, "date_race", None)
+    payload = {
+        "meta": {
+            "year": int(year),
+            "round": int(round_number),
+            "session_type": "R",
+            "circuit_name": str(rnd.circuit_name or rnd.name or ""),
+            "total_laps": int(max((int(r["lap"]) for r in laps), default=rnd.total_laps or 0)),
+            "date_race": (
+                date_race.isoformat()
+                if hasattr(date_race, "isoformat")
+                else str(date_race or "")
+            ),
+            "green_flag_s": _green_flag_s(sess, rc),
+            "session_key": _session_key(sess),
+        },
+        "outline": outline,
+        "drivers": drivers,
+        "laps": laps,
+        "stints": stints,
+        "weather": weather,
+        "race_control": rc,
+        "pos_samples": pos,
+    }
+    return payload
+
+
+def _fit_pos_under_budget(field: dict[str, Any], max_bytes: int) -> bytes:
+    """Thin pos_samples from the original 2Hz series until JSON is under max_bytes."""
+    original = {
+        code: list(rows)
+        for code, rows in (field.get("pos_samples") or {}).items()
+        if isinstance(rows, list)
+    }
+    raw = json.dumps(field, separators=(",", ":")).encode("utf-8")
+    if len(raw) <= max_bytes or not original:
+        return raw
+    for step, label in ((2, "1Hz"), (4, "0.5Hz"), (8, "0.25Hz"), (16, "0.125Hz")):
+        field["pos_samples"] = {code: rows[::step] for code, rows in original.items()}
+        raw = json.dumps(field, separators=(",", ":")).encode("utf-8")
+        _log.info("pos_samples %s (step=%s) → %.1fKB", label, step, len(raw) / 1024)
+        if len(raw) <= max_bytes:
+            return raw
+    raise RuntimeError(
+        f"race_field.json still {len(raw)} bytes after thinning pos_samples"
+    )
+
+
+def build_ghost(
+    year: int,
+    round_number: int,
+    driver: str,
+    sess: Any,
+    field: dict[str, Any],
+) -> dict[str, Any]:
+    from aris.ghost import (
+        field_cumulative_by_lap,
+        pick_strategy_recommendation,
+        plan_from_pits,
+        r2_ghost_tick,
+        schedule_from_recommendation,
+        score_parallel_ghost,
+    )
+    from aris.physics.tires import normalize_compound
+    from aris.recommend import recommend as aris_recommend
+    from aris.state import RaceState
+
+    code = str(driver).upper()
+    focus_laps = [r for r in field["laps"] if str(r["driver"]).upper() == code]
+    if not focus_laps:
+        raise RuntimeError(f"no laps for driver {code}")
+    focus_laps = sorted(focus_laps, key=lambda r: int(r["lap"]))
+    start_compound = normalize_compound(str(focus_laps[0].get("compound") or "MEDIUM"))
+    total = int(field["meta"]["total_laps"])
+    country = ""
+    try:
+        from backend.calendar import get_round
+
+        country = str(get_round(int(year), int(round_number)).country or "")
+    except Exception:
+        country = str(field["meta"].get("circuit_name") or "")
+
+    template = RaceState(
+        session_id=int(field["meta"].get("session_key") or 0),
+        driver_id=0,
+        driver_code=code,
+        driver_name=code,
+        year=int(year),
+        round_no=int(round_number),
+        country=country or "Netherlands",
+        lap_number=1,
+        compound=start_compound,
+        tyre_life=1,
+        fuel_kg=110.0,
+        laps_remaining=max(0, total - 1),
+        total_laps=total,
+        position=int(focus_laps[0].get("position") or 1),
+        track_status=str(focus_laps[0].get("track_status") or "1"),
+    )
+    card = None
+    for decision_lap in (1, 2):
+        try:
+            state = template.model_copy(update={"lap_number": decision_lap})
+            rec = aris_recommend(state, top_k=3, mc_draws=0)
+            card = pick_strategy_recommendation(rec)
+            if card and str(card.get("label") or "") != "STRATEGY_RESET":
+                break
+        except Exception as extra:
+            _log.info("recommend() lap %s failed: %s", decision_lap, extra)
+            card = None
+    if card:
+        plan = schedule_from_recommendation(card, start_compound=start_compound, lap_number=1)
+        label = str(card.get("label") or "")
+    else:
+        plan = plan_from_pits([], [], start_compound, label="STAY_OUT")
+        label = "STAY_OUT"
+
+    lap_rows = []
+    for row in focus_laps:
+        lap_rows.append(
+            {
+                "lap_number": int(row["lap"]),
+                "compound": str(row.get("compound") or start_compound),
+                "tyre_life": int(row.get("tyre_life") or 1),
+                "real_action": (
+                    f"PIT_NOW_{row.get('compound') or 'HARD'}"
+                    if row.get("pit_this_lap")
+                    else "STAY_OUT"
+                ),
+                "position": int(row.get("position") or 10),
+                "lap_time_s": row.get("lap_time_s"),
+                "track_status": str(row.get("track_status") or "1"),
+            }
+        )
+    times: dict[str, dict[int, float]] = {}
+    for row in field["laps"]:
+        t = row.get("lap_time_s")
+        if not t:
+            continue
+        times.setdefault(str(row["driver"]).upper(), {})[int(row["lap"])] = float(t)
+    field_cum = field_cumulative_by_lap(times)
+    typical = 90.0
+    raw_times = [float(r["lap_time_s"]) for r in focus_laps if r.get("lap_time_s")]
+    if raw_times:
+        typical = float(sorted(raw_times)[len(raw_times) // 2])
+        if typical < 30:
+            typical = 90.0
+    ticks_map = score_parallel_ghost(
+        template_state=template,
+        lap_rows=lap_rows,
+        plan=plan,
+        typical_lap_s=typical,
+        field_cum_by_lap=field_cum,
+    )
+    ticks = [
+        r2_ghost_tick(int(lap), tick, plan.pit_laps)
+        for lap, tick in sorted(ticks_map.items())
+        if isinstance(tick, dict)
+    ]
+    last = next((ticks_map[k] for k in sorted(ticks_map, reverse=True) if ticks_map[k]), {}) or {}
+    return {
+        "driver": code,
+        "strategy": {
+            "pit_laps": list(plan.pit_laps),
+            "compounds": list(plan.pit_compounds),
+            "label": label,
+        },
+        "ticks": ticks,
+        "outcome": {
+            "aris_action": last.get("aris_action") or label,
+            "real_action": last.get("real_action") or "STAY_OUT",
+            "verdict": last.get("outcome"),
+        },
+    }
+
+
+def _default_driver(sess: Any, requested: str | None) -> str:
+    if requested:
+        return str(requested).upper()
+    results = getattr(sess, "results", None)
+    if results is not None and not getattr(results, "empty", True):
+        try:
+            if "GridPosition" in results.columns:
+                ordered = results.sort_values("GridPosition")
+                code = str(ordered.iloc[0]["Abbreviation"] or "")
+                if code:
+                    return code
+            code = str(results.iloc[0]["Abbreviation"] or "")
+            if code:
+                return code
+        except Exception:
+            pass
+    return "VER"
+
+
+def build_one(
+    year: int,
+    round_number: int,
+    driver: str | None,
+    *,
+    skip_existing: bool,
+    no_upload: bool,
+) -> dict[str, Any]:
+    field_path = _local_key(year, round_number, "race_field.json")
+    if skip_existing and _r2_exists(year, round_number, "race_field.json"):
+        _log.info("skip existing %s R%s", year, round_number)
+        return {"year": year, "round": round_number, "skipped": True}
+
+    t0 = time.monotonic()
+    sess = _load_session(year, round_number)
+    field = build_race_field(year, round_number, sess)
+    raw = _fit_pos_under_budget(field, MAX_FIELD_BYTES)
+    if len(raw) > MAX_FIELD_BYTES:
+        raise RuntimeError(
+            f"{year} R{round_number} race_field.json still {len(raw)} bytes after downsample"
+        )
+    field_bytes = _write_json(field_path, field)
+    code = _default_driver(sess, driver)
+    ghost = build_ghost(year, round_number, code, sess, field)
+    ghost_path = _local_key(year, round_number, f"ghost_{code}.json")
+    ghost_bytes = _write_json(ghost_path, ghost)
+    _log.info(
+        "built %s R%s driver=%s field=%.1fKB ghost=%.1fKB in %.1fs",
+        year,
+        round_number,
+        code,
+        field_bytes / 1024,
+        ghost_bytes / 1024,
+        time.monotonic() - t0,
+    )
+    if not no_upload:
+        _upload(field_path, f"replay/{year}/{round_number}/race_field.json")
+        _upload(ghost_path, f"replay/{year}/{round_number}/ghost_{code}.json")
+    return {
+        "year": year,
+        "round": round_number,
+        "driver": code,
+        "field_bytes": field_bytes,
+        "ghost_bytes": ghost_bytes,
+        "skipped": False,
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    parser = argparse.ArgumentParser(description="Prebuild race JSON for R2 replay")
+    parser.add_argument("--year", type=int)
+    parser.add_argument("--round", type=int, dest="round_number")
+    parser.add_argument("--driver", default=None)
+    parser.add_argument("--all-completed", action="store_true")
+    parser.add_argument("--skip-existing", action="store_true")
+    parser.add_argument("--no-upload", action="store_true")
+    args = parser.parse_args(argv)
+
+    if args.all_completed:
+        jobs = completed_jobs()
+    elif args.year and args.round_number:
+        jobs = completed_jobs(year=args.year, round_number=args.round_number)
+        if not jobs:
+            jobs = [(int(args.year), int(args.round_number), "")]
+    else:
+        parser.error("pass --year and --round, or --all-completed")
+        return 2
+
+    failures: list[str] = []
+    for year, rnd, name in jobs:
+        _log.info("building %s R%s %s", year, rnd, name)
+        try:
+            build_one(
+                year,
+                rnd,
+                args.driver,
+                skip_existing=args.skip_existing,
+                no_upload=args.no_upload,
+            )
+        except Exception as extra:
+            _log.exception("FAILED %s R%s: %s", year, rnd, extra)
+            failures.append(f"{year} R{rnd}: {extra}")
+            if not args.all_completed:
+                return 1
+    if failures:
+        _log.error("%s race(s) failed (continued): %s", len(failures), "; ".join(failures))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

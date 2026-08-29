@@ -26,6 +26,7 @@ frontend/dist/
 # Data & models (too big for git)
 data/raw/*
 data/processed/*
+data/replay_r2/
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 models/*

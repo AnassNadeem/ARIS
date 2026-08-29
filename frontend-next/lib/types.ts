@@ -115,6 +115,99 @@ export interface GhostTickData {
   ghost_position_on_track?: number;
   plan_pit_laps?: number[];
   plan_pit_compounds?: Compound[];
+  gap_to_leader_s?: number;
+}
+
+export interface RaceFieldMeta {
+  year: number;
+  round: number;
+  session_type: string;
+  circuit_name: string;
+  total_laps: number;
+  date_race: string;
+  green_flag_s: number | null;
+  session_key: number | null;
+}
+
+export interface RaceFieldDriver {
+  code: string;
+  name: string;
+  team: string;
+  colour: string;
+  grid_position: number | null;
+}
+
+export interface RaceFieldLap {
+  lap: number;
+  driver: string;
+  position: number | null;
+  gap_to_leader_s: number | null;
+  gap_ahead_s: number | null;
+  compound: string | null;
+  tyre_life: number | null;
+  stint_number: number | null;
+  pit_this_lap: boolean;
+  is_dnf: boolean;
+  is_dsq: boolean;
+  track_status: string | null;
+  lap_time_s: number | null;
+}
+
+export interface RaceFieldStint {
+  driver: string;
+  stint: number;
+  compound: string | null;
+  lap_start: number;
+  lap_end: number;
+}
+
+export interface RaceFieldWeather {
+  lap: number;
+  rainfall: boolean;
+  track_temp_c: number | null;
+  air_temp_c: number | null;
+}
+
+export interface RaceFieldRaceControl {
+  lap: number | null;
+  message: string;
+  flag: string | null;
+  category: string | null;
+}
+
+export interface RaceFieldPosSample {
+  lap_frac: number;
+  path_frac: number;
+}
+
+export interface RaceField {
+  meta: RaceFieldMeta;
+  outline: { x: number[]; y: number[] };
+  drivers: RaceFieldDriver[];
+  laps: RaceFieldLap[];
+  stints: RaceFieldStint[];
+  weather: RaceFieldWeather[];
+  race_control: RaceFieldRaceControl[];
+  pos_samples: Record<string, RaceFieldPosSample[]>;
+}
+
+export interface GhostR2Tick {
+  lap: number;
+  position: number;
+  gap_to_leader_s: number;
+  compound: string;
+  tyre_life: number;
+  stint: number;
+  cumulative_delta_s: number;
+  aris_action: string;
+  aris_confidence: number;
+}
+
+export interface GhostData {
+  driver: string;
+  strategy: { pit_laps: number[]; compounds: string[]; label: string };
+  ticks: GhostR2Tick[];
+  outcome: { aris_action: string; real_action: string; verdict: string | null };
 }
 
 export interface CommsEntry {
@@ -368,6 +461,7 @@ export interface RecentRaceCard {
   winner: string;
   winnerCode: string;
   sessionType: "R" | "S";
+  r2_available?: boolean;
 }
 
 export interface NextRaceInfo {

@@ -2,12 +2,13 @@
 
 import { useState } from "react";
 import { useRaceStore } from "@/store/raceStore";
-import { askARIS, sendARISAction } from "@/lib/api";
-import type { Compound } from "@/lib/types";
+import { askARIS, postGhostRecompute, sendARISAction } from "@/lib/api";
+import type { Compound, StratPlan } from "@/lib/types";
 
 export function RecommendationCard() {
   const rec = useRaceStore((s) => s.pendingRecommendation);
   const arisMode = useRaceStore((s) => s.arisMode);
+  const activeStrategy = useRaceStore((s) => s.activeStrategy);
   const approve = useRaceStore((s) => s.approveRecommendation);
   const deny = useRaceStore((s) => s.denyRecommendation);
   const alter = useRaceStore((s) => s.alterRecommendation);
@@ -19,6 +20,53 @@ export function RecommendationCard() {
   const [alterNote, setAlterNote] = useState("");
 
   if (!rec) return null;
+
+  const recPit = rec.action.pit_lap ?? rec.action.pit_laps?.[0];
+  const planPit = activeStrategy?.pit_laps?.[0];
+  const differs = activeStrategy != null && recPit != null && recPit !== planPit;
+
+  async function handleAdopt() {
+    const store = useRaceStore.getState();
+    const session = store.session;
+    const driver = store.arisDriver ?? store.selectedDriver;
+    if (!session || !driver || !rec) return;
+    const pits = rec.action.pit_laps?.length
+      ? rec.action.pit_laps
+      : recPit != null
+        ? [recPit]
+        : [];
+    const compounds = rec.action.pit_compounds?.length
+      ? rec.action.pit_compounds
+      : rec.action.pit_compound
+        ? [rec.action.pit_compound]
+        : [];
+    const plan: StratPlan = {
+      id: rec.id,
+      name: rec.label,
+      pit_laps: pits.filter((n): n is number => n != null),
+      pit_compounds: compounds,
+      start_compound: activeStrategy?.start_compound ?? "MEDIUM",
+    };
+    store.setActiveStrategy(plan);
+    const out = await postGhostRecompute({
+      year: session.year,
+      round: session.round,
+      driver,
+      currentLap: store.currentLap,
+      pitLaps: plan.pit_laps,
+      compounds: plan.pit_compounds,
+      label: plan.name,
+    });
+    if (out?.ticks) store.mergeGhostTicksFrom(store.currentLap, out.ticks);
+    store.pushComms({
+      id: `${rec.id}-adopted-${Date.now()}`,
+      lap: rec.lap,
+      source: "USER",
+      text: `Adopted new strategy: ${rec.label}. Ghost from lap ${store.currentLap} follows the new plan.`,
+      timestamp: Date.now(),
+    });
+    approve();
+  }
 
   async function handleApprove() {
     await sendARISAction({ action: "approve", lap: rec!.lap, tyre: rec!.action.pit_compound ?? undefined });
@@ -68,6 +116,16 @@ export function RecommendationCard() {
         </div>
       ) : (
         <div className="mt-2 font-mono-data text-[10px] text-muted">Auto mode — ARIS will execute without approval.</div>
+      )}
+
+      {differs && (
+        <button
+          type="button"
+          onClick={() => void handleAdopt()}
+          className="mt-2 rounded bg-red px-2.5 py-1 font-mono-data text-[10px] uppercase text-white"
+        >
+          Adopt new strategy
+        </button>
       )}
 
       {showAlter && (

@@ -13,6 +13,9 @@ import type {
   ApiLapRow,
   ApiStintRow,
   StratPlan,
+  RaceField,
+  GhostData,
+  GhostR2Tick,
 } from "@/lib/types";
 
 export type ARISMode = "assisted" | "auto";
@@ -40,6 +43,8 @@ export interface RaceStore {
   selectedDriver: string | null;
   strategies: StratPlan[] | null;
   selectedStrategy: StratPlan | null;
+  /** Locked plan the ghost executes. Starts as selectedStrategy; only updates on Adopt. */
+  activeStrategy: StratPlan | null;
   driverLocked: boolean;
   focusDriver: string | null;
   copilotDocked: boolean;
@@ -86,6 +91,10 @@ export interface RaceStore {
   strategyLoading: boolean;
   strategyEpoch: number;
   explainTabRequest: ExplainSubTab | null;
+  replaySource: "r2" | "heroku";
+  r2RaceField: RaceField | null;
+  r2Ghost: GhostData | null;
+  ghostTicksByLap: Record<number, GhostR2Tick>;
 
   // Actions
   setSession: (session: SessionMeta | null) => void;
@@ -106,6 +115,12 @@ export interface RaceStore {
   setDriverLocked: (locked: boolean) => void;
   setStrategies: (plans: StratPlan[] | null) => void;
   setSelectedStrategy: (plan: StratPlan | null) => void;
+  setActiveStrategy: (plan: StratPlan | null) => void;
+  setReplaySource: (source: "r2" | "heroku") => void;
+  setR2RaceField: (field: RaceField | null) => void;
+  setR2Ghost: (ghost: GhostData | null) => void;
+  setGhostTicks: (ticks: Record<number, GhostR2Tick>) => void;
+  mergeGhostTicksFrom: (fromLap: number, ticks: GhostR2Tick[]) => void;
   setFocusDriver: (code: string | null) => void;
   setCopilotDocked: (on: boolean) => void;
   setCars: (cars: Record<string, CarState>) => void;
@@ -159,6 +174,7 @@ const initialState = {
   selectedDriver: null as string | null,
   strategies: null as StratPlan[] | null,
   selectedStrategy: null as StratPlan | null,
+  activeStrategy: null as StratPlan | null,
   driverLocked: false,
   focusDriver: null as string | null,
   copilotDocked: false,
@@ -191,6 +207,10 @@ const initialState = {
   strategyLoading: false,
   strategyEpoch: 0,
   explainTabRequest: null as ExplainSubTab | null,
+  replaySource: "heroku" as const,
+  r2RaceField: null as RaceField | null,
+  r2Ghost: null as GhostData | null,
+  ghostTicksByLap: {} as Record<number, GhostR2Tick>,
 };
 
 export const useRaceStore = create<RaceStore>()(
@@ -261,6 +281,7 @@ export const useRaceStore = create<RaceStore>()(
               arisEnabled: false,
               strategies: null,
               selectedStrategy: null,
+              activeStrategy: null,
               driverLocked: false,
             },
       ),
@@ -280,10 +301,25 @@ export const useRaceStore = create<RaceStore>()(
         driverLocked: false,
         strategies: null,
         selectedStrategy: null,
+        activeStrategy: null,
       }),
     setDriverLocked: (driverLocked) => set({ driverLocked }),
     setStrategies: (strategies) => set({ strategies }),
-    setSelectedStrategy: (selectedStrategy) => set({ selectedStrategy }),
+    setSelectedStrategy: (selectedStrategy) =>
+      set({ selectedStrategy, activeStrategy: selectedStrategy ?? get().activeStrategy }),
+    setActiveStrategy: (activeStrategy) => set({ activeStrategy }),
+    setReplaySource: (replaySource) => set({ replaySource }),
+    setR2RaceField: (r2RaceField) => set({ r2RaceField }),
+    setR2Ghost: (r2Ghost) => set({ r2Ghost }),
+    setGhostTicks: (ghostTicksByLap) => set({ ghostTicksByLap }),
+    mergeGhostTicksFrom: (fromLap, ticks) =>
+      set((s) => {
+        const next = { ...s.ghostTicksByLap };
+        for (const t of ticks) {
+          if (t.lap >= fromLap) next[t.lap] = t;
+        }
+        return { ghostTicksByLap: next };
+      }),
     setFocusDriver: (focusDriver) => set({ focusDriver }),
     setCopilotDocked: (copilotDocked) => set({ copilotDocked }),
     setCars: (cars) => {

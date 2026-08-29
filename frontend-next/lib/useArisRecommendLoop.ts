@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { fetchRecommendation, recommendNarration, shouldFetchRecommend } from "@/lib/arisRecommend";
+import { annotateVsActivePlan, fetchRecommendation, recommendNarration, shouldFetchRecommend } from "@/lib/arisRecommend";
 import { useRaceStore } from "@/store/raceStore";
 
 /**
@@ -19,6 +19,7 @@ export function useArisRecommendLoop() {
   const packStage = useRaceStore((s) => s.packStage);
   const arisMode = useRaceStore((s) => s.arisMode);
   const strategyEpoch = useRaceStore((s) => s.strategyEpoch);
+  const activeStrategy = useRaceStore((s) => s.activeStrategy);
   const lastLap = useRef<number | null>(null);
   const lastPhase = useRef<string | null>(null);
   const inFlight = useRef(false);
@@ -55,6 +56,7 @@ export function useArisRecommendLoop() {
         tyreLife,
         phase: racePhase,
         lastPhase: lastPhase.current,
+        hasActiveStrategy: Boolean(activeStrategy),
       })
     ) {
       lastPhase.current = racePhase;
@@ -80,16 +82,21 @@ export function useArisRecommendLoop() {
         const store = useRaceStore.getState();
         if (!store.isARISOn) return;
         store.setPendingRecommendation(rec);
+        const active = store.activeStrategy;
+        const text = active ? annotateVsActivePlan(rec, active) : recommendNarration(rec);
         store.pushComms({
           id: `${rec.id}-e${store.strategyEpoch}`,
           lap: rec.lap,
           source: "ARIS",
-          text: recommendNarration(rec),
+          text,
           timestamp: Date.now(),
           wetHeuristic: rec.wet_heuristic,
           recommendationId: rec.id,
         });
-        if (store.arisMode === "auto") {
+        const recPit = rec.action.pit_lap ?? rec.action.pit_laps?.[0];
+        const planPit = active?.pit_laps?.[0];
+        const samePlan = active == null || recPit == null || recPit === planPit;
+        if (store.arisMode === "auto" && samePlan) {
           store.approveRecommendation();
         }
       })
@@ -98,5 +105,5 @@ export function useArisRecommendLoop() {
         useRaceStore.getState().setStrategyLoading(false);
         if (forceRef.current) setRetry((n) => n + 1);
       });
-  }, [isARISOn, playState, currentLap, racePhase, session, arisDriver, consoleMode, packStage, arisMode, strategyEpoch, retry]);
+  }, [isARISOn, playState, currentLap, racePhase, session, arisDriver, consoleMode, packStage, arisMode, strategyEpoch, retry, activeStrategy]);
 }

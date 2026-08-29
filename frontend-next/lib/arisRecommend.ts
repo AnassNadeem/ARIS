@@ -62,14 +62,19 @@ export function shouldFetchRecommend(opts: {
   tyreLife: number;
   phase: string;
   lastPhase: string | null;
+  hasActiveStrategy?: boolean;
 }): boolean {
   if (!opts.isARISOn || opts.playState !== "racing") return false;
+  if (opts.hasActiveStrategy && (opts.lap === 1 || opts.lap === 2) && opts.lastLap == null) {
+    // Ghost already follows the selected setup plan — skip the independent lap-1 recommend().
+    return false;
+  }
   if (opts.lastLap == null && opts.lap <= 2) return true;
   if (opts.lastLap != null && opts.lap === opts.lastLap) {
     return opts.phase !== opts.lastPhase && (opts.phase === "SC" || opts.phase === "VSC" || opts.phase === "RED_FLAG");
   }
   if (opts.lastLap != null && opts.lap - opts.lastLap < 8 && opts.phase === opts.lastPhase) return false;
-  if (opts.lap === 1 || opts.lap === 2) return true;
+  if (opts.lap === 1 || opts.lap === 2) return !opts.hasActiveStrategy;
   if (opts.phase !== opts.lastPhase && (opts.phase === "SC" || opts.phase === "VSC" || opts.phase === "RED_FLAG")) {
     return true;
   }
@@ -78,6 +83,24 @@ export function shouldFetchRecommend(opts: {
   if (opts.tyreLife >= 28 && opts.tyreLife <= 30) return true;
   if (opts.lap === 18 || opts.lap === 25 || opts.lap === 33) return true;
   return false;
+}
+
+export function annotateVsActivePlan(
+  rec: ARISRecommendation,
+  active: { pit_laps: number[]; name?: string } | null,
+): string {
+  const planned = active?.pit_laps?.[0];
+  const recPit = rec.action.pit_lap ?? rec.action.pit_laps?.[0];
+  if (planned != null && recPit != null && planned === recPit) {
+    return `Your lap ${planned} stop is still optimal.`;
+  }
+  if (planned != null && recPit != null && recPit !== planned) {
+    return `Consider moving to lap ${recPit} (plan was lap ${planned}).`;
+  }
+  if (rec.action.kind === "stay_out" && planned != null) {
+    return `Stay out — your lap ${planned} stop is still the call.`;
+  }
+  return recommendNarration(rec);
 }
 
 export async function fetchRecommendation(opts: {

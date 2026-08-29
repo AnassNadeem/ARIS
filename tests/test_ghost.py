@@ -581,8 +581,8 @@ def test_score_parallel_ghost_from_lap_one():
     assert ticks[8]["delta_history"][0]["lap"] == 1
 
 
-def test_ghost_lap1_position_matches_seed_across_sample_races():
-    """Rank on classified time + delta, not raw simulate() vs classified times."""
+def test_ghost_tower_rank_uses_simulated_cumulative():
+    """Timing-tower position is ARIS simulated cum vs real field times, not GPS offset."""
     from aris.ghost import GhostPlan, score_parallel_ghost
 
     class _Uncalibrated:
@@ -593,45 +593,36 @@ def test_ghost_lap1_position_matches_seed_across_sample_races():
         del state, action
         return _Uncalibrated()
 
-    samples = [
-        ("VER", 1, {"VER": 74.00, "NOR": 74.18, "PIA": 74.35}),
-        ("NOR", 2, {"VER": 74.00, "NOR": 74.18, "PIA": 74.35}),
-        ("PIA", 3, {"VER": 74.00, "NOR": 74.18, "PIA": 74.35}),
-        ("LEC", 5, {"VER": 74.0, "NOR": 74.2, "PIA": 74.4, "SAI": 74.5, "LEC": 74.6}),
-        ("HAM", 8, {**{f"D{i}": 74.0 + i * 0.1 for i in range(1, 8)}, "HAM": 74.9}),
-    ]
+    field = {"VER": 74.00, "NOR": 74.18, "PIA": 74.35}
+    state = _make_state(
+        compound="MEDIUM",
+        tyre_life=1,
+        lap_number=1,
+        total_laps=5,
+        position=1,
+        driver_code="VER",
+    )
     plan = GhostPlan(pit_laps=[], pit_compounds=[], start_compound="MEDIUM", decision_lap=1)
-    failures: list[str] = []
-    for code, seed_pos, field in samples:
-        state = _make_state(
-            compound="MEDIUM",
-            tyre_life=1,
-            lap_number=1,
-            total_laps=5,
-            position=seed_pos,
-            driver_code=code,
-        )
-        ticks = score_parallel_ghost(
-            template_state=state,
-            lap_rows=[
-                {
-                    "lap_number": 1,
-                    "compound": "MEDIUM",
-                    "tyre_life": 1,
-                    "real_action": "STAY_OUT",
-                    "position": seed_pos,
-                }
-            ],
-            plan=plan,
-            simulate_fn=_slow_sim,
-            typical_lap_s=74.0,
-            field_cum_by_lap={1: dict(field)},
-        )
-        got = ticks[1]["ghost_position"]
-        if got != seed_pos:
-            failures.append(f"{code}: aimed P{seed_pos}, actual P{got}")
-        if ticks[1]["ghost_cumulative_delta"] != 0.0:
-            failures.append(f"{code}: aimed delta 0.0, actual {ticks[1]['ghost_cumulative_delta']}")
-    assert not failures, "\n".join(failures)
+    ticks = score_parallel_ghost(
+        template_state=state,
+        lap_rows=[
+            {
+                "lap_number": 1,
+                "compound": "MEDIUM",
+                "tyre_life": 1,
+                "real_action": "STAY_OUT",
+                "position": 1,
+            }
+        ],
+        plan=plan,
+        simulate_fn=_slow_sim,
+        typical_lap_s=74.0,
+        field_cum_by_lap={1: dict(field)},
+    )
+    # 97.504s simulated vs three real cars at ~74s → P4, gap ~23.5s
+    assert ticks[1]["ghost_position"] == 4
+    assert abs(ticks[1]["gap_to_leader_s"] - 23.504) < 0.01
+    gps_offset_rank = 1  # classified − delta with delta 0 would be P1
+    assert ticks[1]["ghost_position"] != gps_offset_rank
 
 

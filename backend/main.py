@@ -80,11 +80,14 @@ from backend.models import (  # noqa: E402
     LiveTimingResponse,
     LiveWeatherResponse,
     MessagesResponse,
+    GhostRecomputeRequest,
+    GhostRecomputeResponse,
     NextRaceResponse,
     PitStopsResponse,
     PositionHistoryResponse,
     PrewarmRequest,
     PrewarmResponse,
+    RecentRaceCard,
     RecommendRequest,
     RecommendResponse,
     ReplayFrameResponse,
@@ -543,7 +546,7 @@ async def _prewarm_round_pack(year: int, round_number: int, session_type: str = 
             _log.info(skip)
             print(skip, flush=True)
             return
-        await live._ensure_replay_pack(key, year, round_number, session_type=stype, wait_for="full")
+        await live._ensure_replay_pack(key, year, round_number, session_type=stype, wait_for="minimal")
         done = f"[prewarm] ready pack for {year} R{round_number} key={cache_key}"
         _log.info(done)
         print(done, flush=True)
@@ -821,6 +824,91 @@ async def api_next_race(as_of: AsOf, year: int | None = None) -> NextRaceRespons
 async def api_live_next(as_of: AsOf, year: int | None = None) -> NextRaceResponse:
     """Alias of /api/next-race — current or next weekend."""
     return await api_next_race(as_of, year)
+
+
+def _r2_public_base() -> str:
+    return (
+        os.environ.get("R2_PUBLIC_BASE_URL")
+        or os.environ.get("NEXT_PUBLIC_R2_BASE_URL")
+        or ""
+    ).rstrip("/")
+
+
+def _r2_field_exists(year: int, round_number: int) -> bool:
+    base = _r2_public_base()
+    if not base:
+        return False
+    url = f"{base}/replay/{int(year)}/{int(round_number)}/race_field.json"
+    try:
+        import urllib.request
+
+        req = urllib.request.Request(url, method="HEAD")
+        with urllib.request.urlopen(req, timeout=4) as resp:
+            return 200 <= int(getattr(resp, "status", 200)) < 400
+    except Exception:
+        return False
+
+
+def _race_winner(year: int, round_number: int) -> tuple[str | None, str | None]:
+    """Winner code from ingested Postgres results. Never loads FastF1."""
+    try:
+        from aris.io import db as aris_db
+        from sqlalchemy import text as _sql
+
+        eng = aris_db.engine()
+        with eng.connect() as conn:
+            row = conn.execute(
+                _sql(
+                    "SELECT d.code FROM results r "
+                    "JOIN sessions s ON s.session_id = r.session_id "
+                    "JOIN drivers d ON d.driver_id = r.driver_id "
+                    "WHERE s.year=:y AND s.round_no=:n AND s.session_type='R' "
+                    "AND r.position = 1 LIMIT 1"
+                ),
+                {"y": int(year), "n": int(round_number)},
+            ).fetchone()
+        if row and row[0]:
+            code = str(row[0])
+            return code, code
+    except Exception:
+        pass
+    return None, None
+
+
+def _recent_races(limit: int) -> list[RecentRaceCard]:
+    picks = _recent_circuit_rounds(limit)
+    out: list[RecentRaceCard] = []
+    for year, rnd in reversed(picks):
+        try:
+            card = calendar.get_round(int(year), int(rnd))
+        except Exception:
+            continue
+        winner_name, winner_code = _race_winner(int(year), int(rnd))
+        date = getattr(card, "date_race", None)
+        out.append(
+            RecentRaceCard(
+                year=int(year),
+                round=int(rnd),
+                circuitName=str(card.circuit_name or card.name or ""),
+                countryFlag=calendar.country_flag(card.country, card.circuit_key),
+                raceName=str(card.name or card.circuit_name or ""),
+                date=date.isoformat() if hasattr(date, "isoformat") else date,
+                winner=winner_name,
+                winnerCode=winner_code,
+                sessionType="R",
+                r2_available=_r2_field_exists(int(year), int(rnd)),
+            )
+        )
+        if len(out) >= limit:
+            break
+    return out[:limit]
+
+
+@app.get("/api/recent-races", response_model=list[RecentRaceCard])
+async def api_recent_races(limit: int = 3) -> list[RecentRaceCard]:
+    """Last N completed races for homepage replay badges."""
+    n = max(1, min(int(limit or 3), 12))
+    return await run_sync(_recent_races, n)
 
 
 @app.get("/api/live/hub", response_model=LiveHubResponse)
@@ -1362,6 +1450,24 @@ async def api_replay_pack_status(
     )
 
 
+@app.get("/api/replay/pos-chunk")
+async def api_replay_pos_chunk(
+    session_key: int | None = None,
+    session_id: int | None = None,
+    lap: int = 1,
+    year: int | None = None,
+    round_number: int | None = None,
+    session_type: str | None = None,
+) -> dict[str, object]:
+    """Prefetch a 10-lap GPS window. Disk only — never FastF1 car_data or position_data."""
+    key = session_key if session_key is not None else session_id
+    if key is None:
+        raise HTTPException(status_code=422, detail="session_key or session_id is required")
+    return await live.peek_replay_pos_chunk(
+        int(key), int(lap), year, round_number, session_type
+    )
+
+
 @app.get("/api/live/replay-path")
 async def api_live_replay_path(
     session_key: int, year: int | None = None, round_number: int | None = None
@@ -1586,6 +1692,27 @@ async def api_recommend(body: RecommendRequest) -> RecommendResponse:
         raise HTTPException(503, str(extra)) from extra
     except Exception as extra:
         return aris_api._fallback_recommend(body)
+
+
+@app.post("/api/aris/ghost-recompute", response_model=GhostRecomputeResponse)
+async def api_ghost_recompute(body: GhostRecomputeRequest) -> GhostRecomputeResponse:
+    try:
+        payload = await run_light(
+            live.recompute_ghost_from_plan,
+            year=int(body.year),
+            round_number=int(body.round),
+            driver=str(body.driver),
+            current_lap=int(body.current_lap),
+            pit_laps=list(body.pit_laps),
+            compounds=list(body.compounds),
+            session_key=body.session_key,
+            label=str(body.label or ""),
+        )
+        return GhostRecomputeResponse.model_validate(payload)
+    except RuntimeError as extra:
+        raise HTTPException(503, str(extra)) from extra
+    except Exception as extra:
+        raise HTTPException(503, str(extra)) from extra
 
 
 @app.post("/api/aris/simulate", response_model=SimulateResponse)

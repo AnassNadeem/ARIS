@@ -525,6 +525,8 @@ export type ReplayPackStatus = {
   date_end?: string | null;
   session_type?: string;
   green_flag_s?: number | null;
+  pos_chunks?: { lo: number; hi: number }[];
+  pos_chunk_loaded?: { lo: number; hi: number } | null;
   circuit_path?: { x: number[]; y: number[] } | null;
   pit_lane_x?: number[];
   pit_lane_y?: number[];
@@ -589,6 +591,23 @@ export async function getReplayPackStatus(params: {
   if (params.refresh) qs.set("refresh", "1");
   if (params.outline) qs.set("outline", "1");
   return tryFetch<ReplayPackStatus>(`/api/replay/pack-status?${qs}`, undefined, 8000);
+}
+
+export async function prefetchReplayPosChunk(params: {
+  session_key: number;
+  lap: number;
+  year?: number;
+  round_number?: number;
+  session_type?: string;
+}): Promise<{ ok?: boolean; pos_chunk_loaded?: { lo: number; hi: number } } | null> {
+  const qs = new URLSearchParams({
+    session_key: String(params.session_key),
+    lap: String(params.lap),
+  });
+  if (params.year != null) qs.set("year", String(params.year));
+  if (params.round_number != null) qs.set("round_number", String(params.round_number));
+  if (params.session_type) qs.set("session_type", params.session_type);
+  return tryFetch(`/api/replay/pos-chunk?${qs}`, undefined, 8000);
 }
 
 export async function getQuickAnalysis(
@@ -858,6 +877,36 @@ export async function postRecommend(payload: {
       },
       60000,
     ),
+  );
+}
+
+export async function postGhostRecompute(opts: {
+  year: number;
+  round: number;
+  driver: string;
+  currentLap: number;
+  pitLaps: number[];
+  compounds: string[];
+  label?: string;
+  sessionKey?: number;
+}): Promise<{ ticks: { lap: number; position: number; gap_to_leader_s: number; compound: string; tyre_life: number; stint: number; cumulative_delta_s: number; aris_action: string; aris_confidence: number }[] } | null> {
+  return tryFetch(
+    "/api/aris/ghost-recompute",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        year: opts.year,
+        round: opts.round,
+        driver: opts.driver,
+        current_lap: opts.currentLap,
+        pit_laps: opts.pitLaps,
+        compounds: opts.compounds,
+        label: opts.label || "",
+        session_key: opts.sessionKey ?? null,
+      }),
+    },
+    15000,
   );
 }
 

@@ -55,6 +55,7 @@ class GhostState:
     ghost_tyre_age: int = 0
     ghost_position: int = 0
     ghost_cumulative_delta: float = 0.0
+    gap_to_leader_s: float = 0.0
 
     delta_history: list[dict] = field(default_factory=list)
 
@@ -491,6 +492,11 @@ def _rank_ghost_in_field(
     field_cum: dict[str, float] | None,
     fallback_pos: int,
 ) -> tuple[int, float]:
+    """Rank ghost by ARIS simulated cumulative time vs real field cumulative times.
+
+    Position = 1 + how many real drivers have a lower cumulative time.
+    Gap is ghost_cum - leader_cum (leader = fastest real car, or the ghost if ahead).
+    """
     if not field_cum:
         return max(1, min(20, fallback_pos)), 0.0
     scores = [(float(t), str(c).upper()) for c, t in field_cum.items()]
@@ -500,6 +506,70 @@ def _rank_ghost_in_field(
     rank = next((j + 1 for j, (_t, c) in enumerate(scores) if c == "__GHOST__"), fallback_pos)
     gap = max(0.0, float(ghost_cum) - leader)
     return int(rank), float(gap)
+
+
+def field_cumulative_by_lap(
+    lap_times: dict[str, dict[int, float]],
+) -> dict[int, dict[str, float]]:
+    """driver → {lap: lap_time_s} → {lap: {driver: cumulative_s}}."""
+    out: dict[int, dict[str, float]] = {}
+    running: dict[str, float] = {}
+    all_laps: set[int] = set()
+    for times in lap_times.values():
+        all_laps.update(int(k) for k in times)
+    for lap in sorted(all_laps):
+        for code, times in lap_times.items():
+            t = times.get(lap)
+            if t is None:
+                continue
+            running[str(code).upper()] = running.get(str(code).upper(), 0.0) + float(t)
+        out[int(lap)] = dict(running)
+    return out
+
+
+def r2_ghost_tick(
+    lap: int,
+    tick: dict,
+    pit_laps: list[int],
+    *,
+    confidence: float = 1.0,
+) -> dict:
+    """Serialize a score_parallel_ghost tick into the R2 ghost_{DRIVER}.json shape."""
+    pits = {int(p) for p in pit_laps}
+    pits_done = sum(1 for p in pits if p <= int(lap))
+    return {
+        "lap": int(lap),
+        "position": int(tick.get("ghost_position") or 0),
+        "gap_to_leader_s": round(float(tick.get("gap_to_leader_s") or 0.0), 3),
+        "compound": str(tick.get("ghost_compound") or tick.get("ghost_tyre") or "HARD"),
+        "tyre_life": int(tick.get("ghost_tyre_age") or 0),
+        "stint": pits_done + 1,
+        "cumulative_delta_s": round(float(tick.get("ghost_cumulative_delta") or 0.0), 3),
+        "aris_action": "PIT" if int(lap) in pits else "STAY_OUT",
+        "aris_confidence": max(0.0, min(1.0, float(confidence))),
+    }
+
+
+def plan_from_pits(
+    pit_laps: list[int],
+    pit_compounds: list[str],
+    start_compound: str,
+    *,
+    label: str = "",
+) -> GhostPlan:
+    from aris.physics.tires import normalize_compound
+
+    pits = [int(x) for x in pit_laps]
+    compounds = [normalize_compound(c) for c in pit_compounds]
+    while len(compounds) < len(pits):
+        compounds.append(normalize_compound(pit_compounds[-1] if pit_compounds else "HARD"))
+    return GhostPlan(
+        pit_laps=pits,
+        pit_compounds=compounds[: len(pits)],
+        start_compound=normalize_compound(start_compound),
+        aris_action=label or ("STAY_OUT" if not pits else f"PIT_L{pits[0]}_{compounds[0]}"),
+        decision_lap=1,
+    )
 
 
 def score_parallel_ghost(
@@ -593,23 +663,15 @@ def score_parallel_ghost(
         ghost_cum += float(ghost.ghost_lap_s or 0.0)
         field_now = (field_cum_by_lap or {}).get(lap_number)
         if field_now:
-            focus_code = str(ghost.driver_code or advance_state.driver_code).upper()
-            classified = None
-            others: dict[str, float] = {}
-            for car, t in field_now.items():
-                if str(car).upper() == focus_code:
-                    classified = float(t)
-                else:
-                    others[str(car)] = float(t)
             fallback = int(advance_state.position or ghost.ghost_position or 1)
-            if classified is not None:
-                # Same time base as the map: classified real time + ghost delta.
-                # Positive delta means the ghost is ahead (smaller race time).
-                rank_time = classified - float(ghost.ghost_cumulative_delta)
-                pos, _gap = _rank_ghost_in_field(rank_time, others, fallback)
-                ghost.ghost_position = pos
+            # Timing-tower rank is ARIS simulated cumulative vs real field times,
+            # not GPS-offset of the real car (classified − delta).
+            pos, gap = _rank_ghost_in_field(ghost_cum, field_now, fallback)
+            ghost.ghost_position = pos
+            ghost.gap_to_leader_s = gap
             if ghost.delta_history:
                 ghost.delta_history[-1]["ghost_pos"] = ghost.ghost_position
+                ghost.delta_history[-1]["gap_to_leader_s"] = round(gap, 3)
         if lap_number <= 2:
             _log.debug(
                 "ghost lap=%s real_pos=%s ghost_pos=%s delta=%.3f",
@@ -637,6 +699,7 @@ def ghost_to_dict(ghost: GhostState) -> dict:
         "ghost_position": ghost.ghost_position,
         "ghost_lap": ghost.ghost_lap,
         "ghost_cumulative_delta": round(delta, 3),
+        "gap_to_leader_s": round(float(ghost.gap_to_leader_s or 0.0), 3),
         "ghost_lap_s": round(float(ghost.ghost_lap_s or 0.0), 3),
         "typical_lap_s": round(typical, 3),
         "from_lap_one": bool(ghost.from_lap_one),
