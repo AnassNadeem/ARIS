@@ -13,7 +13,9 @@ Cache inventory (three separate layers — do not treat them as one):
 
 2. ARIS application / replay-pack cache (this module's CacheBackend)
    Keys: HTTP catalog responses, OpenF1/Jolpica payloads, replay packs.
-   Selected with ``ARIS_CACHE_BACKEND=disk|postgres`` (default: disk).
+   Selected with ``ARIS_CACHE_BACKEND=disk|postgres``. If unset, auto-detects
+   ``postgres`` when ``DATABASE_URL`` is present (Heroku), otherwise ``disk``.
+   Explicit ``ARIS_CACHE_BACKEND=disk`` always wins, even with ``DATABASE_URL``.
    - disk: ``cache/disk/`` via diskcache. Durable on a laptop; **ephemeral
      on Heroku**. Use only for local development.
    - postgres: table ``aris_cache``. **This is the durable production layer.**
@@ -136,10 +138,14 @@ def disk_dir() -> Path:
 
 
 def selected_cache_backend_name() -> str:
-    raw = (os.getenv("ARIS_CACHE_BACKEND") or "disk").strip().lower() or "disk"
-    if raw not in {"disk", "postgres"}:
-        raise ValueError(f"ARIS_CACHE_BACKEND must be disk or postgres, got {raw!r}")
-    return raw
+    raw = (os.getenv("ARIS_CACHE_BACKEND") or "").strip().lower()
+    if raw:
+        if raw not in {"disk", "postgres"}:
+            raise ValueError(f"ARIS_CACHE_BACKEND must be disk or postgres, got {raw!r}")
+        return raw
+    if (os.getenv("DATABASE_URL") or "").strip():
+        return "postgres"
+    return "disk"
 
 
 class DiskCacheBackend:

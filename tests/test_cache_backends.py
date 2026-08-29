@@ -36,6 +36,28 @@ def test_disk_backend_ttl_expiry(tmp_path):
 
 def test_default_backend_is_disk(monkeypatch):
     monkeypatch.delenv("ARIS_CACHE_BACKEND", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    reset_app_cache_for_tests()
+    backend = make_cache_backend()
+    assert isinstance(backend, DiskCacheBackend)
+    assert backend.name == "disk"
+
+
+def test_database_url_auto_selects_postgres(monkeypatch):
+    monkeypatch.delenv("ARIS_CACHE_BACKEND", raising=False)
+    monkeypatch.setenv("DATABASE_URL", "postgres://u:p@127.0.0.1:5432/d")
+    reset_app_cache_for_tests()
+    backend = make_cache_backend()
+    assert isinstance(backend, PostgresCacheBackend)
+    assert backend.name == "postgres"
+    status = backend.healthcheck()
+    assert status["backend"] == "postgres"
+    assert status["persistent_in_production"] is True
+
+
+def test_explicit_disk_wins_over_database_url(monkeypatch):
+    monkeypatch.setenv("ARIS_CACHE_BACKEND", "disk")
+    monkeypatch.setenv("DATABASE_URL", "postgres://u:p@127.0.0.1:5432/d")
     reset_app_cache_for_tests()
     backend = make_cache_backend()
     assert isinstance(backend, DiskCacheBackend)
