@@ -1,7 +1,7 @@
 import { useRaceStore, type ReplayPackStage } from "@/store/raceStore";
 import { circuitCoordsFromReplayOutline } from "@/lib/api";
 import { postGhostRecompute } from "@/lib/api";
-import { isFullCircuitOutline } from "@/lib/circuitCache";
+import { isFullCircuitOutline, shouldApplyFallbackOutline } from "@/lib/circuitCache";
 import { mapTimingAndPositions, mergeByDriverCode, mergeCars, sessionFlagToPhase, timingFingerprint } from "@/lib/mapCars";
 import { asGhostTick, ghostCarFromTick, syntheticGhostCar, syntheticGhostTick } from "@/lib/ghostCar";
 import {
@@ -391,7 +391,7 @@ export class ReplayFrameFeed {
       store.setGridDrivers(fieldToDrivers(field));
       store.setLapRows(fieldToLapRows(field));
       store.setStintRows(fieldToStintRows(field));
-      if (field.outline?.x?.length) {
+      if (field.outline?.x?.length && shouldApplyFallbackOutline(store.circuitOutline)) {
         store.setCircuitOutline({ x: field.outline.x, y: field.outline.y, available: true });
       }
       store.setPackStatus({ stage: "full", progress: 1, gpsReady: true });
@@ -803,7 +803,7 @@ export class ReplayFrameFeed {
         timing: { rows: frame.timing, current_lap: frame.lap, rainfall: frame.rainfall },
         weather: { rainfall: frame.rainfall },
         positions: { positions: frame.positions },
-        circuit_path: field.outline,
+        circuit_path: shouldApplyFallbackOutline(store.circuitOutline) ? field.outline : undefined,
       },
       seek != null,
     );

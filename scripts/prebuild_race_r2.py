@@ -145,22 +145,202 @@ def _load_session(year: int, round_number: int):
     return sess
 
 
-def _outline(sess: Any, year: int, round_number: int) -> dict[str, list[float]]:
-    del year, round_number
+def _code_by_num(sess: Any) -> dict[int, str]:
+    out: dict[int, str] = {}
+    laps = getattr(sess, "laps", None)
+    if laps is None or getattr(laps, "empty", True):
+        return out
+    for rec in laps.itertuples(index=False):
+        code = str(getattr(rec, "Driver", "") or "")
+        num = getattr(rec, "DriverNumber", None)
+        try:
+            if code and num is not None and str(num) != "nan":
+                out[int(float(num))] = code
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def _race_leader_code(sess: Any) -> str | None:
+    import pandas as pd
+
+    results = getattr(sess, "results", None)
+    if results is not None and not getattr(results, "empty", True):
+        for col in ("ClassifiedPosition", "Position"):
+            if col not in results.columns:
+                continue
+            for rec in results.itertuples(index=False):
+                pos = getattr(rec, col, None)
+                try:
+                    if pos is None or pd.isna(pos) or int(float(pos)) != 1:
+                        continue
+                except (TypeError, ValueError):
+                    continue
+                code = str(getattr(rec, "Abbreviation", "") or "")
+                if code:
+                    return code
+    laps = getattr(sess, "laps", None)
+    if laps is None or getattr(laps, "empty", True) or "Position" not in laps.columns:
+        return None
+    for lap_n in (3, 2, 4, 1):
+        hit = laps[(laps["LapNumber"] == lap_n) & (laps["Position"] == 1)]
+        if hit.empty:
+            continue
+        code = str(hit.iloc[0].get("Driver") or "")
+        if code:
+            return code
+    return None
+
+
+def _pos_df_for_code(raw: dict[str, Any], code: str, code_by_num: dict[int, str]) -> Any:
+    if code in raw:
+        return raw[code]
+    num_by_code = {v: k for k, v in code_by_num.items()}
+    num = num_by_code.get(code)
+    if num is not None:
+        for key in (str(num), num):
+            if key in raw:
+                return raw[key]
+    for drv_key, df in raw.items():
+        mapped = str(drv_key)
+        if str(drv_key).isdigit():
+            try:
+                mapped = code_by_num.get(int(drv_key), mapped)
+            except (TypeError, ValueError):
+                pass
+        if mapped == code:
+            return df
+    return None
+
+
+def _aware(ts: Any) -> Any:
+    import pandas as pd
+
+    t = pd.Timestamp(ts)
+    if t.tzinfo is None:
+        return t.tz_localize("UTC")
+    return t.tz_convert("UTC")
+
+
+def _lap_window(sess: Any, code: str, lap_n: int) -> tuple[Any, Any] | tuple[None, None]:
+    import pandas as pd
+
+    laps = getattr(sess, "laps", None)
+    if laps is None or getattr(laps, "empty", True):
+        return None, None
+    rows = laps[(laps["Driver"] == code) & (laps["LapNumber"] == lap_n)]
+    if rows.empty or "LapStartDate" not in laps.columns:
+        return None, None
+    start = rows["LapStartDate"].iloc[0]
+    if start is None or pd.isna(start):
+        return None, None
+    start = _aware(start)
+    lap_time = rows["LapTime"].iloc[0] if "LapTime" in rows.columns else None
+    if lap_time is not None and not pd.isna(lap_time):
+        return start, start + lap_time
+    nxt = laps[(laps["Driver"] == code) & (laps["LapNumber"] == lap_n + 1)]
+    if not nxt.empty:
+        nxt_start = nxt["LapStartDate"].iloc[0]
+        if nxt_start is not None and not pd.isna(nxt_start):
+            return start, _aware(nxt_start)
+    return start, start + pd.Timedelta(seconds=120)
+
+
+def _xy_from_df(df: Any, start: Any = None, end: Any = None) -> tuple[list[float], list[float]]:
+    import pandas as pd
+
+    if df is None or getattr(df, "empty", True) or "X" not in df.columns or "Y" not in df.columns:
+        return [], []
+    if start is not None and end is not None and "Date" in df.columns:
+        dates = pd.to_datetime(df["Date"], utc=True, errors="coerce")
+        mask = (dates >= start) & (dates < end)
+        sliced = df.loc[mask]
+    else:
+        sliced = df
+    xs = [float(v) for v in sliced["X"].dropna().tolist()]
+    ys = [float(v) for v in sliced["Y"].dropna().tolist()]
+    n = min(len(xs), len(ys))
+    return xs[:n], ys[:n]
+
+
+def _downsample_close(xs: list[float], ys: list[float]) -> dict[str, list[float]]:
+    from backend.sessions import close_circuit_loop
+
+    n = min(len(xs), len(ys))
+    if n < 2:
+        return {"x": [], "y": []}
+    xs, ys = xs[:n], ys[:n]
+    step = max(1, n // 400)
+    xs, ys = xs[::step], ys[::step]
+    xs, ys = close_circuit_loop(xs, ys)
+    return {"x": xs, "y": ys}
+
+
+def _one_lap_gps(sess: Any, *, lap_n: int = 3) -> dict[str, list[float]]:
+    """One flying lap of GPS for the race leader. Avoids formation-lap chaos."""
     from backend.sessions import load_position_data_only
 
     raw = load_position_data_only(sess)
+    if not raw:
+        return {"x": [], "y": []}
+    codes = _code_by_num(sess)
+    leader = _race_leader_code(sess)
+    candidates: list[str] = []
+    if leader:
+        candidates.append(leader)
+    for code in codes.values():
+        if code not in candidates:
+            candidates.append(code)
+    for drv_key in raw:
+        mapped = str(drv_key)
+        if str(drv_key).isdigit():
+            try:
+                mapped = codes.get(int(drv_key), mapped)
+            except (TypeError, ValueError):
+                pass
+        if mapped not in candidates:
+            candidates.append(mapped)
+    for code in candidates:
+        df = _pos_df_for_code(raw, code, codes)
+        if df is None:
+            continue
+        for try_lap in (lap_n, 2, 4, 5, 1):
+            start, end = _lap_window(sess, code, try_lap)
+            xs, ys = _xy_from_df(df, start, end)
+            if len(xs) >= 20:
+                return _downsample_close(xs, ys)
     for df in raw.values():
-        if df is None or getattr(df, "empty", True):
+        xs, ys = _xy_from_df(df)
+        if len(xs) < 40:
             continue
-        if "X" not in df.columns or "Y" not in df.columns:
-            continue
-        step = max(1, len(df) // 400)
-        xs = [float(v) for v in df["X"].dropna().tolist()[::step]]
-        ys = [float(v) for v in df["Y"].dropna().tolist()[::step]]
-        if len(xs) >= 2:
-            return {"x": xs, "y": ys}
+        chunk = max(40, len(xs) // 8)
+        mid = min(len(xs) - chunk, max(0, chunk))
+        return _downsample_close(xs[mid : mid + chunk], ys[mid : mid + chunk])
     return {"x": [], "y": []}
+
+
+def _outline_is_map_space(outline: dict[str, list[float]]) -> bool:
+    xs = outline.get("x") or []
+    if len(xs) < 2:
+        return False
+    return (max(xs) - min(xs)) < 800.0
+
+
+def _outline(sess: Any, year: int, round_number: int) -> dict[str, list[float]]:
+    """Single-lap circuit path. Prefer FastF1 circuit_map_quick; else leader lap 3 GPS."""
+    try:
+        from backend.sessions import circuit_map_quick
+
+        cmap = circuit_map_quick(int(year), int(round_number))
+        if cmap is not None:
+            xs = list(getattr(cmap, "x", None) or [])
+            ys = list(getattr(cmap, "y", None) or [])
+            if getattr(cmap, "available", False) and len(xs) >= 2 and len(ys) >= 2:
+                n = min(len(xs), len(ys))
+                return {"x": xs[:n], "y": ys[:n]}
+    except Exception as extra:
+        _log.warning("circuit_map_quick failed for %s R%s: %s", year, round_number, extra)
+    return _one_lap_gps(sess, lap_n=3)
 
 
 def _drivers(sess: Any) -> list[dict[str, Any]]:
@@ -547,7 +727,12 @@ def build_race_field(year: int, round_number: int, sess: Any) -> dict[str, Any]:
     laps, stints = _laps_stints(sess)
     weather = _weather(sess, laps)
     rc = _race_control(sess)
-    pos = _pos_samples(sess, outline, DEFAULT_HZ)
+    proj = outline
+    if _outline_is_map_space(outline):
+        gps_path = _one_lap_gps(sess, lap_n=3)
+        if gps_path.get("x"):
+            proj = gps_path
+    pos = _pos_samples(sess, proj, DEFAULT_HZ)
     date_race = getattr(rnd, "date_race", None)
     payload = {
         "meta": {

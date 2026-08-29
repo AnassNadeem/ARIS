@@ -17,7 +17,7 @@ import {
 } from "@/lib/api";
 import { fetchGhost, fetchRaceField, fieldToDrivers, fieldToLapRows, fieldToStintRows, ghostTicksMap, plansMatch, r2Configured } from "@/lib/r2Replay";
 import { MOCK_DRIVERS_2025 } from "@/lib/mockData";
-import { isFullCircuitOutline } from "@/lib/circuitCache";
+import { isFullCircuitOutline, shouldApplyFallbackOutline } from "@/lib/circuitCache";
 import {
   defaultReplayYear,
   filterReplayRounds,
@@ -149,7 +149,7 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
           store.setGridDrivers(fieldToDrivers(field).length ? fieldToDrivers(field) : drivers);
           store.setLapRows(fieldToLapRows(field));
           store.setStintRows(fieldToStintRows(field));
-          if (field.outline?.x?.length) {
+          if (field.outline?.x?.length && shouldApplyFallbackOutline(store.circuitOutline)) {
             store.setCircuitOutline({ x: field.outline.x, y: field.outline.y, available: true });
           }
           store.setPackStatus({ stage: "full", progress: 1, gpsReady: true });

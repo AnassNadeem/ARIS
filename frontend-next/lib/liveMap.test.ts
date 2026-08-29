@@ -7,7 +7,7 @@ import { commsTabs, nextSelectorStep } from "./sessionFlow";
 import { driverOutOfRace, fmtGap, fmtSectorTime, sectorClass } from "./timingDisplay";
 import { buildPath, fractionAtPoint, lerpFrac, pointAtFraction } from "./trackGeometry";
 import { PathCarAnimator } from "./deadReckoning";
-import { isFullCircuitOutline } from "./circuitCache";
+import { isFullCircuitOutline, shouldApplyFallbackOutline } from "./circuitCache";
 import { lapRecordsFromApi, stintsFromLapRecords } from "./panelData";
 import { mergeByDriverCode, mergeCars, timingEqual } from "./mapCars";
 import { sectorPathsFromOutline } from "./trackGeometry";
@@ -184,6 +184,11 @@ describe("circuit outline", () => {
   it("rejects 20-point previews so the map waits for the real racing line", () => {
     expect(isFullCircuitOutline({ x: Array(21).fill(0), y: Array(21).fill(0) })).toBe(false);
     expect(isFullCircuitOutline({ x: Array(80).fill(0), y: Array(80).fill(1) })).toBe(true);
+    expect(shouldApplyFallbackOutline({ x: Array(20).fill(0) })).toBe(true);
+    expect(shouldApplyFallbackOutline({ x: Array(49).fill(0) })).toBe(true);
+    expect(shouldApplyFallbackOutline({ x: Array(50).fill(0) })).toBe(false);
+    expect(shouldApplyFallbackOutline({ x: Array(80).fill(0) })).toBe(false);
+    expect(shouldApplyFallbackOutline(null)).toBe(true);
   });
 });
 
