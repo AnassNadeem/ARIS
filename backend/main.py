@@ -413,6 +413,11 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_allow_origins(),
+    allow_origin_regex=(
+        r"https://aris-frontend-590\.pages\.dev|"
+        r"https://[a-z0-9]+\.aris-frontend-590\.pages\.dev|"
+        r"http://localhost:3000"
+    ),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
