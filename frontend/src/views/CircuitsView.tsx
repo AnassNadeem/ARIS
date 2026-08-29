@@ -7,7 +7,7 @@ import { useCircuit } from "../hooks/useCircuit";
 import { useCircuitMap } from "../hooks/useCircuitMap";
 import { C, T } from "../theme";
 import { Chip, EmptyState, ErrorPanel, Panel, SkeletonPanel } from "../components/atoms";
-import { CircuitOutline } from "../components/CircuitSvg";
+import { CircuitOutline, TrackMapKey } from "../components/CircuitSvg";
 import { Shell } from "../components/Shell";
 
 function needleZandvoort(slug: string): boolean {
@@ -53,29 +53,32 @@ export function CircuitsView() {
     if (slug || !rounds.length) return;
     let cancelled = false;
     const load = async () => {
-      const results = await Promise.allSettled(
-        rounds.map(async (r) => {
-          const p = await apiGet<CircuitMap>(`/api/circuit/${r.year}/${r.round_number}/preview`, { timeout: 8_000 });
-          return [`${r.year}-${r.round_number}`, p] as const;
-        }),
-      );
-      if (cancelled) return;
-      setPreviews((prev) => {
-        const next = { ...prev };
-        for (const result of results) {
-          if (result.status === "fulfilled") {
-            const [k, p] = result.value;
-            next[k] = p;
+      const batch = 3;
+      for (let i = 0; i < rounds.length; i += batch) {
+        if (cancelled) return;
+        const chunk = rounds.slice(i, i + batch);
+        const results = await Promise.allSettled(
+          chunk.map(async (r) => {
+            const p = await apiGet<CircuitMap>(`/api/circuit/${r.year}/${r.round_number}/preview`, { timeout: 8_000 });
+            return [`${r.year}-${r.round_number}`, p] as const;
+          }),
+        );
+        if (cancelled) return;
+        setPreviews((prev) => {
+          const next = { ...prev };
+          for (const result of results) {
+            if (result.status === "fulfilled") {
+              const [k, p] = result.value;
+              next[k] = p;
+            }
           }
-        }
-        return next;
-      });
+          return next;
+        });
+      }
     };
     void load();
-    const id = window.setInterval(() => void load(), 30_000);
     return () => {
       cancelled = true;
-      window.clearInterval(id);
     };
   }, [rounds, slug]);
 
@@ -98,10 +101,16 @@ export function CircuitsView() {
   const loading = cal26.status === "loading" && cal25.status === "loading";
   return (
     <Shell title="CIRCUITS">
-      <div style={{ padding: 24 }}>
+      <div style={{ padding: "24px 28px 40px", maxWidth: 1280, margin: "0 auto" }}>
+        <div style={{ fontFamily: T.display, fontWeight: 800, fontSize: 28, letterSpacing: "0.04em", marginBottom: 6 }}>
+          CIRCUIT MAPS
+        </div>
+        <div style={{ fontFamily: T.mono, fontSize: 11, color: C.mist, marginBottom: 18 }}>
+          Sector 1 · 2 · 3 on the racing line · start/finish as a chequered stripe
+        </div>
         {loading && <SkeletonPanel rows={10} label="Loading circuits…" />}
         {cal26.status === "error" && <ErrorPanel message={cal26.error} onRetry={cal26.retry} />}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 14 }}>
           {rounds.map((r) => (
             <CircuitCard
               key={r.circuit_key}
@@ -119,9 +128,6 @@ export function CircuitsView() {
 
 function CircuitCard({ round, year, preview }: { round: CalendarRound; year: number; preview?: CircuitMap }) {
   const navigate = useNavigate();
-  const hist = useCircuit(round.circuit_key, year, true);
-  const last = hist.history.status === "ok" ? [...hist.history.data.years].sort((a, b) => b.year - a.year)[0] : null;
-  const chars = hist.chars.status === "ok" ? hist.chars.data : null;
   const map: CircuitMap =
     preview ??
     {
@@ -138,23 +144,38 @@ function CircuitCard({ round, year, preview }: { round: CalendarRound; year: num
       onClick={() => navigate(`/circuits/${round.circuit_key}`)}
       style={{
         textAlign: "left",
-        padding: 12,
+        padding: 0,
         background: C.panel,
         border: `1px solid ${C.border}`,
-        borderRadius: 6,
+        borderRadius: 8,
         cursor: "pointer",
+        overflow: "hidden",
       }}
     >
-      <div style={{ height: 75, marginBottom: 8 }}>
-        <CircuitOutline map={map} width="100%" height={75} quietUnavailable />
+      <div style={{ height: 150, background: C.ink, padding: "10px 8px 0" }}>
+        <CircuitOutline map={map} width="100%" height={140} quietUnavailable showSectors />
       </div>
-      <div style={{ fontFamily: T.display, fontSize: 18, fontWeight: 800 }}>{round.circuit_name}</div>
-      <div style={{ fontFamily: T.mono, fontSize: 10, color: C.mist }}>{round.country}</div>
-      <div style={{ fontFamily: T.mono, fontSize: 10, color: C.faint, marginTop: 6 }}>
-        Winner {last?.winner ?? "—"} · FL {last?.fastest_lap ?? "—"}
-      </div>
-      <div style={{ fontFamily: T.mono, fontSize: 10, color: C.mist, marginTop: 4 }}>
-        {chars?.lap_length_km ?? "—"} km · {chars?.turns ?? "—"} turns · DRS {chars?.drs_zones ?? "—"}
+      <div style={{ padding: "12px 14px 14px" }}>
+        <div style={{ fontFamily: T.display, fontSize: 20, fontWeight: 800, lineHeight: 1.1 }}>{round.circuit_name}</div>
+        <div style={{ fontFamily: T.mono, fontSize: 10, color: C.mist, marginTop: 4 }}>
+          {(round.city || "").toUpperCase()}
+          {round.city ? " · " : ""}
+          {round.country}
+        </div>
+        <div style={{ display: "flex", gap: 8, marginTop: 8, fontFamily: T.mono, fontSize: 9, color: C.faint }}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <span style={{ width: 10, height: 3, background: C.purple, display: "inline-block" }} /> S1
+          </span>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <span style={{ width: 10, height: 3, background: C.green, display: "inline-block" }} /> S2
+          </span>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <span style={{ width: 10, height: 3, background: C.blue, display: "inline-block" }} /> S3
+          </span>
+        </div>
+        <div style={{ fontFamily: T.mono, fontSize: 10, color: C.faint, marginTop: 8 }}>
+          {round.name} · R{round.round_number} · {year}
+        </div>
       </div>
     </button>
   );
@@ -200,12 +221,13 @@ function CircuitDetail({
         <div style={{ fontFamily: T.mono, fontSize: 12, color: C.mist, marginBottom: 16 }}>
           {circuit.chars.status === "ok" ? circuit.chars.data.country : round?.country}
         </div>
-        <div style={{ position: "relative", height: 280, background: C.panel, border: `1px solid ${C.border}`, borderRadius: 6 }}>
+        <div style={{ position: "relative", height: 420, background: C.ink, border: `1px solid ${C.border}`, borderRadius: 8, overflow: "hidden" }}>
           {map ? (
             <CircuitOutline map={map} showCorners showSectors showDrs onCornerHover={(t) => setTip(t)} />
           ) : (
             <SkeletonPanel rows={6} label="Loading circuit map…" />
           )}
+          {map && <TrackMapKey showDrs showSectors />}
           {tip && (
             <div style={{ position: "absolute", bottom: 8, left: 12, background: C.raised, padding: "4px 8px", fontFamily: T.mono, fontSize: 10 }}>{tip}</div>
           )}

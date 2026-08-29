@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 _log = logging.getLogger(__name__)
@@ -17,6 +18,33 @@ from aris.tracks import load_track_config
 
 DEFAULT_TOTAL_LAPS = 57
 DEFAULT_TRACK_NAME = "Bahrain"
+_PIRELLI_CSV = Path(__file__).resolve().parents[2] / "data" / "pirelli_allocation.csv"
+_PIRELLI_CACHE: dict[tuple[int, int], list[str]] | None = None
+_DEFAULT_DRY_ALLOCATION = ("SOFT", "MEDIUM", "HARD")
+
+
+def load_pirelli_allocation(year: int, round_no: int) -> list[str]:
+    """Dry compounds nominated for this weekend (SOFT/MEDIUM/HARD names).
+
+    C-codes live in ``data/pirelli_allocation.csv`` for later hardness
+    modelling; T9 only needs the three named dry compounds to exist.
+    """
+    global _PIRELLI_CACHE
+    if _PIRELLI_CACHE is None:
+        _PIRELLI_CACHE = {}
+        if _PIRELLI_CSV.is_file():
+            df = pd.read_csv(_PIRELLI_CSV)
+            for _, row in df.iterrows():
+                key = (int(row["year"]), int(row["round_number"]))
+                alloc: list[str] = []
+                if pd.notna(row.get("soft_cx")):
+                    alloc.append("SOFT")
+                if pd.notna(row.get("medium_cx")):
+                    alloc.append("MEDIUM")
+                if pd.notna(row.get("hard_cx")):
+                    alloc.append("HARD")
+                _PIRELLI_CACHE[key] = alloc or list(_DEFAULT_DRY_ALLOCATION)
+    return list(_PIRELLI_CACHE.get((int(year), int(round_no)), list(_DEFAULT_DRY_ALLOCATION)))
 
 # FastF1 TrackStatus codes that contaminate pace used by lag features / What-if.
 # 4 = Safety Car, 6 = VSC deployed, 7 = VSC ending. Multi-code strings like "24"
@@ -103,6 +131,9 @@ class RaceState(BaseModel):
     position: int | None = None
     undercut_threat: bool = False
     pit_compound: str = "HARD"
+    pirelli_allocation: list[str] = Field(
+        default_factory=lambda: ["SOFT", "MEDIUM", "HARD"]
+    )
     lag1_pace: float | None = None
     lag2_pace: float | None = None
     stint_roll3: float | None = None
@@ -122,12 +153,69 @@ class RaceState(BaseModel):
     # walk-forward exclusion; it is not a live rain signal.
     rainfall: bool = False
     stint_number: int = 1
+    # T10-A: P(SC/VSC in the next window). Defaults = historical base rates.
+    p_sc_next_5_laps: float = 0.07
+    p_sc_next_10_laps: float = 0.12
+    # T10-C: rule-based track state (DRY / DAMP / CROSSOVER / WET / DRYING).
+    track_state: str = "DRY"
+    track_state_confidence: float = 0.95
+    # FSM T6: race control phase flags
+    formation_lap: bool = False
+    standing_start: bool = False
+    # Per-driver FastF1 stint data for rival compound inference (T6 Part 4).
+    # Keys are driver_code strings; values are lists of stint dicts.
+    stints: dict = {}
 
     def with_overrides(self, overrides: RaceStateOverrides) -> RaceState:
         data = self.model_dump()
         for key, val in overrides.model_dump(exclude_none=True).items():
             data[key] = val
         return RaceState(**data)
+
+
+_STINTS_CACHE: dict[int, dict] = {}
+
+
+def _build_stints_dict(session_id: int) -> dict:
+    """Build per-driver stint list from all-field lap data.
+
+    Returns ``{driver_code: [{lap_start, compound}]}`` using the compound
+    column from the laps table.  Detects stint boundaries by compound changes
+    (shift comparison per driver).  Results are cached per session_id so
+    repeated calls within a backtest run incur only one DB round-trip.
+
+    Called once per ``build_race_state()`` invocation so
+    ``_infer_rival_expected_compound`` can read real compound history instead
+    of defaulting to HARD.
+    """
+    if session_id in _STINTS_CACHE:
+        return _STINTS_CACHE[session_id]
+    try:
+        all_laps = db.fetch_all_laps(session_id)
+    except Exception:
+        return {}
+    if all_laps.empty or "code" not in all_laps.columns or "compound" not in all_laps.columns:
+        return {}
+
+    stints: dict = {}
+    for code, grp in all_laps.groupby("code"):
+        grp = grp.sort_values("lap_number").reset_index(drop=True)
+        # Detect rows where compound differs from the previous row (stint start).
+        compound_series = grp["compound"].astype(str)
+        is_new_stint = compound_series != compound_series.shift()
+        driver_stints: list[dict] = []
+        for _, row in grp[is_new_stint].iterrows():
+            compound_val = str(row.get("compound") or "").strip().upper()
+            if not compound_val or compound_val in ("NONE", "NAN", ""):
+                continue
+            driver_stints.append({
+                "lap_start": int(row["lap_number"]),
+                "compound": compound_val,
+            })
+        if driver_stints:
+            stints[str(code)] = driver_stints
+    _STINTS_CACHE[session_id] = stints
+    return stints
 
 
 def _gap_ahead_history(
@@ -275,6 +363,8 @@ def build_race_state(
     gap_ahead = gaps.get("gap_ahead_s")
     undercut = gap_ahead is not None and 0 < gap_ahead < 22.0
 
+    stints_dict = _build_stints_dict(session_id)
+
     state = RaceState(
         session_id=session_id,
         driver_id=driver_id,
@@ -292,6 +382,7 @@ def build_race_state(
         total_laps=total_laps,
         track_name=track_cfg.name,
         pit_compound="HARD",
+        pirelli_allocation=load_pirelli_allocation(int(sess.year), int(sess.round_no)),
         lag1_pace=lag1,
         lag2_pace=lag2,
         stint_roll3=roll3,
@@ -311,9 +402,26 @@ def build_race_state(
         rainfall_mm_per_lap=None,
         rainfall=_lap_rainfall(session_id, laps, lap, requested),
         stint_number=stint_number,
+        stints=stints_dict,
     )
     if overrides:
         state = state.with_overrides(overrides)
+    try:
+        all_laps = db.fetch_all_laps(session_id)
+    except Exception:
+        all_laps = None
+    try:
+        from aris.risk.wet_classifier import attach_track_state
+
+        state = attach_track_state(state, laps=laps, all_laps=all_laps)
+    except Exception:
+        _log.debug("track state attach skipped", exc_info=True)
+    try:
+        from aris.risk.sc_risk_model import attach_sc_risk
+
+        state = attach_sc_risk(state, all_laps=all_laps)
+    except Exception:
+        _log.debug("SC risk attach skipped", exc_info=True)
     return state
 
 

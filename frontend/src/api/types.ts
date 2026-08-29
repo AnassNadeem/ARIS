@@ -100,6 +100,10 @@ export const liveStatusSchema = z
     aris_ready: z.boolean().optional(),
     session_remaining_seconds: z.number().nullable().optional(),
     source: z.string().nullable().optional(),
+    session_ended: z.boolean().optional(),
+    ended_session_name: z.string().nullable().optional(),
+    ended_session_type: z.string().nullable().optional(),
+    replay_preparing: z.boolean().optional(),
   })
   .passthrough();
 
@@ -131,6 +135,10 @@ export const liveTimingRowSchema = z
     q1_ms: z.number().nullable().optional(),
     q2_ms: z.number().nullable().optional(),
     q3_ms: z.number().nullable().optional(),
+    lap_number: z.number().nullable().optional(),
+    throttle_pct: z.number().nullable().optional(),
+    brake_pct: z.number().nullable().optional(),
+    speed_kph: z.number().nullable().optional(),
   })
   .passthrough();
 
@@ -155,6 +163,7 @@ export const liveTimingSchema = z.object({
   last_success_utc: z.string().nullable().optional(),
   current_lap: z.number().nullable().optional(),
   replay: z.boolean().optional(),
+  rainfall: z.boolean().optional(),
 });
 
 export const driverStandingSchema = z
@@ -229,6 +238,23 @@ export const lapsSchema = z.object({
   laps: z.array(lapRowSchema),
 });
 
+export const liveLapsSchema = z.object({
+  is_live: z.boolean(),
+  session_key: z.number().nullable().optional(),
+  current_lap: z.number().nullable().optional(),
+  laps: z.array(lapRowSchema),
+});
+
+export const liveTelemetrySchema = z.object({
+  is_live: z.boolean(),
+  driver_code: z.string(),
+  t_s: z.array(z.number()).default([]),
+  throttle: z.array(z.number()).default([]),
+  speed: z.array(z.number()).default([]),
+  brake: z.array(z.number()).default([]),
+  rpm: z.array(z.number()).optional(),
+});
+
 export const recommendSchema = z
   .object({
     action: z.string(),
@@ -241,6 +267,7 @@ export const recommendSchema = z
     decision_record_id: z.string(),
     alternatives: z.array(z.any()).default([]),
     wet_reduced_confidence: z.boolean().optional(),
+    wet_heuristic: z.boolean().optional(),
     reg_note_2026: z.boolean().optional(),
     data_source: z.string().nullable().optional(),
     lap_note: z.string().nullable().optional(),
@@ -262,6 +289,72 @@ export type ConstructorStandings = z.infer<typeof constructorStandingsSchema>;
 export type LapsResponse = z.infer<typeof lapsSchema>;
 export type RecommendResponse = z.infer<typeof recommendSchema>;
 export type WeekendSession = z.infer<typeof weekendSessionSchema>;
+
+export const sessionResultRowSchema = z
+  .object({
+    position: z.number().nullable().optional(),
+    driver_code: z.string(),
+    team: z.string().nullable().optional(),
+    time_ms: z.number().nullable().optional(),
+    gap_to_winner_ms: z.number().nullable().optional(),
+    points: z.number().nullable().optional(),
+    fastest_lap: z.boolean().optional(),
+    laps_completed: z.number().nullable().optional(),
+    status: z.string(),
+    grid: z.number().nullable().optional(),
+  })
+  .passthrough();
+
+export const sessionResultsSchema = z.object({
+  year: z.number(),
+  round_number: z.number(),
+  session_type: z.string(),
+  results: z.array(sessionResultRowSchema),
+});
+
+export const tyreStrategyStintSchema = z.object({
+  driver_code: z.string(),
+  lap_start: z.number(),
+  lap_end: z.number(),
+  compound: z.string().nullable().optional(),
+  fresh: z.boolean().nullable().optional(),
+  tyre_life_at_end: z.number().nullable().optional(),
+});
+
+export const tyreStrategySchema = z.object({
+  year: z.number(),
+  round_number: z.number(),
+  stints: z.array(tyreStrategyStintSchema),
+});
+
+export type SessionResultRow = z.infer<typeof sessionResultRowSchema>;
+export type SessionResultsResponse = z.infer<typeof sessionResultsSchema>;
+export type TyreStrategyStint = z.infer<typeof tyreStrategyStintSchema>;
+export type TyreStrategyResponse = z.infer<typeof tyreStrategySchema>;
+
+export const roundSessionsSchema = z.object({
+  year: z.number(),
+  round_number: z.number(),
+  name: z.string(),
+  is_sprint_weekend: z.boolean(),
+  sessions: z.array(
+    z.object({
+      session_type: z.string(),
+      session_name: z.string(),
+      datetime_utc: z.string().nullable().optional(),
+      status: z.enum(["COMPLETED", "LIVE", "UPCOMING"]),
+    }),
+  ),
+});
+
+export type RoundSessions = z.infer<typeof roundSessionsSchema>;
+
+export type ReplayWatchPick = {
+  year: number;
+  round: z.infer<typeof calendarRoundSchema>;
+  sessionType: string;
+  segment?: string | null;
+};
 
 export type CircuitCharacteristics = {
   circuit_key: string;
@@ -329,6 +422,7 @@ export type CircuitMap = {
   pit_lane_x?: number[];
   pit_lane_y?: number[];
   pit_stalls?: number[][];
+  grid_slots?: number[][];
   bounds?: { min_x: number; max_x: number; min_y: number; max_y: number } | null;
   available: boolean;
   fallback?: boolean;
@@ -346,6 +440,18 @@ export type CarPosition = {
   is_pitted?: boolean;
   is_dnf?: boolean;
   reason?: string | null;
+};
+
+export type QualiWindow = { id: string; label: string; start_s: number; end_s: number };
+
+export type ReplayPathTrace = { t: number[]; f: number[] };
+
+export type ReplayPath = {
+  session_key: number;
+  source?: string | null;
+  date_start?: string | null;
+  traces: Record<string, ReplayPathTrace>;
+  drivers?: string[];
 };
 
 export type ChatResponse = { answer: string; cited_ids: string[]; abstained: boolean };

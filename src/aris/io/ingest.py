@@ -88,13 +88,23 @@ def _load_session(
 
     _CACHE_DIR.mkdir(parents=True, exist_ok=True)
     fastf1.Cache.enable_cache(str(_CACHE_DIR))
+    try:
+        from backend.fastf1_guard import FASTF1_LOCK
+    except Exception:
+        FASTF1_LOCK = None  # type: ignore[assignment]
     sess = fastf1.get_session(year, event, session_type)
-    sess.load(
-        laps=True,
-        telemetry=with_telemetry,
-        weather=with_weather,
-        messages=False,
-    )
+    if FASTF1_LOCK is not None:
+        FASTF1_LOCK.acquire()
+    try:
+        sess.load(
+            laps=True,
+            telemetry=with_telemetry,
+            weather=with_weather,
+            messages=False,
+        )
+    finally:
+        if FASTF1_LOCK is not None:
+            FASTF1_LOCK.release()
     return sess
 
 
@@ -568,7 +578,13 @@ def ingest_session(
     sess = _load_session(
         year, event, session_type, with_telemetry=include_telemetry, with_weather=True
     )
-    if sess.laps is None:
+    try:
+        laps_ready = sess.laps
+    except Exception as exc:
+        raise RuntimeError(
+            f"FastF1 session {year} {event} {session_type} has no laps loaded: {exc}"
+        ) from exc
+    if laps_ready is None:
         raise RuntimeError(
             f"FastF1 session {year} {event} {session_type} has no laps loaded "
             "(session.laps is None) — refuse to ingest partial/corrupt state"

@@ -26,7 +26,7 @@ export function ReplayPreviewCards() {
     setSession({
       year: r.year,
       round: r.round,
-      sessionType: r.sessionType,
+      sessionType: "R",
       circuitName: r.circuitName,
       countryFlag: r.countryFlag,
       totalLaps: 72,
@@ -53,8 +53,8 @@ export function ReplayPreviewCards() {
             <span className="flex items-center gap-2 truncate font-mono-data text-[12px] text-white">
               <span>{r.countryFlag}</span>
               <span className="truncate">{r.circuitName}</span>
-              {r.sessionType === "S" && (
-                <span className="rounded bg-amber/20 px-1 text-[9px] text-amber">SPR</span>
+              {r.sessionType === "R" && (
+                <span className="rounded bg-red/15 px-1 text-[9px] text-red">RACE</span>
               )}
             </span>
             <span className="shrink-0 font-mono-data text-[10px] text-muted">🏆 {r.winner}</span>

@@ -92,15 +92,20 @@ export function mockRoundsForYear(year: number): RoundCard[] {
     { name: "Qatar", flag: "🇶🇦", sprint: true },
     { name: "Abu Dhabi", flag: "🇦🇪" },
   ];
-  return calendar.map((c, i) => ({
+  const rounds = calendar.map((c, i) => ({
     round: i + 1,
     circuitName: c.name,
     countryFlag: c.flag,
     date: new Date(year, i, 1 + i * 12).toISOString(),
-    sessionType: "R",
+    sessionType: "R" as const,
     isSprint: Boolean(c.sprint),
     arisEligible: true,
+    status: "COMPLETED" as const,
   }));
+  if (year >= 2026) {
+    return rounds.filter((r) => r.circuitName !== "Bahrain" && r.circuitName !== "Saudi Arabia");
+  }
+  return rounds;
 }
 
 // The last N completed rounds, most recent first — used for the home page

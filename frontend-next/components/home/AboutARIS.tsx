@@ -35,6 +35,9 @@ export function AboutARIS() {
             <Link href="/live" className="text-white underline-offset-4 hover:underline">
               [ Live ]
             </Link>
+            <Link href="/standings" className="text-white underline-offset-4 hover:underline">
+              [ Standings ]
+            </Link>
             <a
               href="https://github.com/AnassNadeem/ARIS"
               target="_blank"

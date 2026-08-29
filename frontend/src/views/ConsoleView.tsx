@@ -16,6 +16,9 @@ import type { ChatResponse, LapsResponse, LiveTimingRow, RecommendResponse, Sess
 import { useARISRecommend } from "../hooks/useARISRecommend";
 import { useCircuit } from "../hooks/useCircuit";
 import { useLiveTiming } from "../hooks/useLiveTiming";
+import { useLivePositions } from "../hooks/useLivePositions";
+import { useLiveLaps } from "../hooks/useLiveLaps";
+import { useLiveRaceControl } from "../hooks/useLiveRaceControl";
 import { useReplayTiming, useSessionLaps } from "../hooks/useSession";
 import { useStandings } from "../hooks/useStandings";
 import { C, SPEED_MS, SPEED_OPTIONS, T, compoundLetter } from "../theme";
@@ -26,25 +29,54 @@ import { CarFilter } from "../components/CarFilter";
 import { CommsPanel, type CommMsg } from "../components/CommsPanel";
 import { BoxBanner } from "../components/BoxBanner";
 import { LapTimeChart } from "../components/LapTimeChart";
-import { LightsOut } from "../components/LightsOut";
 import { RaceBrief } from "../components/RaceBrief";
 import { CircuitOutline } from "../components/CircuitSvg";
 import { useCircuitMap } from "../hooks/useCircuitMap";
 import { useDrivers } from "../hooks/useDrivers";
+import { ARIS_ON_REPLAY } from "../flags";
+import { WetConditionsBadge, WetHeuristicBadge } from "../components/WetHeuristicBadge";
 
 const CHART_COLORS = [C.blue, C.signal, C.green, C.caution, C.purple, "#FF8000"];
 
 type Msg = CommMsg;
 
+function upsertLapSeries(prev: { lap: number; [k: string]: number }[], lapNo: number, values: Record<string, number>) {
+  const next = prev.filter((row) => row.lap !== lapNo);
+  next.push({ lap: lapNo, ...values });
+  next.sort((a, b) => a.lap - b.lap);
+  return next.slice(-80);
+}
+
+function useLiveRaceSeries(active: boolean, rows: LiveTimingRow[], lapNo: number) {
+  const [gaps, setGaps] = useState<{ lap: number; [k: string]: number }[]>([]);
+  const [positions, setPositions] = useState<{ lap: number; [k: string]: number }[]>([]);
+  useEffect(() => {
+    if (!active || !rows.length || lapNo < 1) return;
+    const g: Record<string, number> = {};
+    const p: Record<string, number> = {};
+    for (const row of rows) {
+      p[row.driver_code] = row.position;
+      if (row.position === 1) g[row.driver_code] = 0;
+      else if (row.gap_to_leader_s != null) g[row.driver_code] = row.gap_to_leader_s;
+    }
+    setGaps((prev) => upsertLapSeries(prev, lapNo, g));
+    setPositions((prev) => upsertLapSeries(prev, lapNo, p));
+  }, [active, rows, lapNo]);
+  return { gaps, positions };
+}
+
 export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDebrief: () => void }) {
   const isLive = config.mode === "live";
+  const arisOn = isLive || ARIS_ON_REPLAY;
   const [mainTab, setMainTab] = useState("race");
   const [analyticsTab, setAnalyticsTab] = useState("driver");
   const [simTab, setSimTab] = useState("h2h");
   const [speed, setSpeed] = useState<(typeof SPEED_OPTIONS)[number]>("1×");
   const [running, setRunning] = useState(false);
   const [lap, setLap] = useState(1);
-  const [hiddenCars, setHiddenCars] = useState<string[]>([]);
+  const [hiddenCars, setHiddenCars] = useState<string[]>(
+    config.year === 2026 && config.round.round_number === 15 ? ["HAD"] : [],
+  );
   const [chatInput, setChatInput] = useState("");
   const [messages, setMessages] = useState<Msg[]>([]);
   const [pitDecision, setPitDecision] = useState<string | null>(null);
@@ -52,14 +84,18 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
   const [simResult, setSimResult] = useState<string | null>(null);
 
   const live = useLiveTiming(isLive);
+  const livePos = useLivePositions(isLive);
   const replay = useReplayTiming(config.year, config.round.round_number, "R", lap, !isLive);
-  const laps = useSessionLaps(config.year, config.round.round_number, "R", !isLive);
+  const liveLaps = useLiveLaps(isLive);
+  const liveRc = useLiveRaceControl(isLive);
+  const sessionLaps = useSessionLaps(config.year, config.round.round_number, "R", !isLive);
+  const laps = isLive ? liveLaps : sessionLaps;
   const rec = useARISRecommend(
     config.year,
     config.round.round_number,
     config.driver,
     lap,
-    true,
+    arisOn,
     isLive ? "live" : "replay",
     live.status?.session_key,
   );
@@ -69,6 +105,7 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
   const [scRanges, setScRanges] = useState<[number, number][]>([]);
 
   useEffect(() => {
+    if (isLive) return;
     apiGet<{ messages: { lap: number | null; flag: string | null; category: string | null; message: string }[] }>(
       `/api/session/${config.year}/${config.round.round_number}/R/messages`,
       { timeout: 60_000 },
@@ -91,11 +128,13 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
         setScRanges(ranges);
       })
       .catch(() => undefined);
-  }, [config.year, config.round.round_number]);
+  }, [isLive, config.year, config.round.round_number]);
 
   const totalLaps = circuit.chars.status === "ok" ? circuit.chars.data.total_laps ?? 60 : 60;
   const rows: LiveTimingRow[] = isLive ? live.timing?.rows ?? [] : replay.status === "ok" ? replay.data.rows : [];
   const focusStint = rows.find((r) => r.driver_code === config.driver);
+  const isRaining = Boolean(isLive ? live.timing?.rainfall : replay.status === "ok" && replay.data.rainfall);
+  const wetRec = rec.status === "ok" && Boolean(rec.data.wet_heuristic || rec.data.wet_reduced_confidence);
 
   const [chartLap, setChartLap] = useState(1);
   useEffect(() => {
@@ -103,6 +142,14 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
     const id = window.setTimeout(() => setChartLap(lap), delay);
     return () => window.clearTimeout(id);
   }, [lap]);
+
+  useEffect(() => {
+    if (!isLive) return;
+    const fromTiming = live.timing?.current_lap;
+    const fromRows = Math.max(0, ...(live.timing?.rows ?? []).map((r) => r.lap_number || 0));
+    const n = Math.max(typeof fromTiming === "number" ? fromTiming : 0, fromRows);
+    if (n > 0) setLap(n);
+  }, [isLive, live.timing?.current_lap, live.timing?.rows]);
 
   useEffect(() => {
     if (isLive || !running) return;
@@ -115,9 +162,11 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
   const lastRecId = useRef<string | null>(null);
   const lastAction = useRef<string | null>(null);
   const lastEventsLap = useRef<number | null>(null);
+  const lastRain = useRef<boolean | null>(null);
+  const lastHoldLap = useRef<number | null>(null);
 
   useEffect(() => {
-    if (isLive) return;
+    if (isLive || !arisOn) return;
     if (lastEventsLap.current === lap) return;
     lastEventsLap.current = lap;
     apiGet<{ events: { type: string; text: string }[] }>(
@@ -142,10 +191,60 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
         ]);
       })
       .catch(() => undefined);
-  }, [lap, isLive, config.year, config.round.round_number, config.driver]);
+  }, [lap, isLive, arisOn, config.year, config.round.round_number, config.driver]);
 
   useEffect(() => {
-    if (rec.status !== "ok") return;
+    if (!isLive) return;
+    if (lastRain.current === null) {
+      lastRain.current = isRaining;
+      return;
+    }
+    if (isRaining && lastRain.current !== true) {
+      lastRain.current = true;
+      setMessages((m) => [
+        ...m,
+        {
+          id: m.length + 1,
+          type: "alert",
+          text: "RAIN DETECTED. Track conditions changing. Intermediate window opening if conditions worsen. [WET HEURISTIC — reduced confidence]",
+          wetHeuristic: true,
+        },
+      ]);
+      return;
+    }
+    if (!isRaining && lastRain.current === true) {
+      lastRain.current = false;
+      setMessages((m) => [
+        ...m,
+        {
+          id: m.length + 1,
+          type: "intel",
+          text: "Rain easing. Track drying. Monitor conditions for slick window. Intermediates may begin graining.",
+        },
+      ]);
+    }
+  }, [isLive, isRaining]);
+
+  useEffect(() => {
+    if (!isLive || !isRaining) return;
+    const compound = (focusStint?.compound || "").toUpperCase();
+    const remaining = totalLaps - lap;
+    if ((compound === "I" || compound === "W") && remaining > 10 && lap % 5 === 0 && lastHoldLap.current !== lap) {
+      lastHoldLap.current = lap;
+      const hold = compound === "W" ? "WET" : "INTER";
+      setMessages((m) => [
+        ...m,
+        {
+          id: m.length + 1,
+          type: "intel",
+          text: `Conditions still wet. Hold ${hold}. ${remaining} laps remaining. Monitor for dry window.`,
+        },
+      ]);
+    }
+  }, [isLive, isRaining, lap, focusStint?.compound, totalLaps]);
+
+  useEffect(() => {
+    if (!arisOn || rec.status !== "ok") return;
     const r = rec.data;
     const stayRepeat = r.action === "STAY_OUT" && lastAction.current === "STAY_OUT";
     if (r.decision_record_id === lastRecId.current) return;
@@ -158,10 +257,20 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
     setMessages((m) => {
       const next: Msg[] = [
         ...m,
-        { id: m.length + 1, type: "recommend", text: `${r.action}: ${r.reasoning}` },
+        {
+          id: m.length + 1,
+          type: "recommend",
+          text: `${r.action}: ${r.reasoning}`,
+          wetHeuristic: Boolean(r.wet_heuristic || r.wet_reduced_confidence),
+        },
       ];
-      if (r.wet_reduced_confidence) {
-        next.push({ id: next.length + 1, type: "alert", text: "[WET: REDUCED CONFIDENCE]" });
+      if (r.wet_heuristic || r.wet_reduced_confidence) {
+        next.push({
+          id: next.length + 1,
+          type: "alert",
+          text: "[WET HEURISTIC — reduced confidence] No calibrated wet model.",
+          wetHeuristic: true,
+        });
       }
       if (config.arisMode === "auto" && (r.action === "BOX" || r.action === "PIT_SOON") && r.net_delta_s < 0) {
         next.push({
@@ -172,10 +281,16 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
       }
       return next;
     });
-  }, [rec.status, rec.status === "ok" ? rec.data.decision_record_id : null, rec.status === "ok" ? rec.data.action : null, config.arisMode]);
+  }, [arisOn, rec.status, rec.status === "ok" ? rec.data.decision_record_id : null, rec.status === "ok" ? rec.data.action : null, config.arisMode]);
 
+  const liveHist = useLiveRaceSeries(isLive, rows, chartLap);
   const chartData = useMemo(() => buildLapChart(laps.status === "ok" ? laps.data : null, chartLap), [laps, chartLap]);
-  const codes = chartData.codes;
+  const codes = useMemo(() => {
+    if (chartData.codes.length) return chartData.codes;
+    if (standings.drivers.status === "ok") return standings.drivers.data.standings.map((s) => s.driver_code);
+    if (drivers.status === "ok") return drivers.data.drivers.map((d) => d.driver_code);
+    return rows.map((r) => r.driver_code);
+  }, [chartData.codes, standings.drivers, drivers, rows]);
 
   const sendChat = async () => {
     const q = chatInput.trim();
@@ -284,7 +399,11 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
             </button>
           </div>
         )}
-        <Chip tone={config.arisMode === "auto" ? "green" : "signal"}>{config.arisMode === "auto" ? "AUTO" : "ASSISTED"}</Chip>
+        {arisOn ? (
+          <Chip tone={config.arisMode === "auto" ? "green" : "signal"}>{config.arisMode === "auto" ? "AUTO" : "ASSISTED"}</Chip>
+        ) : (
+          <Chip tone="mist">ARIS OFF</Chip>
+        )}
         {isLive ? (
           <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <LiveDot />
@@ -293,10 +412,82 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
         ) : (
           <Chip tone="mist">REPLAY {speed}</Chip>
         )}
-        {config.year === 2026 && <Chip tone="purple" size="xs">2026 REG NOTE</Chip>}
+        {isRaining && <WetConditionsBadge />}
+        {isLive && live.status?.session_flag && live.status.session_flag !== "GREEN" && live.status.session_flag !== "UNKNOWN" && (
+          <Chip tone={live.status.session_flag === "RED" ? "caution" : "caution"}>
+            {live.status.session_flag === "YELLOW"
+              ? "YELLOW FLAG"
+              : live.status.session_flag === "VSC"
+                ? "VSC"
+                : live.status.session_flag === "SC"
+                  ? "SAFETY CAR"
+                  : live.status.session_flag}
+          </Chip>
+        )}
       </div>
 
-      {!isLive && rec.status === "error" && (
+      {isLive && liveRc.fresh.length > 0 && (
+        <LiveRcSync
+          fresh={liveRc.fresh}
+          onPush={(rows) => {
+            setMessages((m) => [
+              ...m,
+              ...rows.map((row, i) => {
+                const blob = `${row.flag || ""} ${row.message || ""}`.toUpperCase();
+                const penalty = /PENALTY|STEWARD|INVESTIGATION|TIME DELETED|DRIVE THROUGH|BLACK AND WHITE/.test(blob);
+                const alert = /YELLOW|RED|SC|VSC|SAFETY|CRASH|INCIDENT|STOPPED|STRANDED|COLLISION/.test(blob);
+                const label = penalty ? "STEWARDS — " : row.flag && row.flag !== "GREEN" && row.flag !== "Other" ? `${row.flag} — ` : "";
+                return {
+                  id: m.length + i + 1,
+                  type: penalty || alert ? "alert" : "intel",
+                  text: `${label}${row.message || row.category || "Race control"}`,
+                };
+              }),
+            ]);
+          }}
+        />
+      )}
+      {isLive && live.status?.session_flag && live.status.session_flag !== "GREEN" && live.status.session_flag !== "UNKNOWN" && (
+        <div
+          style={{
+            padding: "10px 16px",
+            borderBottom: `1px solid ${C.border}`,
+            background: live.status.session_flag === "RED" ? C.cautionDim : C.cautionDim,
+            display: "flex",
+            justifyContent: "center",
+          }}
+        >
+          <span style={{ fontFamily: T.display, fontWeight: 800, letterSpacing: "0.1em", color: C.caution }}>
+            {live.status.session_flag === "YELLOW"
+              ? "YELLOW FLAG"
+              : live.status.session_flag === "VSC"
+                ? "VIRTUAL SAFETY CAR"
+                : live.status.session_flag === "SC"
+                  ? "SAFETY CAR"
+                  : live.status.session_flag === "RED"
+                    ? "RED FLAG"
+                    : live.status.session_flag}
+          </span>
+        </div>
+      )}
+      {isLive && rows.length === 0 && (
+        <div
+          style={{
+            padding: "10px 16px",
+            borderBottom: `1px solid ${C.border}`,
+            background: C.signalDim,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <span style={{ fontFamily: T.display, fontWeight: 800, letterSpacing: "0.08em" }}>
+            WAITING FOR THE RACE TO START · {config.round.name.toUpperCase()}
+          </span>
+          <Chip tone="green">AUTO</Chip>
+        </div>
+      )}
+      {arisOn && !isLive && rec.status === "error" && (
         <PanelError
           message={
             rec.error.toLowerCase().includes("ingest") || rec.error.includes("503")
@@ -306,10 +497,10 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
           onRetry={rec.retry}
         />
       )}
-      {config.arisMode === "assisted" && rec.status === "ok" && pitDecision === null && (rec.data.action === "BOX" || rec.data.action === "PIT_SOON") && (
+      {arisOn && config.arisMode === "assisted" && rec.status === "ok" && pitDecision === null && (rec.data.action === "BOX" || rec.data.action === "PIT_SOON") && (
         <>
           <div style={{ padding: "6px 16px", display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
-            <span style={{ fontFamily: T.mono, fontSize: 10, color: C.mist }}>
+            <span style={{ fontFamily: T.mono, fontSize: 10, color: wetRec ? C.blue : C.signal }}>
               {(rec.data.confidence * 100).toFixed(0)}%
             </span>
             <DataSourceBadge source={rec.data.data_source} ingestStatus={rec.data.ingest_status} />
@@ -330,7 +521,7 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
         />
         </>
       )}
-      {config.arisMode === "assisted" && rec.status === "ok" && pitDecision === null && rec.data.action !== "BOX" && rec.data.action !== "PIT_SOON" && (
+      {arisOn && config.arisMode === "assisted" && rec.status === "ok" && pitDecision === null && rec.data.action !== "BOX" && rec.data.action !== "PIT_SOON" && (
         <div
           style={{
             padding: "10px 16px",
@@ -341,11 +532,14 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
             alignItems: "center",
           }}
         >
-          <span style={{ fontFamily: T.mono, fontSize: 11, color: C.signal }}>
-            ARIS RECOMMENDS: {rec.data.action} — {rec.data.reasoning}
-          </span>
+          <div>
+            <span style={{ fontFamily: T.mono, fontSize: 11, color: C.signal }}>
+              ARIS RECOMMENDS: {rec.data.action} — {rec.data.reasoning}
+            </span>
+            {wetRec && <WetHeuristicBadge />}
+          </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontFamily: T.mono, fontSize: 10, color: C.mist }}>
+            <span style={{ fontFamily: T.mono, fontSize: 10, color: wetRec ? C.blue : C.signal }}>
               {(rec.data.confidence * 100).toFixed(0)}%
             </span>
             <DataSourceBadge source={rec.data.data_source} ingestStatus={rec.data.ingest_status} />
@@ -362,7 +556,7 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
             ["race", "RACE CONSOLE"],
             ["brief", "RACE BRIEF"],
             ["analytics", "ANALYTICS"],
-            ["strategy", "STRATEGY SIM"],
+            ...(arisOn ? ([["strategy", "STRATEGY SIM"]] as [string, string][]) : []),
             ["telemetry", "TELEMETRY"],
             ...(isLive ? ([["ops", "OPS ROOM"]] as [string, string][]) : []),
           ]}
@@ -378,15 +572,14 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
             style={{
               height: "100%",
               display: "grid",
-              gridTemplateColumns: "minmax(0, 1.6fr) 250px 250px",
-              gridTemplateRows: "minmax(0, 1fr) 210px",
+              gridTemplateColumns: arisOn ? "minmax(0, 2.4fr) minmax(260px, 320px) 220px" : "minmax(0, 2.4fr) 300px",
+              gridTemplateRows: "1fr",
               gap: 8,
               padding: 10,
             }}
           >
-            <Panel title="TRACK MAP" style={{ gridRow: "1 / 2" }}>
+            <Panel title="TRACK MAP" style={{ gridRow: "1" }} right={<Chip tone="mist" size="xs">LAP {lap} / {totalLaps}</Chip>}>
               <div style={{ height: "100%", display: "flex", flexDirection: "column", position: "relative" }}>
-                <LightsOut play={lap <= 1} />
                 <div style={{ flex: 1, minHeight: 0 }}>
                   <TrackMap
                     year={config.year}
@@ -396,7 +589,16 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
                     hiddenCars={hiddenCars}
                     lap={lap}
                     live={isLive}
+                    playing
                     speed={speed}
+                    liveFeed={
+                      isLive
+                        ? {
+                            positions: livePos.positions,
+                            circuitPath: livePos.circuitPath,
+                          }
+                        : undefined
+                    }
                   />
                 </div>
                 {drivers.status === "ok" && (
@@ -424,46 +626,20 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
                 }
               />
             </Panel>
-            <Panel title="ARIS COMMS" style={{ gridRow: "1 / 3" }} right={<Chip tone="signal" size="xs">{config.arisMode.toUpperCase()}</Chip>}>
-              <CommsPanel messages={messages} input={chatInput} setInput={setChatInput} onSend={() => void sendChat()} />
-            </Panel>
-            {(() => {
-              const colourBy = new Map(rows.map((r) => [r.driver_code, r.team_colour || C.signal]));
-              if (drivers.status === "ok") {
-                for (const d of drivers.data.drivers) {
-                  if (d.team_colour) colourBy.set(d.driver_code, d.team_colour);
+            {arisOn && (
+              <Panel
+                title="ARIS COMMS"
+                style={{ gridRow: "1" }}
+                right={
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                    <TyreBadge compound={focusStint?.compound} life={focusStint?.tyre_life} size="sm" />
+                    <Chip tone="signal" size="xs">{config.arisMode.toUpperCase()}</Chip>
+                  </span>
                 }
-              }
-              const pitLaps =
-                laps.status === "ok"
-                  ? [...new Set(laps.data.laps.filter((l) => l.pit_in_lap).map((l) => l.lap_number))]
-                  : [];
-              return (
-                <LapTimeChart
-                  laps={laps}
-                  upTo={chartLap}
-                  focus={config.driver}
-                  colourBy={colourBy}
-                  pitLaps={pitLaps}
-                  scRanges={scRanges}
-                />
-              );
-            })()}
-            <Panel title={`TYRE STATUS · ${config.driver}`}>
-              <div style={{ padding: 14 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <TyreBadge compound={focusStint?.compound} life={focusStint?.tyre_life} />
-                  <div>
-                    <div style={{ fontFamily: T.display, fontSize: 22, fontWeight: 800, color: C.signal }}>
-                      {focusStint?.tyre_life ?? "—"} LAPS
-                    </div>
-                    <div style={{ fontFamily: T.mono, fontSize: 9, color: C.faint }}>
-                      {compoundLetter(focusStint?.compound)} · stint {focusStint?.stint_number ?? "—"}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </Panel>
+              >
+                <CommsPanel messages={messages} input={chatInput} setInput={setChatInput} onSend={() => void sendChat()} />
+              </Panel>
+            )}
           </div>
         )}
 
@@ -490,21 +666,27 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
             circuit={circuit}
             rec={rec.status === "ok" ? rec.data : null}
             rows={rows}
+            laps={laps}
+            scRanges={scRanges}
+            liveHist={isLive ? liveHist : null}
           />
         )}
 
         {mainTab === "strategy" && (
           <div style={{ height: "100%", overflow: "auto", padding: 14 }}>
+            <p style={{ fontFamily: T.mono, fontSize: 11, color: C.mist, marginBottom: 10 }}>
+              Simulations run from previous races at this circuit when this weekend has no race stints yet.
+            </p>
             <TabBar
               tabs={[["h2h", "HEAD-TO-HEAD"], ["three", "3-WAY SIM"], ["whatif", "WHAT-IF"], ["field", "FIELD STRATEGY"]]}
               active={simTab}
               onChange={setSimTab}
             />
             {simTab === "h2h" && (
-              <H2H config={config} codes={chartData.codes} chartData={chartData} rows={rows} standings={standings} />
+              <H2H config={config} codes={codes} chartData={chartData} rows={rows} standings={standings} />
             )}
             {simTab === "three" && (
-              <ThreeWay config={config} rows={rows} codes={chartData.codes} />
+              <ThreeWay config={config} rows={rows} codes={codes} />
             )}
             {simTab === "whatif" && (
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
@@ -541,6 +723,12 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
             {simTab === "field" && (
               <Panel title="FIELD STRATEGY">
                 <div style={{ padding: 14 }}>
+                  {rows.length === 0 && (
+                    <EmptyState
+                      title="Grid not out yet"
+                      body="Compounds appear when the OpenF1 feed starts. Head-to-head and what-if already run on previous races at this circuit."
+                    />
+                  )}
                   {rows.map((row) => (
                     <div key={row.driver_code} style={{ display: "flex", gap: 12, padding: "8px 0", borderBottom: `1px solid ${C.border}40`, alignItems: "center" }}>
                       <span style={{ fontFamily: T.mono, width: 28, color: C.faint }}>P{row.position}</span>
@@ -573,7 +761,7 @@ export function ConsoleView({ config, onDebrief }: { config: SessionConfig; onDe
             borderRadius: 4,
           }}
         >
-          END RACE → DEBRIEF
+          {arisOn ? "END RACE → DEBRIEF" : "← BACK TO RACES"}
         </button>
       </div>
     </div>
@@ -604,6 +792,9 @@ function AnalyticsPane({
   circuit,
   rec,
   rows,
+  laps,
+  scRanges,
+  liveHist,
 }: {
   tab: string;
   onTab: (s: string) => void;
@@ -615,6 +806,9 @@ function AnalyticsPane({
   circuit: ReturnType<typeof useCircuit>;
   rec: RecommendResponse | null;
   rows: LiveTimingRow[];
+  laps: ReturnType<typeof useSessionLaps>;
+  scRanges: [number, number][];
+  liveHist: { gaps: { lap: number; [k: string]: number }[]; positions: { lap: number; [k: string]: number }[] } | null;
 }) {
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -622,10 +816,12 @@ function AnalyticsPane({
         <TabBar
           tabs={[
             ["driver", "DRIVER STATS"],
+            ["laps", "LAP TIME TREND"],
             ["standings", "STANDINGS"],
             ["gaps", "GAP TRENDS"],
             ["positions", "POSITIONS"],
             ["tyres", "TYRE ANALYSIS"],
+            ["speed", "SPEED GRAPH"],
             ["track", "TRACK INFO"],
           ]}
           active={tab}
@@ -658,6 +854,27 @@ function AnalyticsPane({
               </ResponsiveContainer>
             </Panel>
           </div>
+        )}
+        {tab === "laps" && (
+          <Panel title="LAP TIME TREND">
+            {(() => {
+              const colourBy = new Map(rows.map((r) => [r.driver_code, r.team_colour || C.signal]));
+              const pitLaps =
+                laps.status === "ok"
+                  ? [...new Set(laps.data.laps.filter((l) => l.pit_in_lap).map((l) => l.lap_number))]
+                  : [];
+              return (
+                <LapTimeChart
+                  laps={laps}
+                  upTo={lap}
+                  focus={config.driver}
+                  colourBy={colourBy}
+                  pitLaps={pitLaps}
+                  scRanges={scRanges}
+                />
+              );
+            })()}
+          </Panel>
         )}
         {tab === "standings" && (
           <Panel title="DRIVERS CHAMPIONSHIP">
@@ -695,11 +912,20 @@ function AnalyticsPane({
             )}
           </Panel>
         )}
-        {tab === "gaps" && <GapPane year={config.year} round={config.round.round_number} lap={lap} />}
-        {tab === "positions" && <PosPane year={config.year} round={config.round.round_number} lap={lap} codes={codes} />}
-        {tab === "tyres" && (
-          <TyreAnalysis config={config} rec={rec} rows={rows} />
+        {tab === "gaps" && (
+          <GapPane year={config.year} round={config.round.round_number} lap={lap} liveRows={liveHist?.gaps ?? null} />
         )}
+        {tab === "positions" && (
+          <PosPane
+            year={config.year}
+            round={config.round.round_number}
+            lap={lap}
+            codes={codes}
+            liveRows={liveHist?.positions ?? null}
+          />
+        )}
+        {tab === "tyres" && <TyreAnalysis config={config} rec={rec} rows={rows} liveLaps={laps} />}
+        {tab === "speed" && <TelemetryPane config={config} codes={codes} rows={rows} />}
         {tab === "track" && (
           <TrackInfoTab config={config} circuit={circuit} />
         )}
@@ -708,18 +934,33 @@ function AnalyticsPane({
   );
 }
 
-function GapPane({ year, round, lap }: { year: number; round: number; lap: number }) {
-  const [data, setData] = useState<{ lap: number; gaps: Record<string, number> }[] | null>(null);
+function GapPane({
+  year,
+  round,
+  lap,
+  liveRows,
+}: {
+  year: number;
+  round: number;
+  lap: number;
+  liveRows: { lap: number; [k: string]: number }[] | null;
+}) {
+  const [data, setData] = useState<{ lap: number; [k: string]: number }[] | null>(liveRows);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
+    if (liveRows) {
+      setData(liveRows);
+      setErr(null);
+      return;
+    }
     apiGet<{ laps: { lap: number; gaps: Record<string, number> }[] }>(`/api/race/${year}/${round}/gap-history`, { timeout: 120_000 })
-      .then((d) => setData(d.laps.filter((x) => x.lap <= lap)))
+      .then((d) => setData(d.laps.filter((x) => x.lap <= lap).map((x) => ({ lap: x.lap, ...x.gaps }))))
       .catch((e) => setErr(String(e)));
-  }, [year, round, lap]);
+  }, [year, round, lap, liveRows]);
   if (err) return <PanelError message={err} onRetry={() => setErr(null)} />;
   if (!data) return <Skeleton height={200} />;
-  const codes = data[0] ? Object.keys(data[0].gaps).slice(0, 6) : [];
-  const rows = data.map((d) => ({ lap: d.lap, ...d.gaps }));
+  const codes = data[0] ? Object.keys(data[0]).filter((k) => k !== "lap").slice(0, 8) : [];
+  const rows = data;
   return (
     <Panel title="GAP TO LEADER (s)">
       <ResponsiveContainer width="100%" height={260}>
@@ -737,13 +978,29 @@ function GapPane({ year, round, lap }: { year: number; round: number; lap: numbe
   );
 }
 
-function PosPane({ year, round, lap, codes }: { year: number; round: number; lap: number; codes: string[] }) {
-  const [data, setData] = useState<{ lap: number }[] | null>(null);
+function PosPane({
+  year,
+  round,
+  lap,
+  codes,
+  liveRows,
+}: {
+  year: number;
+  round: number;
+  lap: number;
+  codes: string[];
+  liveRows: { lap: number; [k: string]: number }[] | null;
+}) {
+  const [data, setData] = useState<{ lap: number }[] | null>(liveRows);
   useEffect(() => {
+    if (liveRows) {
+      setData(liveRows);
+      return;
+    }
     apiGet<{ laps: { lap: number; positions: Record<string, number> }[] }>(`/api/race/${year}/${round}/position-history`, { timeout: 120_000 })
       .then((d) => setData(d.laps.filter((x) => x.lap <= lap).map((x) => ({ lap: x.lap, ...x.positions }))))
       .catch(() => setData([]));
-  }, [year, round, lap]);
+  }, [year, round, lap, liveRows]);
   if (!data) return <Skeleton height={200} />;
   return (
     <Panel title="POSITION CHANGES BY LAP">
@@ -928,29 +1185,79 @@ function TelemetryPane({ config, codes, rows }: { config: SessionConfig; codes: 
   const [thr, setThr] = useState<{ distance: number[]; throttle: number[]; brake: number[] } | null>(null);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
+    let cancelled = false;
+    const live = config.mode === "live";
+    const load = async () => {
+      try {
+        if (live) {
+          const raw = await apiGet<{ t_s: number[]; speed: number[]; throttle: number[]; brake: number[] }>(
+            `/api/live/telemetry?driver=${encodeURIComponent(a)}`,
+            { timeout: 12_000, cache: false },
+          );
+          if (cancelled) return;
+          setTA({ distance: raw.t_s, speed: raw.speed, throttle: raw.throttle, brake: raw.brake });
+          setErr(null);
+          if (b) {
+            const rawB = await apiGet<{ t_s: number[]; speed: number[] }>(
+              `/api/live/telemetry?driver=${encodeURIComponent(b)}`,
+              { timeout: 12_000, cache: false },
+            );
+            if (!cancelled) setTB({ distance: rawB.t_s, speed: rawB.speed });
+          }
+          return;
+        }
+        const d = await apiGet<{ distance: number[]; speed: number[]; throttle: number[]; brake: number[] }>(
+          `/api/session/${config.year}/${config.round.round_number}/R/telemetry/${a}`,
+          { timeout: 120_000 },
+        );
+        if (!cancelled) setTA(d);
+        if (b) {
+          const dB = await apiGet<{ distance: number[]; speed: number[] }>(
+            `/api/session/${config.year}/${config.round.round_number}/R/telemetry/${b}`,
+            { timeout: 120_000 },
+          );
+          if (!cancelled) setTB(dB);
+        }
+      } catch (e) {
+        if (!cancelled) setErr(String(e));
+      }
+    };
     setTA(null);
-    apiGet<{ distance: number[]; speed: number[]; throttle: number[]; brake: number[] }>(
-      `/api/session/${config.year}/${config.round.round_number}/R/telemetry/${a}`,
-      { timeout: 120_000 },
-    )
-      .then((d) => setTA(d))
-      .catch((e) => setErr(String(e)));
-    if (b) {
-      apiGet<{ distance: number[]; speed: number[] }>(
-        `/api/session/${config.year}/${config.round.round_number}/R/telemetry/${b}`,
-        { timeout: 120_000 },
-      )
-        .then((d) => setTB(d))
-        .catch(() => undefined);
-    }
+    void load();
+    const id = live ? window.setInterval(() => void load(), 800) : undefined;
+    return () => {
+      cancelled = true;
+      if (id) window.clearInterval(id);
+    };
   }, [config, a, b]);
   useEffect(() => {
-    apiGet<{ distance: number[]; throttle: number[]; brake: number[] }>(
-      `/api/session/${config.year}/${config.round.round_number}/R/telemetry/${thrDriver}`,
-      { timeout: 120_000 },
-    )
-      .then((d) => setThr(d))
-      .catch(() => undefined);
+    let cancelled = false;
+    const live = config.mode === "live";
+    const load = async () => {
+      try {
+        if (live) {
+          const raw = await apiGet<{ t_s: number[]; throttle: number[]; brake: number[] }>(
+            `/api/live/telemetry?driver=${encodeURIComponent(thrDriver)}`,
+            { timeout: 12_000, cache: false },
+          );
+          if (!cancelled) setThr({ distance: raw.t_s, throttle: raw.throttle, brake: raw.brake });
+          return;
+        }
+        const d = await apiGet<{ distance: number[]; throttle: number[]; brake: number[] }>(
+          `/api/session/${config.year}/${config.round.round_number}/R/telemetry/${thrDriver}`,
+          { timeout: 120_000 },
+        );
+        if (!cancelled) setThr(d);
+      } catch {
+        if (!cancelled) setThr(null);
+      }
+    };
+    void load();
+    const id = live ? window.setInterval(() => void load(), 800) : undefined;
+    return () => {
+      cancelled = true;
+      if (id) window.clearInterval(id);
+    };
   }, [config, thrDriver]);
   if (err) return <PanelError message={err} onRetry={() => setErr(null)} />;
   if (!ta) return <div style={{ padding: 14 }}><Skeleton height={220} /></div>;
@@ -1064,10 +1371,12 @@ function TyreAnalysis({
   config,
   rec,
   rows,
+  liveLaps,
 }: {
   config: SessionConfig;
   rec: RecommendResponse | null;
   rows: LiveTimingRow[];
+  liveLaps?: ReturnType<typeof useSessionLaps>;
 }) {
   const [driver, setDriver] = useState(config.driver);
   const [stints, setStints] = useState<
@@ -1075,16 +1384,44 @@ function TyreAnalysis({
   >(null);
   const [laps, setLaps] = useState<LapsResponse | null>(null);
   useEffect(() => {
-    apiGet<{ stints: NonNullable<typeof stints> }>(
-      `/api/session/${config.year}/${config.round.round_number}/R/stints`,
-      { timeout: 120_000 },
-    )
-      .then((d) => setStints(d.stints))
-      .catch(() => setStints([]));
-    apiGet<LapsResponse>(`/api/session/${config.year}/${config.round.round_number}/R/laps`, { timeout: 120_000 })
-      .then(setLaps)
-      .catch(() => undefined);
-  }, [config.year, config.round.round_number]);
+    let cancelled = false;
+    const live = config.mode === "live";
+    const load = async () => {
+      try {
+        if (live) {
+          const d = await apiGet<{ stints: NonNullable<typeof stints> }>("/api/live/stints", {
+            timeout: 20_000,
+            cache: false,
+          });
+          if (!cancelled) setStints(d.stints);
+          return;
+        }
+        const d = await apiGet<{ stints: NonNullable<typeof stints> }>(
+          `/api/session/${config.year}/${config.round.round_number}/R/stints`,
+          { timeout: 120_000 },
+        );
+        if (!cancelled) setStints(d.stints);
+      } catch {
+        if (!cancelled) setStints([]);
+      }
+    };
+    void load();
+    const id = live ? window.setInterval(() => void load(), 8_000) : undefined;
+    if (!live) {
+      apiGet<LapsResponse>(`/api/session/${config.year}/${config.round.round_number}/R/laps`, { timeout: 120_000 })
+        .then((d) => {
+          if (!cancelled) setLaps(d);
+        })
+        .catch(() => undefined);
+    }
+    return () => {
+      cancelled = true;
+      if (id) window.clearInterval(id);
+    };
+  }, [config.year, config.round.round_number, config.mode]);
+  useEffect(() => {
+    if (config.mode === "live" && liveLaps?.status === "ok") setLaps(liveLaps.data ?? null);
+  }, [config.mode, liveLaps]);
   const codes = [...new Set((stints || []).map((s) => s.driver_code))];
   const mine = (stints || []).filter((s) => s.driver_code === driver);
   const wearByStint = new Map<number, { age: number; delta: number }[]>();
@@ -1261,4 +1598,21 @@ function TrackInfoTab({
       )}
     </Panel>
   );
+}
+
+function LiveRcSync({
+  fresh,
+  onPush,
+}: {
+  fresh: { flag?: string | null; category?: string | null; message?: string | null }[];
+  onPush: (rows: { flag?: string | null; category?: string | null; message?: string | null }[]) => void;
+}) {
+  const last = useRef("");
+  useEffect(() => {
+    const sig = fresh.map((r) => `${r.flag}|${r.message}`).join(";");
+    if (!fresh.length || sig === last.current) return;
+    last.current = sig;
+    onPush(fresh);
+  }, [fresh, onPush]);
+  return null;
 }

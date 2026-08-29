@@ -310,6 +310,14 @@ def _fallback_narration(rec: Recommendation) -> str:
     caveat = rec.narration_context.get("confidence_caveat")
     if caveat:
         text = f"{text} Note: {caveat}."
+    note = rec.narration_context.get("confidence_note") or rec.confidence_note
+    if note and rec.p10_delta_s != rec.p90_delta_s:
+        text = (
+            f"{text} 90% band [{rec.p10_delta_s:+.1f}s, {rec.p90_delta_s:+.1f}s]."
+        )
+    sc_line = rec.narration_context.get("sc_risk_line")
+    if sc_line:
+        text = f"{text} {sc_line}"
     return text
 
 

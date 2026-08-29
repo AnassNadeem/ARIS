@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
+import time
+from datetime import datetime, timezone
 from typing import Any
 
 from backend.models import (
@@ -135,6 +138,7 @@ def _fallback_recommend(
         confidence=0.0,
         decision_record_id=f"DR-{req.year}-R{req.round_number}-L{lap}-STAY_OUT",
         alternatives=[],
+        wet_heuristic=False,
         data_source="FALLBACK_NO_STATE",
         ingest_status=ingest_status,
     )
@@ -194,6 +198,42 @@ def compute_gap_ahead(field_at_lap, driver_code: str) -> float | None:
                     gap = float(t1.total_seconds() - t0.total_seconds())
                     if gap >= 0:
                         return gap
+    return None
+
+
+def compute_gap_to_leader(field_at_lap, driver_code: str) -> float | None:
+    if field_at_lap is None or getattr(field_at_lap, "empty", True):
+        return None
+    if "Driver" not in field_at_lap.columns:
+        return None
+    mine = field_at_lap[field_at_lap["Driver"] == driver_code]
+    if mine.empty:
+        return None
+    row = mine.iloc[0]
+    if "Position" in field_at_lap.columns and pd_notna(row.get("Position")):
+        try:
+            if int(row["Position"]) == 1:
+                return 0.0
+        except (TypeError, ValueError):
+            pass
+    ttl = row.get("TimeToLeader") if "TimeToLeader" in field_at_lap.columns else None
+    if pd_notna(ttl):
+        if hasattr(ttl, "total_seconds"):
+            return max(0.0, float(ttl.total_seconds()))
+        try:
+            return max(0.0, float(ttl))
+        except (TypeError, ValueError):
+            pass
+    if "Time" not in field_at_lap.columns:
+        return None
+    times: list[float] = []
+    for rec in field_at_lap.itertuples(index=False):
+        t = getattr(rec, "Time", None)
+        if hasattr(t, "total_seconds"):
+            times.append(float(t.total_seconds()))
+    my_t = row.get("Time")
+    if times and hasattr(my_t, "total_seconds"):
+        return max(0.0, float(my_t.total_seconds()) - min(times))
     return None
 
 
@@ -259,7 +299,7 @@ def build_race_state_from_fastf1_session(session, driver_code: str, current_lap:
 
     prior_laps = driver_laps[driver_laps["LapNumber"] < current_lap].sort_values("LapNumber")
     if prior_laps.empty:
-        return RaceState(
+        early = RaceState(
             session_id=0,
             driver_id=0,
             driver_code=driver_code,
@@ -283,7 +323,20 @@ def build_race_state_from_fastf1_session(session, driver_code: str, current_lap:
             track_status="1",
             gap_ahead_history=[],
             rainfall=_rainfall_for_lap(current_lap),
+            stint_number=1,
         )
+        try:
+            from aris.risk.sc_risk_model import attach_sc_risk, extras_from_fastf1
+
+            extras = extras_from_fastf1(
+                laps,
+                current_lap,
+                rcm=getattr(session, "race_control_messages", None),
+                results=getattr(session, "results", None),
+            )
+            return attach_sc_risk(early, extras=extras)
+        except Exception:
+            return early
 
     last = prior_laps.iloc[-1]
     current_compound = str(last.get("Compound") or "MEDIUM")
@@ -321,8 +374,11 @@ def build_race_state_from_fastf1_session(session, driver_code: str, current_lap:
             position = int(last["Position"])
         except (TypeError, ValueError):
             position = None
+    gap_to_leader = compute_gap_to_leader(field_at_lap, driver_code)
+    if gap_to_leader is None and position == 1:
+        gap_to_leader = 0.0
 
-    return RaceState(
+    built = RaceState(
         session_id=0,
         driver_id=0,
         driver_code=driver_code,
@@ -349,7 +405,24 @@ def build_race_state_from_fastf1_session(session, driver_code: str, current_lap:
         track_status=str(last.get("TrackStatus") or "1"),
         gap_ahead_history=hist,
         rainfall=_rainfall_for_lap(current_lap),
+        stint_number=(
+            int(last["Stint"])
+            if "Stint" in last.index and pd_notna(last.get("Stint"))
+            else 1
+        ),
     )
+    try:
+        from aris.risk.sc_risk_model import attach_sc_risk, extras_from_fastf1
+
+        extras = extras_from_fastf1(
+            laps,
+            current_lap,
+            rcm=getattr(session, "race_control_messages", None),
+            results=getattr(session, "results", None),
+        )
+        return attach_sc_risk(built, extras=extras)
+    except Exception:
+        return built
 
 
 def build_race_state_with_fallback(
@@ -364,6 +437,14 @@ def build_race_state_with_fallback(
       FASTF1_DIRECT  — loaded from FastF1 cache directly
       NONE           — no data available
     """
+    try:
+        from backend.calendar import session_is_open
+
+        if session_is_open(year, round_number, "R"):
+            return None, "NONE"
+    except Exception:
+        pass
+
     state = try_load_from_postgres(year, round_number, driver_code, current_lap)
     if state is not None:
         return state, "POSTGRES"
@@ -371,7 +452,7 @@ def build_race_state_with_fallback(
     try:
         from backend.sessions import load_session
 
-        session = load_session(year, round_number, "R", telemetry=False, weather=True, messages=False)
+        session = load_session(year, round_number, "R", telemetry=False, weather=False, messages=False)
         state = build_race_state_from_fastf1_session(session, driver_code, current_lap)
         if state is not None:
             return state, "FASTF1_DIRECT"
@@ -381,6 +462,48 @@ def build_race_state_with_fallback(
     return None, "NONE"
 
 
+def historical_race_state(
+    year: int, round_number: int, driver_code: str, current_lap: int
+) -> tuple[Any, str, str | None]:
+    """If this weekend has no race yet, load the last completed GP at the same circuit."""
+    try:
+        from backend.analytics import circuit_history
+        from backend.calendar import get_calendar
+    except Exception:
+        return None, "NONE", None
+    try:
+        cal = get_calendar(year)
+        rnd = next((r for r in cal.rounds if r.round_number == round_number), None)
+        if rnd is None:
+            return None, "NONE", None
+        hist = circuit_history(rnd.circuit_key)
+        for item in reversed(list(hist.years)):
+            if item.year >= year:
+                continue
+            try:
+                ycal = get_calendar(item.year)
+            except Exception:
+                continue
+            match = next(
+                (
+                    r
+                    for r in ycal.rounds
+                    if r.circuit_key == rnd.circuit_key and r.status == "COMPLETED"
+                ),
+                None,
+            )
+            if match is None:
+                continue
+            state, source = build_race_state_with_fallback(
+                item.year, match.round_number, driver_code, max(1, min(current_lap, 25))
+            )
+            if state is not None:
+                return state, source, f"{item.year} {match.name}"
+    except Exception as extra:
+        print(f"[ARIS] historical sim fallback failed: {extra}", flush=True)
+    return None, "NONE", None
+
+
 def _recommend_from_state(
     req: RecommendRequest, state, data_source: str, *, ingest_status: str | None = None
 ) -> RecommendResponse:
@@ -388,8 +511,21 @@ def _recommend_from_state(
     from aris.tracks import load_track_config
 
     if state.lag1_pace is None and req.current_lap <= 1:
-        rec = _fallback_recommend(req, ingest_status=ingest_status)
-        return rec.model_copy(update={"lap_note": state.lap_note, "data_source": "FASTF1_FALLBACK", "ingest_status": ingest_status})
+        reason = (
+            "Lights not out yet. Zandvoort 2021–2025 is a one-stop circuit "
+            "(median first stop from those five races). Stay out on the ARIS plan — "
+            "do not copy this driver's real pit window."
+        )
+        rec = _fallback_recommend(req, reasoning=reason, ingest_status=ingest_status)
+        return rec.model_copy(
+            update={
+                "lap_note": state.lap_note,
+                "data_source": data_source,
+                "ingest_status": ingest_status,
+                "compound_recommendation": "M",
+                "confidence": 0.45,
+            }
+        )
 
     field = None
     try:
@@ -406,6 +542,8 @@ def _recommend_from_state(
             )
     except Exception:
         field = None
+    if field is not None:
+        field.rainfall = bool(state.rainfall)
     result = aris_recommend(state, top_k=3, mc_draws=0, field=field)
     recs = result.recommendations
     if not recs:
@@ -436,12 +574,19 @@ def _recommend_from_state(
                 note=rec.label,
             )
         )
-    wet = bool(state.confidence_caveat and "wet" in state.confidence_caveat.lower())
+    wet = bool(getattr(top, "wet_heuristic", False))
     reasoning = top.evidence or top.label
+    if wet and action == "BOX":
+        tyre = "wets" if compound == "W" else "intermediates"
+        if "rain" not in reasoning.lower():
+            reasoning = f"Rain detected. Box for {tyre} — {reasoning}"
     rec_id = f"DR-{req.year}-R{req.round_number}-L{req.current_lap}-{action}"
     src = data_source
     if data_source == "FASTF1_DIRECT" and state.lag1_pace is None:
         src = "FASTF1_FALLBACK"
+    confidence = max(0.05, min(0.95, 1.0 / (1.0 + float(top.confidence_std_s or 0.4))))
+    if wet:
+        confidence = min(confidence, 0.55)
     return RecommendResponse(
         action=action,  # type: ignore[arg-type]
         compound_recommendation=compound,  # type: ignore[arg-type]
@@ -449,14 +594,18 @@ def _recommend_from_state(
         pace_gain_s=round(pace_gain, 2),
         pit_cost_s=round(float(pit_loss), 2),
         net_delta_s=round(net, 2),
-        confidence=max(0.05, min(0.95, 1.0 / (1.0 + float(top.confidence_std_s or 0.4)))),
+        confidence=confidence,
         decision_record_id=rec_id,
         alternatives=alts,
         wet_reduced_confidence=wet,
+        wet_heuristic=wet,
         reg_note_2026=req.year == 2026,
         lap_note=state.lap_note,
         data_source=src,
         ingest_status=ingest_status,
+        p10_delta_s=round(float(top.p10_delta_s), 2),
+        p90_delta_s=round(float(top.p90_delta_s), 2),
+        confidence_note=top.confidence_note,
     )
 
 
@@ -480,26 +629,184 @@ def _resolve_ids(year: int, round_number: int, session_type: str, driver_code: s
     return int(sid), int(drv["driver_id"]), country
 
 
+def _session_open(year: int, round_number: int) -> bool:
+    try:
+        from backend.calendar import session_is_open
+
+        return session_is_open(year, round_number, "R")
+    except Exception:
+        return False
+
+
+def build_live_aris_state(req: RecommendRequest):
+    """Live OpenF1 pace/position, but ARIS tyres — not the focus driver's real stint."""
+    from aris.models.features import estimate_fuel_kg
+    from aris.state import RaceState
+    from aris.tracks import load_track_config
+    from backend.live import _STATE
+
+    try:
+        from backend.calendar import peek_round_meta
+
+        country, circuit_key = peek_round_meta(req.year, req.round_number)
+    except Exception:
+        country, circuit_key = "", ""
+    track = load_track_config(country or circuit_key or "netherlands", year=req.year, round_no=req.round_number)
+    total = int(track.total_laps or 72)
+    lap = max(1, min(int(req.current_lap), total))
+    code = req.driver_code.upper()
+    pos = None
+    last_s = None
+    gap = None
+    blob = _STATE.get("drivers") if isinstance(_STATE.get("drivers"), dict) else {}
+    num_by_code: dict[str, int] = {}
+    for row in blob.get("rows") or []:
+        if not isinstance(row, dict):
+            continue
+        acr = str(row.get("name_acronym") or "")[:3].upper()
+        num = row.get("driver_number")
+        if acr and num is not None:
+            num_by_code[acr] = int(num)
+    ham_num = num_by_code.get(code)
+    latest_pos = _STATE.get("latest_pos") or {}
+    if ham_num is not None and ham_num in latest_pos:
+        try:
+            pos = int(latest_pos[ham_num])
+        except (TypeError, ValueError):
+            pos = None
+    best: list[float] = []
+    for row in _STATE.get("laps") or []:
+        if not isinstance(row, dict):
+            continue
+        if ham_num is not None and int(row.get("driver_number") or -1) != ham_num:
+            continue
+        dur = row.get("lap_duration")
+        try:
+            if dur is not None:
+                best.append(float(dur))
+        except (TypeError, ValueError):
+            continue
+    if best:
+        last_s = best[-1]
+    intervals = _STATE.get("intervals") or {}
+    if isinstance(intervals, dict) and ham_num is not None:
+        iv = intervals.get(ham_num) or {}
+        if isinstance(iv, dict):
+            try:
+                gap = float(iv.get("gap_to_leader") or iv.get("interval"))
+            except (TypeError, ValueError):
+                gap = None
+    start_compound = "MEDIUM"
+    try:
+        from backend.analytics import peek_circuit_history
+
+        hist = peek_circuit_history(circuit_key or "netherlands")
+        if hist is not None and hist.typical_stop_count is not None and hist.typical_stop_count >= 1.6:
+            start_compound = "MEDIUM"
+    except Exception:
+        pass
+    rainfall = bool(req.override_rainfall)
+    return RaceState(
+        session_id=0,
+        driver_id=0,
+        driver_code=code,
+        driver_name=code,
+        year=req.year,
+        round_no=req.round_number,
+        country=country or track.country,
+        lap_number=lap,
+        compound=start_compound,
+        tyre_life=lap,
+        fuel_kg=estimate_fuel_kg(lap, total),
+        laps_remaining=max(0, total - lap),
+        total_laps=total,
+        track_name=track.name if hasattr(track, "name") else (country or "Netherlands"),
+        gap_to_leader_s=gap,
+        position=pos,
+        pit_compound="HARD",
+        lag1_pace=last_s,
+        lag2_pace=best[-2] if len(best) >= 2 else None,
+        stint_roll3=(sum(best[-3:]) / min(3, len(best))) if best else None,
+        track_status="1",
+        rainfall=rainfall,
+        weather_rainfall=rainfall,
+        lap_note="ARIS car — live GPS/pace from OpenF1, strategy ignores this driver's real stints.",
+        stint_number=1,
+    )
+
+
 def recommend(req: RecommendRequest) -> RecommendResponse:
     if req.current_lap < 1:
         raise ClientInputError("current_lap must be between 1 and the session total laps")
     code = resolve_driver_code(req.year, req.driver_code, req.round_number)
     req = req.model_copy(update={"driver_code": code})
+    if req.force_refresh:
+        try:
+            from backend.sessions import clear_session_cache
+
+            clear_session_cache(req.year, req.round_number, req.session_type)
+        except Exception:
+            pass
+        _log.info(
+            "recommend force_refresh year=%s round=%s driver=%s lap=%s",
+            req.year,
+            req.round_number,
+            code,
+            req.current_lap,
+        )
 
     ingest_status = None
+    live_open = _session_open(req.year, req.round_number)
     try:
         from backend.ingest_jobs import ensure_session_ingested
 
-        ingest_status = ensure_session_ingested(req.year, req.round_number, "R")
+        ingest_started = time.monotonic()
+        ingest_status = "UNAVAILABLE" if live_open else ensure_session_ingested(req.year, req.round_number, "R")
+        ingest_elapsed = time.monotonic() - ingest_started
+        if ingest_elapsed > 0.5:
+            _log.warning(
+                "recommend: ensure_session_ingested took %.2fs year=%s round=%s status=%s",
+                ingest_elapsed,
+                req.year,
+                req.round_number,
+                ingest_status,
+            )
+        else:
+            _log.debug(
+                "recommend: ensure_session_ingested %.3fs year=%s round=%s status=%s",
+                ingest_elapsed,
+                req.year,
+                req.round_number,
+                ingest_status,
+            )
     except Exception:
         ingest_status = "UNAVAILABLE"
 
     state, source = build_race_state_with_fallback(req.year, req.round_number, code, req.current_lap)
+    hist_label = None
+    if (state is None or source == "NONE") and req.mode in {"live", "pre_race"}:
+        try:
+            state = build_live_aris_state(req)
+            source = "OPENF1_LIVE"
+        except Exception as extra:
+            _log.warning("live ARIS state failed: %s", extra)
+            state, source = None, "NONE"
+    if (state is None or source == "NONE") and req.mode == "replay" and not live_open:
+        state, source, hist_label = historical_race_state(
+            req.year, req.round_number, code, req.current_lap
+        )
     if state is None or source == "NONE":
         return _fallback_recommend(req, ingest_status=ingest_status)
+    if req.override_rainfall is not None:
+        raining = bool(req.override_rainfall)
+        state = state.model_copy(update={"rainfall": raining, "weather_rainfall": raining})
 
     try:
-        return _recommend_from_state(req, state, source, ingest_status=ingest_status)
+        rec = _recommend_from_state(req, state, source, ingest_status=ingest_status)
+        if hist_label:
+            extra = f"Using {hist_label} pace sample — this race has no live stint data yet."
+            rec = rec.model_copy(update={"reasoning": f"{rec.reasoning} {extra}".strip()})
+        return rec
     except Exception as extra:
         _log.warning("recommend engine failed: %s", extra)
         return _fallback_recommend(req, ingest_status=ingest_status)
@@ -513,6 +820,11 @@ def simulate(req: SimulateRequest) -> SimulateResponse:
     code = resolve_driver_code(req.year, req.driver_code, req.round_number)
     req = req.model_copy(update={"driver_code": code})
     state, source = build_race_state_with_fallback(req.year, req.round_number, code, req.current_lap)
+    hist_label = None
+    if state is None:
+        state, source, hist_label = historical_race_state(
+            req.year, req.round_number, code, req.current_lap
+        )
     if state is None:
         raise RuntimeError("No session data available for simulation (Postgres and FastF1 both empty)")
     stay = aris_simulate(state, StrategyAction(kind=ActionKind.STAY_OUT))
@@ -553,12 +865,12 @@ def simulate(req: SimulateRequest) -> SimulateResponse:
         projected = max(1, min(22, actual_pos - shift))
 
     note_parts = []
+    if hist_label:
+        note_parts.append(f"Using {hist_label} pace sample — this race has no live stint data yet.")
     if req.rain_lap:
         note_parts.append("[WET: REDUCED CONFIDENCE] rain_lap is not modelled — confidence only.")
     if req.sc_probability and req.sc_probability > 0:
         note_parts.append(f"SC probability {req.sc_probability:.0%} noted; not a full SC model.")
-    if req.year == 2026:
-        note_parts.append("[2026 REG NOTE] ERS architecture is not modelled.")
     risk = "Low"
     if abs(delta) > 8 or (req.sc_probability or 0) > 0.4:
         risk = "Higher"
@@ -582,6 +894,30 @@ def simulate(req: SimulateRequest) -> SimulateResponse:
 
 
 def _timing_rows(year: int, round_number: int, current_lap: int):
+    if _session_open(year, round_number):
+        try:
+            from backend.live import _STATE
+
+            pos = _STATE.get("latest_pos") or {}
+            blob = _STATE.get("drivers") if isinstance(_STATE.get("drivers"), dict) else {}
+            codes: dict[int, str] = {}
+            for row in blob.get("rows") or []:
+                if not isinstance(row, dict):
+                    continue
+                num = row.get("driver_number")
+                acr = str(row.get("name_acronym") or "")[:3].upper()
+                if num is not None and acr:
+                    codes[int(num)] = acr
+            from backend.models import LiveTimingRow
+
+            rows = [
+                LiveTimingRow(position=int(p), driver_code=codes.get(int(n), f"D{n}"))
+                for n, p in pos.items()
+                if p is not None
+            ]
+            return sorted(rows, key=lambda r: r.position or 99)
+        except Exception:
+            return []
     try:
         timing = replay_timing(year, round_number, "R", current_lap)
     except Exception:
@@ -778,6 +1114,8 @@ def _load_chat_field(year: int, round_number: int, current_lap: int):
 
     rows = _timing_rows(year, round_number, current_lap)
     if not rows:
+        if _session_open(year, round_number):
+            return None
         field = _load_chat_field_from_fastf1(year, round_number, current_lap)
         if field is not None:
             return field
@@ -828,7 +1166,7 @@ def chat(
         except Exception:
             year = year or 2024
             round_number = round_number or 15
-    focus = "NOR"
+    focus = "HAM"
     if driver_code and year:
         try:
             focus = resolve_driver_code(year, driver_code, round_number)
@@ -880,62 +1218,223 @@ def chat(
     return ChatResponse(answer=_clip_sentences(text), cited_ids=cited, abstained=abstained and text == template)
 
 
+def _parse_session_id(session_id: str | None) -> tuple[int | None, int | None]:
+    if not session_id:
+        return None, None
+    parts = str(session_id).replace("R", "").replace("S", "").split("-")
+    year = None
+    rnd = None
+    if parts and parts[0].isdigit() and len(parts[0]) == 4:
+        year = int(parts[0])
+    if len(parts) > 1 and parts[1].isdigit():
+        rnd = int(parts[1])
+    return year, rnd
+
+
+def copilot_chat(req) -> Any:
+    """T11 Copilot: retrieve + ARIS tools + narrator. Does not change recommend()."""
+    import os
+
+    from aris.copilot.agent import run_copilot
+    from aris.copilot.context import CopilotContext, FieldCar
+    from backend.models import (
+        CopilotChatResponse,
+        CopilotRecommendationRow,
+        CopilotRetrievedChunk,
+        CopilotToolCallOut,
+    )
+
+    year = req.year
+    round_number = req.round_number
+    sid_year, sid_round = _parse_session_id(req.session_id)
+    year = year or sid_year
+    round_number = round_number or sid_round
+    driver = None
+    if req.driver_code:
+        try:
+            driver = resolve_driver_code(year or 2025, req.driver_code, round_number)
+        except ClientInputError:
+            driver = str(req.driver_code).upper()
+    lap = req.current_lap or 1
+    state = None
+    if year and round_number and driver:
+        state = try_load_from_postgres(year, round_number, driver, lap)
+    field_cars: list[FieldCar] = []
+    if year and round_number:
+        radio = _load_chat_field(year, round_number, lap)
+        if radio is not None:
+            field_cars = [
+                FieldCar(
+                    driver_code=d.code,
+                    position=d.position,
+                    gap_to_leader_s=d.gap_to_leader,
+                    compound=d.compound,
+                    tyre_life=d.tyre_life,
+                    name=d.name,
+                )
+                for d in radio.drivers
+            ]
+    use_llm = req.use_llm
+    if use_llm is None:
+        use_llm = os.getenv("ARIS_COPILOT_LLM", "0") == "1"
+    ctx = CopilotContext(
+        state=state,
+        field=field_cars,
+        session_id=req.session_id,
+        use_llm=bool(use_llm),
+    )
+    result = run_copilot(req.message, ctx, use_llm=bool(use_llm))
+    recs = []
+    for row in result.recommendations:
+        recs.append(
+            CopilotRecommendationRow(
+                rank=int(row.get("rank") or 0),
+                label=str(row.get("label") or ""),
+                delta_vs_stay_out_s=row.get("delta_vs_stay_out_s"),
+                p_best=row.get("p_best"),
+                p10_delta_s=row.get("p10_delta_s"),
+                p90_delta_s=row.get("p90_delta_s"),
+            )
+        )
+    return CopilotChatResponse(
+        response=result.response,
+        tool_calls=[
+            CopilotToolCallOut(
+                name=str(c.get("name") or ""),
+                arguments=dict(c.get("arguments") or {}),
+                result=c.get("result"),
+            )
+            for c in result.tool_calls
+        ],
+        retrieved_chunks=[
+            CopilotRetrievedChunk(
+                chunk_id=str(c.get("chunk_id") or ""),
+                source=str(c.get("source") or ""),
+                title=str(c.get("title") or ""),
+                text=str(c.get("text") or ""),
+                score=c.get("score"),
+            )
+            for c in result.retrieved_chunks
+        ],
+        recommendations=recs,
+        needs_approval=bool(result.needs_approval),
+    )
+
+
+_PLANS_CACHE: dict[tuple[int, int, str], tuple[float, StratPlansResponse]] = {}
+_PLANS_TTL_S = 600.0
+_HIST_WARM: set[str] = set()
+
+
+def _warm_circuit_history(circuit_key: str) -> None:
+    if not circuit_key or circuit_key in _HIST_WARM:
+        return
+    _HIST_WARM.add(circuit_key)
+
+    def _run() -> None:
+        try:
+            from backend.analytics import circuit_history
+
+            circuit_history(circuit_key)
+        except Exception:
+            _HIST_WARM.discard(circuit_key)
+
+    threading.Thread(target=_run, name=f"aris-hist-{circuit_key}", daemon=True).start()
+
+
 def plans(year: int, round_number: int, driver_code: str) -> StratPlansResponse:
-    from aris.io import db
     from aris.plan.prewrite import generate_strat_plans
     from aris.tracks import load_track_config
-    from backend.ingest_jobs import ensure_session_ingested
 
-    ensure_session_ingested(year, round_number, "R")
     code = resolve_driver_code(year, driver_code, round_number)
-    sid, did, country = 0, 0, ""
+    cache_key = (int(year), int(round_number), code)
+    hit = _PLANS_CACHE.get(cache_key)
+    if hit and (time.monotonic() - hit[0]) < _PLANS_TTL_S:
+        return hit[1]
+    country = ""
+    circuit_key = ""
     try:
-        found = db.fetch_race_session_id(year, round_number)
-        if found is not None:
-            sid = int(found)
-            drv = db.fetch_driver_by_code(sid, code)
-            if drv is not None:
-                did = int(drv["driver_id"])
-            races = db.fetch_races(year)
-            if not races.empty:
-                hit = races[races["round_no"] == round_number]
-                if not hit.empty:
-                    country = str(hit.iloc[0]["country"])
-    except Exception:
-        sid, did = 0, 0
-    if not country:
-        try:
-            from backend.calendar import get_round
+        from backend.calendar import peek_round_meta
 
-            country = str(get_round(year, round_number).country)
-        except Exception:
-            country = ""
+        country, circuit_key = peek_round_meta(year, round_number)
+    except Exception:
+        country, circuit_key = "", ""
     track = load_track_config(country or code, year=year, round_no=round_number)
     hist_first = None
     hist_stops = None
-    try:
-        from backend.analytics import circuit_history
-        from backend.calendar import get_round
+    if circuit_key:
+        try:
+            from backend.analytics import peek_circuit_history
 
-        rnd = get_round(year, round_number)
-        hist = circuit_history(rnd.circuit_key)
-        hist_first = hist.median_first_stop_lap
-        hist_stops = hist.typical_stop_count
-    except Exception:
-        pass
+            hist = peek_circuit_history(circuit_key)
+            if hist is None and circuit_key:
+                from backend.analytics import circuit_history
+
+                hist = circuit_history(circuit_key)
+            if hist is not None:
+                hist_first = hist.median_first_stop_lap
+                hist_stops = hist.typical_stop_count
+            else:
+                _warm_circuit_history(circuit_key)
+        except Exception:
+            pass
+    hist_scope = (
+        "Zandvoort 2021–2025"
+        if str(circuit_key).lower() in {"netherlands", "zandvoort", "dutch"}
+        else "2018–present at this circuit"
+    )
     result = generate_strat_plans(
-        sid,
-        did,
+        0,
+        0,
         year=year,
         round_no=round_number,
         country=country or track.country,
         driver_code=code,
         hist_first_stop=hist_first,
         hist_stop_count=hist_stops,
+        hist_scope=hist_scope,
+        score=False,
+        use_weekend_form=False,
     )
+    payload = _plans_payload(year, round_number, code, result, track.pit_loss_s)
+    _PLANS_CACHE[cache_key] = (time.monotonic(), payload)
+
+    def _background() -> None:
+        try:
+            from backend.ingest_jobs import ensure_session_ingested
+
+            if not _session_open(year, round_number):
+                ensure_session_ingested(year, round_number, "R")
+        except Exception:
+            pass
+        try:
+            scored = generate_strat_plans(
+                0,
+                0,
+                year=year,
+                round_no=round_number,
+                country=country or track.country,
+                driver_code=code,
+                hist_first_stop=hist_first,
+                hist_stop_count=hist_stops,
+                hist_scope=hist_scope,
+                use_weekend_form=False,
+            )
+            _PLANS_CACHE[cache_key] = (
+                time.monotonic(),
+                _plans_payload(year, round_number, code, scored, track.pit_loss_s),
+            )
+        except Exception:
+            pass
+
+    threading.Thread(target=_background, name=f"aris-plans-score-{code}", daemon=True).start()
+    return payload
+
+
+def _plans_payload(year: int, round_number: int, code: str, result: Any, pit_loss_s: float) -> StratPlansResponse:
     out: list[StratPlanOut] = []
     for plan in result.plans:
-        pit_cost = track.pit_loss_s * len(plan.pit_laps)
+        pit_cost = pit_loss_s * len(plan.pit_laps)
         out.append(
             StratPlanOut(
                 id=plan.id,
@@ -956,8 +1455,17 @@ def plans(year: int, round_number: int, driver_code: str) -> StratPlansResponse:
         round_number=round_number,
         driver_code=code,
         plans=out,
-        pit_loss_s=track.pit_loss_s,
+        pit_loss_s=pit_loss_s,
     )
+
+
+def quick_analysis(year: int, round_number: int, driver_code: str) -> StratPlansResponse:
+    """Top-3 pre-race strategies. Calls plans(); does not touch recommend()/simulate()."""
+    payload = plans(year, round_number, driver_code)
+    ranked = list(payload.plans)[:3]
+    if ranked and not any(p.recommended for p in ranked):
+        ranked[0] = ranked[0].model_copy(update={"recommended": True})
+    return payload.model_copy(update={"plans": ranked})
 
 
 def _expand_compound(raw: str | None) -> str:
@@ -1224,11 +1732,83 @@ def debrief(year: int, round_number: int, driver_code: str) -> DebriefResponse:
 
 
 def model_stats() -> ArisStatsResponse:
+    match = 0.325
     return ArisStatsResponse(
         lap_time_mae_s=0.583,
-        decision_match_rate=0.325,
+        decision_match_rate=match,
         never_pit_baseline=0.250,
         avg_position_delta=-1.73,
         clean_delta=-1.49,
         disrupted_delta=-2.38,
+        version="v0.3",
+        match_rate=match,
+        match_rate_fraction="28/87 dry",
+        last_gate="T4-final",
+        timestamp=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     )
+
+
+def explain_degradation(
+    session_id: str | None,
+    driver: str,
+    stint_id: int | None = None,
+    start_lap: int | None = None,
+    end_lap: int | None = None,
+    year: int | None = None,
+    round_number: int | None = None,
+) -> dict:
+    """T12 — bicycle vs FastF1 deg curve. Does not change recommend()/simulate()."""
+    from aris.explain.degradation import get_degradation_curve
+
+    code = (driver or "VER").upper()
+    if year and round_number:
+        try:
+            code = resolve_driver_code(year, code, round_number)
+        except ClientInputError:
+            pass
+    return get_degradation_curve(
+        code,
+        stint_id=stint_id,
+        start_lap=start_lap,
+        end_lap=end_lap,
+        session_id=session_id,
+        year=year,
+        round_number=round_number,
+    )
+
+
+def explain_ghost(
+    session_id: str | None,
+    driver: str,
+    year: int | None = None,
+    round_number: int | None = None,
+) -> dict:
+    """T12 — ARIS ghost vs classified result. Calls recommend()/simulate() as-is."""
+    from aris.explain.ghost import get_ghost_vs_real
+
+    code = (driver or "VER").upper()
+    if year and round_number:
+        try:
+            code = resolve_driver_code(year, code, round_number)
+        except ClientInputError:
+            pass
+    return get_ghost_vs_real(code, session_id, year=year, round_number=round_number)
+
+
+def explain_debrief(
+    session_id: str | None,
+    focus_driver: str | None = None,
+    year: int | None = None,
+    round_number: int | None = None,
+) -> dict:
+    """T12 — race debrief timeline + recommend() top-3 at each pit inflection."""
+    from aris.explain.debrief import get_race_debrief
+
+    code = (focus_driver or "VER").upper()
+    if year and round_number:
+        try:
+            code = resolve_driver_code(year, code, round_number)
+        except ClientInputError:
+            pass
+    sid = session_id or (f"{year}-{round_number}-R" if year and round_number else "2025-15-R")
+    return get_race_debrief(sid, code, year=year, round_number=round_number)

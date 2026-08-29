@@ -2,19 +2,15 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { getNextRace } from "@/lib/api";
-import type { NextRaceInfo } from "@/lib/types";
-
-// A race counts as "live" from its scheduled start until this many ms later —
-// wide enough to cover a red-flagged / extended session.
-const RACE_WINDOW_MS = 3 * 60 * 60 * 1000;
+import { getLiveHub } from "@/lib/api";
+import type { LiveHub } from "@/lib/types";
 
 export function LiveRacePreview() {
-  const [info, setInfo] = useState<NextRaceInfo | null>(null);
+  const [info, setInfo] = useState<LiveHub | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    getNextRace().then(setInfo);
+    getLiveHub().then(setInfo);
   }, []);
 
   useEffect(() => {
@@ -30,9 +26,10 @@ export function LiveRacePreview() {
     );
   }
 
-  const target = new Date(info.countdownTargetIso).getTime();
+  const target = new Date(info.countdown_target ?? info.next.next_session_datetime ?? Date.now()).getTime();
   const diff = target - now;
-  const isLive = diff <= 0 && diff > -RACE_WINDOW_MS;
+  const isLive = info.mode === "live_session";
+  const waiting = info.mode === "waiting_for_session";
 
   const parts = [
     { label: "D", value: Math.max(0, Math.floor(diff / 86_400_000)) },
@@ -49,14 +46,19 @@ export function LiveRacePreview() {
             <span className="flex items-center gap-1.5 text-red">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red" /> Live now
             </span>
+          ) : waiting ? (
+            "This weekend"
           ) : (
             "Next race"
           )}
         </div>
         <h3 className="mt-1 text-lg font-bold text-white">
-          {info.countryFlag} {info.raceName}
+          {info.circuit.country_flag} {info.next.name}
         </h3>
-        <p className="mt-0.5 font-mono-data text-[11px] text-muted">{info.circuitName}</p>
+        <p className="mt-0.5 font-mono-data text-[11px] text-muted">{info.circuit.circuit_name}</p>
+        {waiting && info.waiting_reason && (
+          <p className="mt-2 font-mono-data text-[11px] text-amber">{info.waiting_reason}</p>
+        )}
       </div>
 
       {isLive ? (

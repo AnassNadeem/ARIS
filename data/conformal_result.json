@@ -1,0 +1,28 @@
+{
+  "q_hat": 16.535875000000082,
+  "alpha": 0.1,
+  "n_calibration": 40,
+  "median_abs_error": 3.400083612039852,
+  "p90_abs_error": 15.495926818182557,
+  "short": {
+    "q_hat": 16.430000000000064,
+    "alpha": 0.1,
+    "n_calibration": 5,
+    "median_abs_error": 0.0,
+    "p90_abs_error": 10.438000000000057
+  },
+  "long": {
+    "q_hat": 18.24814285714312,
+    "alpha": 0.1,
+    "n_calibration": 35,
+    "median_abs_error": 3.6970746600786697,
+    "p90_abs_error": 13.395284545454896
+  },
+  "coverage_2025": {
+    "all": 0.7872340425531915,
+    "short": 1.0,
+    "long": 0.7948717948717948
+  },
+  "n_2024": 40,
+  "n_2025": 47
+}

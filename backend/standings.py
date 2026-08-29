@@ -18,6 +18,21 @@ from backend.models import (
     TeamsResponse,
 )
 
+ALLOWED_YEARS = frozenset({2024, 2025, 2026})
+STANDINGS_YEAR_LIMIT_MSG = "Standings only available for 2024, 2025, and 2026."
+STANDINGS_2026_UNAVAILABLE = "2026 standings not yet available."
+
+
+class StandingsYearBlocked(ValueError):
+    """Standings were requested for a year outside ALLOWED_YEARS."""
+
+
+def assert_standings_year(year: int) -> int:
+    y = int(year)
+    if y not in ALLOWED_YEARS:
+        raise StandingsYearBlocked(STANDINGS_YEAR_LIMIT_MSG)
+    return y
+
 # OpenF1 team colours are hex without '#'.
 _TEAM_COLOUR_FALLBACK: dict[str, str] = {}
 
@@ -55,9 +70,27 @@ def _openf1_session_key(year: int) -> int | None:
     sessions = cached(f"openf1:sessions-year:{year}", TTL_METADATA, _sessions)
     if not sessions:
         return None
-    # Prefer a race session so the full grid is present.
-    races = [s for s in sessions if str(s.get("session_name") or "").lower() == "race"]
-    pool = races or sessions
+
+    def _start(row: dict[str, Any]):
+        raw = str(row.get("date_start") or "")
+        if not raw:
+            return None
+        try:
+            from datetime import datetime, timezone
+
+            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt
+        except ValueError:
+            return None
+
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    started = [s for s in sessions if isinstance(s, dict) and (_start(s) is not None and _start(s) <= now)]
+    pool = started or [s for s in sessions if isinstance(s, dict)]
+    # A future race entry often still has last week's lineup (HAD in, TSU out).
     pool = sorted(pool, key=lambda s: str(s.get("date_start") or ""))
     key = pool[-1].get("session_key") if pool else None
     return int(key) if key is not None else None
@@ -179,6 +212,16 @@ def get_drivers(year: int) -> DriversResponse:
             filled.append(drv)
             continue
         filled.append(drv.model_copy(update={"team_colour": team_colour(drv.team_name)}))
+    try:
+        from backend.calendar import next_race, weekend_excluded_codes
+
+        nxt = next_race()
+        if nxt.year == year and nxt.is_this_weekend:
+            excluded = weekend_excluded_codes(nxt.year, nxt.round_number)
+            if excluded:
+                filled = [drv for drv in filled if drv.driver_code not in excluded]
+    except Exception:
+        pass
     return DriversResponse(
         year=year,
         drivers=filled,
@@ -254,13 +297,18 @@ def _season_result_extras(year: int) -> dict[str, dict[str, int]]:
 
 def driver_standings(year: int) -> DriverStandingsResponse:
     data = _jolpica(f"{year}/driverStandings")
+    unavailable_msg = STANDINGS_2026_UNAVAILABLE if year == 2026 else None
     if not data:
-        return DriverStandingsResponse(year=year, standings=[], source="unavailable")
+        return DriverStandingsResponse(
+            year=year, standings=[], source="unavailable", message=unavailable_msg
+        )
     try:
         lists = data["MRData"]["StandingsTable"]["StandingsLists"]
         table = lists[0]["DriverStandings"] if lists else []
     except (KeyError, IndexError, TypeError):
-        return DriverStandingsResponse(year=year, standings=[], source="unavailable")
+        return DriverStandingsResponse(
+            year=year, standings=[], source="unavailable", message=unavailable_msg
+        )
     extras = _season_result_extras(year)
     rows: list[DriverStanding] = []
     leader_pts = 0.0
@@ -289,8 +337,12 @@ def driver_standings(year: int) -> DriverStandingsResponse:
                 gap_to_leader=round(leader_pts - pts, 1),
             )
         )
-    champ = rows[0].driver_code if rows and year < 2026 else None
-    leader = rows[0].driver_code if rows else None
+    if not rows:
+        return DriverStandingsResponse(
+            year=year, standings=[], source="unavailable", message=unavailable_msg
+        )
+    champ = rows[0].driver_code if year < 2026 else None
+    leader = rows[0].driver_code
     return DriverStandingsResponse(
         year=year,
         standings=rows,
@@ -302,13 +354,18 @@ def driver_standings(year: int) -> DriverStandingsResponse:
 
 def constructor_standings(year: int) -> ConstructorStandingsResponse:
     data = _jolpica(f"{year}/constructorStandings")
+    unavailable_msg = STANDINGS_2026_UNAVAILABLE if year == 2026 else None
     if not data:
-        return ConstructorStandingsResponse(year=year, standings=[], source="unavailable")
+        return ConstructorStandingsResponse(
+            year=year, standings=[], source="unavailable", message=unavailable_msg
+        )
     try:
         lists = data["MRData"]["StandingsTable"]["StandingsLists"]
         table = lists[0]["ConstructorStandings"] if lists else []
     except (KeyError, IndexError, TypeError):
-        return ConstructorStandingsResponse(year=year, standings=[], source="unavailable")
+        return ConstructorStandingsResponse(
+            year=year, standings=[], source="unavailable", message=unavailable_msg
+        )
     rows: list[ConstructorStanding] = []
     leader = 0.0
     for entry in table:
@@ -327,7 +384,11 @@ def constructor_standings(year: int) -> ConstructorStandingsResponse:
                 gap_to_leader=round(leader - pts, 1),
             )
         )
-    champ_name = rows[0].team_name if rows and year <= 2025 else None
+    if not rows:
+        return ConstructorStandingsResponse(
+            year=year, standings=[], source="unavailable", message=unavailable_msg
+        )
+    champ_name = rows[0].team_name if year <= 2025 else None
     dstand = driver_standings(year)
     by_team: dict[str, list[str]] = {}
     podiums_by_team: dict[str, int] = {}

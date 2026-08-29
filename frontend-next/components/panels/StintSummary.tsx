@@ -2,34 +2,43 @@
 
 import { useState } from "react";
 import { useRaceStore } from "@/store/raceStore";
-import { getRaceHistoryMock } from "@/lib/mockRaceHistory";
-import { MOCK_DRIVERS_2025 } from "@/lib/mockData";
+import { usePanelHistory } from "@/lib/usePanelHistory";
 import { TyreIcon } from "@/components/ui/TyreIcon";
+import { PanelEmpty, PanelSkeleton, usePanelFeedLoading } from "@/components/ui/PanelStates";
 
 export function StintSummary() {
   const arisDriver = useRaceStore((s) => s.arisDriver) ?? "VER";
   const [driver, setDriver] = useState(arisDriver);
-  const { stints } = getRaceHistoryMock();
+  const { stints, drivers } = usePanelHistory();
+  const loading = usePanelFeedLoading();
   const rows = stints.filter((s) => s.driverCode === driver);
 
   return (
-    <div className="flex h-full flex-col bg-carbon p-2 font-mono-data text-[11px]">
-      <div className="mb-2 flex items-center gap-2 text-[10px]">
+    <div className="flex h-full flex-col bg-carbon p-2 font-mono-data text-xs">
+      <div className="mb-2 flex items-center gap-2 font-sans text-xs">
         <span className="text-muted">Driver</span>
         <select
           value={driver}
           onChange={(e) => setDriver(e.target.value)}
-          className="rounded border border-border bg-surface px-1.5 py-0.5 text-white"
+          className="rounded border border-border bg-surface px-2 py-0.5 font-mono-data text-xs text-white"
         >
-          {MOCK_DRIVERS_2025.map((d) => (
+          {drivers.map((d) => (
             <option key={d.driver_code} value={d.driver_code}>{d.driver_code}</option>
           ))}
         </select>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
+        {loading && rows.length === 0 ? (
+          <PanelSkeleton rows={6} />
+        ) : rows.length === 0 ? (
+          <PanelEmpty
+            title="Stint summary"
+            detail="Compound, start/end lap, and average lap time per stint. Empty until pit and stint data exist for this driver."
+          />
+        ) : (
         <table className="w-full border-collapse text-left">
           <thead>
-            <tr className="border-b border-border text-[10px] uppercase text-muted">
+            <tr className="border-b border-border font-sans text-[10px] uppercase text-muted">
               <th className="py-1.5">Stint</th>
               <th>Compound</th>
               <th>Start</th>
@@ -55,6 +64,7 @@ export function StintSummary() {
             ))}
           </tbody>
         </table>
+        )}
       </div>
     </div>
   );

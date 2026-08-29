@@ -162,6 +162,36 @@ def test_field_board_on_first_lap():
     assert any(m.type == "FIELD" for m in msgs), msgs
 
 
+def test_rain_onset_emits_wet_heuristic_alert():
+    prev = _snap(20, [DriverSnap(code="LEC", position=1, compound="MEDIUM")])
+    curr = _snap(21, [DriverSnap(code="LEC", position=1, compound="MEDIUM")])
+    prev.rainfall = False
+    curr.rainfall = True
+    msgs = events_for_transition(prev, curr, "LEC")
+    rain = [m for m in msgs if "RAIN DETECTED" in m.text]
+    assert rain, msgs
+    assert rain[0].type == "ALERT"
+    assert "WET HEURISTIC" in rain[0].text
+
+
+def test_rain_clearing_emits_info():
+    prev = _snap(24, [DriverSnap(code="LEC", position=1, compound="INTER")])
+    curr = _snap(25, [DriverSnap(code="LEC", position=1, compound="INTER")])
+    prev.rainfall = True
+    curr.rainfall = False
+    msgs = events_for_transition(prev, curr, "LEC")
+    assert any("Rain easing" in m.text for m in msgs), msgs
+
+
+def test_hold_inter_every_five_laps_while_wet():
+    prev = _snap(24, [DriverSnap(code="LEC", position=1, compound="INTER")])
+    curr = _snap(25, [DriverSnap(code="LEC", position=1, compound="INTER")])
+    prev.rainfall = True
+    curr.rainfall = True
+    msgs = events_for_transition(prev, curr, "LEC")
+    assert any("Hold INTER" in m.text for m in msgs), msgs
+
+
 def test_field_board_should_fire_cadence():
     from aris.engine.clock import SectorEvent
     from aris.engine.triggers import field_board_should_fire

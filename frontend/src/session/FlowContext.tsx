@@ -2,14 +2,15 @@ import { createContext, useContext, useMemo, useState, type ReactNode } from "re
 import { useNavigate } from "react-router-dom";
 import { asOfFromUrl } from "../api/client";
 import type { CalendarRound, SessionConfig } from "../api/types";
+import { ARIS_ON_REPLAY } from "../flags";
+import { clampReplayYear } from "../years";
 
 export type ReplayStep = "setup" | "briefing" | "console" | "debrief";
 
 function yearFromAsOf(): number {
   const raw = asOfFromUrl();
-  if (!raw) return 2026;
-  const y = new Date(raw).getUTCFullYear();
-  return y === 2024 || y === 2025 || y === 2026 ? y : 2026;
+  if (!raw) return clampReplayYear(new Date().getUTCFullYear());
+  return clampReplayYear(new Date(raw).getUTCFullYear());
 }
 
 type Flow = {
@@ -24,7 +25,7 @@ type Flow = {
   preselectRound: CalendarRound | null;
   setPreselectRound: (r: CalendarRound | null) => void;
   startReplay: (round: CalendarRound, year: number, driver?: string) => void;
-  enterLive: (round: CalendarRound, driver: string) => void;
+  enterLive: (round: CalendarRound, driver: string, opts?: { year?: number; planId?: string }) => void;
 };
 
 const Ctx = createContext<Flow | null>(null);
@@ -51,9 +52,19 @@ export function FlowProvider({ children }: { children: ReactNode }) {
       setPreselectRound,
       startReplay: (round, y, driver) => {
         setYear(y);
-        if (driver) {
+        if (driver && ARIS_ON_REPLAY) {
           setPartial({ mode: "replay", year: y, round, driver });
           setReplayStep("briefing");
+        } else if (driver && !ARIS_ON_REPLAY) {
+          setConfig({
+            mode: "replay",
+            year: y,
+            round,
+            driver,
+            arisMode: "assisted",
+            planId: "A",
+          });
+          setReplayStep("console");
         } else {
           setPartial(null);
           setPreselectRound(round);
@@ -61,15 +72,16 @@ export function FlowProvider({ children }: { children: ReactNode }) {
         }
         navigate("/replay");
       },
-      enterLive: (round, driver) => {
-        setYear(2026);
+      enterLive: (round, driver, opts) => {
+        const y = opts?.year ?? year;
+        setYear(y);
         setConfig({
           mode: "live",
-          year: 2026,
+          year: y,
           round,
           driver,
-          arisMode: "assisted",
-          planId: "A",
+          arisMode: "auto",
+          planId: opts?.planId ?? "A",
         });
         navigate("/live");
       },

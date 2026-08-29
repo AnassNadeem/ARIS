@@ -12,7 +12,11 @@ import { SetupView } from "./views/SetupView";
 import { StandingsView } from "./views/StandingsView";
 import { HomePage } from "./pages/HomePage";
 import { LivePage } from "./pages/LivePage";
+import { LiveSessionView } from "./views/LiveSessionView";
 import { FlowProvider, useFlow } from "./session/FlowContext";
+import { ARIS_ON_REPLAY } from "./flags";
+import type { NextRace, ReplayWatchPick } from "./api/types";
+import { currentSeasonYear } from "./years";
 
 function ApiProgressBar() {
   const [active, setActive] = useState(false);
@@ -43,9 +47,61 @@ function ApiProgressBar() {
   );
 }
 
+function pickToNext(pick: ReplayWatchPick): NextRace {
+  const r = pick.round;
+  return {
+    year: pick.year,
+    round_number: r.round_number,
+    name: r.name,
+    circuit_name: r.circuit_name,
+    circuit_key: r.circuit_key,
+    country: r.country,
+    city: r.city,
+    date_race: r.date_race,
+    status: r.status === "CANCELLED" ? "CANCELLED" : r.status,
+    is_sprint_weekend: r.is_sprint_weekend,
+    is_this_weekend: false,
+    countdown_seconds: 0,
+    days_until: 0,
+    hours_until: 0,
+    sessions_this_weekend: [],
+    notes: r.notes ?? [],
+    as_of: new Date().toISOString(),
+    off_season: false,
+  };
+}
+
 function ReplayRoutes() {
   const flow = useFlow();
   const navigate = useNavigate();
+  const [watch, setWatch] = useState<ReplayWatchPick | null>(null);
+  const backToSetup = () => {
+    flow.setConfig(null);
+    flow.setPartial(null);
+    flow.setReplayStep("setup");
+    setWatch(null);
+    navigate("/replay");
+  };
+  if (!ARIS_ON_REPLAY) {
+    if (watch) {
+      return (
+        <LiveSessionView
+          next={pickToNext(watch)}
+          replaySessionType={watch.sessionType}
+          initialSegment={watch.segment}
+          onBack={() => setWatch(null)}
+        />
+      );
+    }
+    return (
+      <SetupView
+        year={flow.year}
+        onYear={flow.setYear}
+        initialRound={flow.preselectRound}
+        onWatch={setWatch}
+      />
+    );
+  }
   if (flow.replayStep === "briefing" && flow.partial) {
     return (
       <BriefingView
@@ -65,12 +121,7 @@ function ReplayRoutes() {
       <DebriefView
         config={flow.config}
         onBack={() => flow.setReplayStep("console")}
-        onRestart={() => {
-          flow.setConfig(null);
-          flow.setPartial(null);
-          flow.setReplayStep("setup");
-          navigate("/replay");
-        }}
+        onRestart={backToSetup}
       />
     );
   }
@@ -79,16 +130,13 @@ function ReplayRoutes() {
       year={flow.year}
       onYear={flow.setYear}
       initialRound={flow.preselectRound}
-      onProceed={(cfg) => {
-        flow.setPartial(cfg);
-        flow.setReplayStep("briefing");
-      }}
+      onWatch={setWatch}
     />
   );
 }
 
 function Shell() {
-  const cal = useCalendarState(2026);
+  const cal = useCalendarState(currentSeasonYear());
   const live =
     cal.calendarState?.type === "LIVE_RACE" ||
     cal.calendarState?.type === "LIVE_QUALI" ||
@@ -106,6 +154,7 @@ function Shell() {
     @keyframes ping { 75%, 100% { transform: scale(2); opacity: 0; } }
     @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
     @keyframes arisBar { 0% { transform: translateX(-100%); } 100% { transform: translateX(250%); } }
+    @keyframes arisSpin { to { transform: rotate(360deg); } }
     button { transition: filter 0.12s; }
     button:hover { filter: brightness(1.08); }
   `,

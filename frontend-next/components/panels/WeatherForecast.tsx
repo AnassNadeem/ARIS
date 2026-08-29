@@ -15,23 +15,40 @@ import {
 } from "recharts";
 import { useRaceStore } from "@/store/raceStore";
 import { mockWeatherForecast } from "@/lib/mockData";
+import { PanelEmpty, PanelSkeleton, usePanelFeedLoading } from "@/components/ui/PanelStates";
 
 const CONDITION_ICON: Record<string, string> = { sun: "☀", cloud: "⛅", rain: "🌧" };
 
 export function WeatherForecast() {
   const totalLaps = useRaceStore((s) => s.totalLaps);
   const currentLap = useRaceStore((s) => s.currentLap);
-  const { sessions, trend } = useMemo(() => mockWeatherForecast(totalLaps), [totalLaps]);
+  const loading = usePanelFeedLoading();
+  const { sessions, trend } = useMemo(
+    () => mockWeatherForecast(Math.max(1, totalLaps)),
+    [totalLaps],
+  );
+
+  if (loading && totalLaps <= 0) {
+    return <PanelSkeleton />;
+  }
+  if (totalLaps <= 0) {
+    return (
+      <PanelEmpty
+        title="Weather forecast"
+        detail="Session-by-session air/track temperature and rain chance over race distance. Empty until total laps arrive from the session payload."
+      />
+    );
+  }
 
   return (
     <div className="flex h-full flex-col bg-carbon p-2">
       <div className="mb-2 grid shrink-0 grid-cols-5 gap-1.5">
         {sessions.map((s) => (
           <div key={s.session} className="flex flex-col items-center gap-0.5 rounded border border-border bg-surface py-1.5">
-            <span className="font-mono-data text-[9px] uppercase text-muted">{s.session}</span>
+            <span className="font-sans text-[10px] uppercase text-muted">{s.session}</span>
             <span className="text-base leading-none">{CONDITION_ICON[s.condition]}</span>
-            <span className="font-mono-data text-[10px] text-white">{s.airTempC}°C</span>
-            <span className="font-mono-data text-[9px] text-muted-2">{s.rainChancePct}% rain</span>
+            <span className="font-mono-data text-xs text-white">{s.airTempC}°C</span>
+            <span className="font-mono-data text-[10px] text-muted-2">{s.rainChancePct}% rain</span>
           </div>
         ))}
       </div>

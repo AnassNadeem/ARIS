@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { RecommendResponse } from "../api/types";
 import { C, T, compoundColour, compoundLetter } from "../theme";
 import { ReasoningBar } from "./atoms";
+import { WetHeuristicBadge } from "./WetHeuristicBadge";
 
 const TYRES: { code: string; label: string }[] = [
   { code: "S", label: "SOFT" },
@@ -38,6 +39,7 @@ export function BoxBanner({
         {rec.net_delta_s >= 0 ? "+" : ""}
         {rec.net_delta_s.toFixed(1)}s net vs staying out. Reasoning: {rec.reasoning}
       </div>
+      {(rec.wet_heuristic || rec.wet_reduced_confidence) && <WetHeuristicBadge />}
       <ReasoningBar paceGain={rec.pace_gain_s} pitCost={rec.pit_cost_s} />
       <div style={{ fontFamily: T.mono, fontSize: 9, color: C.faint, margin: "10px 0 6px" }}>CHOOSE TYRE:</div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>

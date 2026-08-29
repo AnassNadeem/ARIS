@@ -2,11 +2,12 @@ import { useState } from "react";
 import { useCalendar } from "../hooks/useCalendar";
 import { useStandings } from "../hooks/useStandings";
 import { C, T } from "../theme";
-import { EmptyState, ErrorPanel, Panel, SkeletonPanel, TabBar } from "../components/atoms";
+import { EmptyState, ErrorPanel, Panel, SkeletonPanel, TabBar, YearSelect } from "../components/atoms";
 import { Shell } from "../components/Shell";
+import { currentSeasonYear, replayYears } from "../years";
 
 export function StandingsView() {
-  const [year, setYear] = useState(2026);
+  const [year, setYear] = useState(currentSeasonYear());
   const [tab, setTab] = useState("drivers");
   const { drivers, constructors } = useStandings(year);
   const cal = useCalendar(year);
@@ -16,27 +17,32 @@ export function StandingsView() {
   return (
     <Shell title="CHAMPIONSHIP STANDINGS">
       <div style={{ padding: 24 }}>
-        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-          {[2024, 2025, 2026].map((y) => (
+        <div style={{ display: "flex", gap: 8, marginBottom: 16, alignItems: "center", flexWrap: "wrap" }}>
+          {replayYears().map((y) => (
             <button
               key={y}
               onClick={() => setYear(y)}
               style={{
-                padding: "6px 14px",
+                padding: "6px 12px",
                 cursor: "pointer",
-                background: year === y ? C.signalMid : "transparent",
-                border: `1px solid ${year === y ? C.signal : C.border}`,
-                color: year === y ? C.signal : C.mist,
+                background: y === year ? C.signalMid : C.raised,
+                border: `1px solid ${y === year ? C.signal : C.border}`,
+                color: y === year ? C.signal : C.mist,
                 fontFamily: T.mono,
                 fontSize: 12,
+                borderRadius: 4,
+                fontWeight: y === year ? 700 : 500,
               }}
             >
               {y}
-              {y === 2026 ? " ▶ LIVE" : ""}
             </button>
           ))}
+          <YearSelect year={year} years={replayYears()} onChange={setYear} />
+          {year === currentSeasonYear() && (
+            <span style={{ fontFamily: T.mono, fontSize: 11, color: C.signal }}>SEASON IN PROGRESS</span>
+          )}
         </div>
-        {year === 2026 && (
+        {year === currentSeasonYear() && (
           <div style={{ fontFamily: T.mono, fontSize: 11, color: C.signal, marginBottom: 12 }}>
             SEASON IN PROGRESS — ROUND {completed} OF {total || 24}
           </div>
@@ -99,7 +105,7 @@ export function StandingsView() {
               <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: T.mono, fontSize: 12 }}>
                 <thead>
                   <tr style={{ color: C.faint, fontSize: 9 }}>
-                    {["POS", "TEAM", "POINTS", "WINS", "PODIUMS", "DRIVERS"].map((h) => (
+                    {["POS", "TEAM", "POINTS", "WINS", "PODIUMS", "GAP TO LEADER", "DRIVERS"].map((h) => (
                       <th key={h} style={{ textAlign: "left", padding: "8px 10px" }}>{h}</th>
                     ))}
                   </tr>
@@ -118,6 +124,7 @@ export function StandingsView() {
                         <td style={{ padding: "8px 10px", color: C.signal }}>{r.points}</td>
                         <td style={{ padding: "8px 10px" }}>{r.wins}</td>
                         <td style={{ padding: "8px 10px" }}>{r.podiums ?? 0}</td>
+                        <td style={{ padding: "8px 10px" }}>{r.gap_to_leader}</td>
                         <td style={{ padding: "8px 10px", color: C.mist }}>{teamDrivers}</td>
                       </tr>
                     );

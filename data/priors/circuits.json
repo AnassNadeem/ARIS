@@ -1,0 +1,92 @@
+{
+  "belgium": {
+    "name": "Spa-Francorchamps",
+    "aliases": ["spa", "spa-francorchamps", "belgian", "belgium"],
+    "deg": "high",
+    "text": "Spa is high-deg: long high-speed corners (Eau Rouge, Pouhon, Blanchimont) put sustained energy through the tyres.",
+    "typical_sc_rate": 0.33,
+    "lap_length_m": 6944,
+    "year": 2025
+  },
+  "monaco": {
+    "name": "Monaco",
+    "aliases": ["monte carlo", "monte-carlo"],
+    "deg": "low",
+    "text": "Monaco is low-deg and overtaking-poor; track position dominates and a one-stop is the default unless a safety car appears.",
+    "typical_sc_rate": 0.33,
+    "lap_length_m": 3337,
+    "year": 2025
+  },
+  "netherlands": {
+    "name": "Zandvoort",
+    "aliases": ["zandvoort", "dutch", "netherlands"],
+    "deg": "medium",
+    "text": "Zandvoort is medium-deg with banked corners; ARIS identity at lap 25 is Pit 33 HARD / Pit 30 HARD / Stay.",
+    "typical_sc_rate": 0.67,
+    "lap_length_m": 4259,
+    "year": 2025
+  },
+  "bahrain": {
+    "name": "Bahrain",
+    "aliases": ["sakhir"],
+    "deg": "high",
+    "text": "Bahrain is high-deg on rear tyres; two-stops are common and the undercut is usually powerful.",
+    "typical_sc_rate": 0.67,
+    "lap_length_m": 5412,
+    "year": 2025
+  },
+  "azerbaijan": {
+    "name": "Baku",
+    "aliases": ["baku", "azerbaijan"],
+    "deg": "low",
+    "text": "Baku is a high safety-car circuit: long straights, walls, and a historical SC rate of 1.0 in the ARIS 2022–2024 sample.",
+    "typical_sc_rate": 1.0,
+    "lap_length_m": 6003,
+    "year": 2025
+  },
+  "britain": {
+    "name": "Silverstone",
+    "aliases": ["silverstone", "british", "britain"],
+    "deg": "high",
+    "text": "Silverstone is high-deg through fast corners (Copse, Maggotts, Becketts); ARIS often sees HARD as the long-stint tyre.",
+    "typical_sc_rate": 0.67,
+    "lap_length_m": 5891,
+    "year": 2025
+  },
+  "italy": {
+    "name": "Monza",
+    "aliases": ["monza", "italian", "italy"],
+    "deg": "low",
+    "text": "Monza is low-deg and low pit-loss relative to lap time; overcut can work because time on track is cheap.",
+    "typical_sc_rate": 0.33,
+    "lap_length_m": 5793,
+    "year": 2025
+  },
+  "singapore": {
+    "name": "Singapore",
+    "aliases": ["marina bay", "singapore"],
+    "deg": "high",
+    "text": "Singapore is high-deg, high temperature, and street-circuit SC-prone; degradation plus traffic dominate strategy.",
+    "typical_sc_rate": 0.67,
+    "lap_length_m": 4940,
+    "year": 2025
+  },
+  "hungary": {
+    "name": "Hungaroring",
+    "aliases": ["hungaroring", "hungarian", "budapest"],
+    "deg": "medium",
+    "text": "Hungaroring is a high-downforce, overtaking-poor circuit where undercut value is large because of dirty air.",
+    "typical_sc_rate": 0.33,
+    "lap_length_m": 4381,
+    "year": 2025
+  },
+  "spain": {
+    "name": "Barcelona-Catalunya",
+    "aliases": ["barcelona", "catalunya", "spanish", "spain"],
+    "deg": "high",
+    "text": "Spain is high-deg through long medium-speed corners; rear wear often decides whether a two-stop beats a one-stop.",
+    "typical_sc_rate": 0.0,
+    "lap_length_m": 4657,
+    "year": 2025
+  }
+}

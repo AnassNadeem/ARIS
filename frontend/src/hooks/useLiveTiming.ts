@@ -38,7 +38,7 @@ export function useLiveTiming(active: boolean, replaySessionKey?: number | null)
     const startPoll = () => {
       setMode("poll");
       void poll();
-      pollTimer = window.setInterval(() => void poll(), replay != null ? 30_000 : 5_000);
+      pollTimer = window.setInterval(() => void poll(), replay != null ? 30_000 : 2_000);
     };
 
     if (asOf || replay != null) {

@@ -25,7 +25,7 @@ TIMEOUT = 12.0
 
 # Stay under OpenF1's 6/s and 60/min paid caps.
 _MAX_PER_SEC = 5
-_MAX_PER_MIN = 50
+_MAX_PER_MIN = 58
 
 _token_lock = threading.Lock()
 _rate_lock = threading.Lock()
@@ -177,7 +177,13 @@ async def aopenf1(path: str, params: dict[str, Any] | None = None, *, timeout: f
 
 
 def jolpica(path: str) -> Any:
-    url = f"{JOLPICA}/{path.lstrip('/')}"
-    if not url.endswith(".json"):
-        url = url.rstrip("/") + ".json"
+    raw = path.lstrip("/")
+    qs = ""
+    if "?" in raw:
+        raw, qs = raw.split("?", 1)
+    if not raw.endswith(".json"):
+        raw = raw.rstrip("/") + ".json"
+    url = f"{JOLPICA}/{raw}"
+    if qs:
+        url = f"{url}?{qs}"
     return get_json(url)

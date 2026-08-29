@@ -16,6 +16,17 @@ class TestPrewrite:
         assert len(plans.plans) == 3
         assert any(p.recommended for p in plans.plans)
 
+    def test_generate_without_scoring_is_instant(self):
+        plans = generate_strat_plans(
+            session_id=0, driver_id=0,
+            year=2026, round_no=15, country="Netherlands", driver_code="VER",
+            weather={"track_temp_c": 28.0},
+            score=False,
+            use_weekend_form=False,
+        )
+        assert len(plans.plans) == 3
+        assert any(p.recommended for p in plans.plans)
+
     def test_simulate_full_race(self):
         state = RaceState(
             session_id=1, driver_id=1, driver_code="VER", driver_name="Max",

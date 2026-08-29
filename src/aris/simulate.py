@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from enum import StrEnum
 from typing import NamedTuple
 
@@ -9,11 +10,31 @@ from pydantic import BaseModel
 
 from aris.models.features import estimate_fuel_kg
 from aris.models.predict import predict_lap_time, predict_physics
-from aris.physics.bicycle import Car, approach_delta_s
+from aris.physics.bicycle import FUEL_PENALTY_S_PER_KG, Car, approach_delta_s
+from aris.physics.tires import normalize_compound
+from aris.physics.tyre_warmup import apply_warmup
+from aris.physics.wet import INTER_PACE_LOSS_VS_SLICK, WET_PACE_LOSS_VS_SLICK
 from aris.state import RaceState, sc_vsc_pit_multiplier
 from aris.tracks import load_track_config
 
 PACE_SIGMA_S = 0.35
+
+# Simple linear fuel correction; k_fuel ≈ 0.03 s/kg, fuel_start ≈ 110 kg.
+# To be refined with better fuel estimates in future work. Matches
+# bicycle.FUEL_PENALTY_S_PER_KG and features.estimate_fuel_kg (110 kg start).
+FUEL_START_KG = 110.0
+K_FUEL_S_PER_KG = FUEL_PENALTY_S_PER_KG
+
+# T7 — late-race HARD urgency penalty (DISABLED: 0.0 penalty).
+# Diagnosis showed the 2025 HARD misses are compound selection mismatches
+# (ARIS says HARD, team chose SOFT/MEDIUM), not timing gaps.  The urgency
+# penalty caused a -5 regression in 2024 (14/40 vs T6 baseline 19/40) without
+# meaningfully improving 2025 (0 timing-driven HARD corrections found).
+# Constants are preserved so the feature can be re-enabled with per-circuit
+# calibration in T8/T9.
+STINT_URGENCY_LAP_THRESHOLD: int = 20
+STINT_URGENCY_AGE_THRESHOLD: int = 22
+STINT_URGENCY_PENALTY: float = 0.0   # disabled in T7 — see note above
 
 # G1.2 2024 held-out single-step counts (real lags): SOFT tyre_life>=25 is
 # n=23 laps; MEDIUM 35+ n=191; HARD 35-80 n=1104. Ceilings mark where support
@@ -141,9 +162,28 @@ def get_pit_loss(
 
 
 def _track_for(state: RaceState):
-    return load_track_config(
+    """Physics track with T9 weekend deg slopes overlaid from ``get_deg_slope``.
+
+    ``year`` + ``round_no`` on RaceState select FP2 calibration when available,
+    then circuit priors, then G1.5. G1.5 constants themselves are unchanged.
+    """
+    from aris.physics.tires import get_deg_slope
+
+    track = load_track_config(
         state.country, year=state.year, round_no=state.round_no
     ).load_physics()
+    year = int(state.year) if state.year else None
+    round_number = int(state.round_no) if state.round_no else None
+    slopes = {
+        compound: get_deg_slope(
+            compound,
+            circuit_id=state.country,
+            year=year,
+            round_number=round_number,
+        )
+        for compound in ("SOFT", "MEDIUM", "HARD", "INTERMEDIATE", "WET")
+    }
+    return replace(track, compound_slopes=slopes)
 
 
 def _update_lags(times: list[float]) -> tuple[float | None, float | None, float | None]:
@@ -208,6 +248,23 @@ def _pit_schedule(action: StrategyAction, state: RaceState) -> list[tuple[int, s
     return []
 
 
+def _wet_on_dry_penalty(compound: str, raining: bool) -> float:
+    """Per-lap INTER/WET add-on when rain flags are already false.
+
+    The chained physics-delta path cancels a constant folded into ``physics``,
+    so this is added to the remainder total instead. Uses existing wet.py
+    slick-delta constants — not a T10 wet classifier.
+    """
+    if raining:
+        return 0.0
+    key = normalize_compound(compound)
+    if key in {"INTERMEDIATE", "INTER"}:
+        return float(INTER_PACE_LOSS_VS_SLICK)
+    if key == "WET":
+        return float(WET_PACE_LOSS_VS_SLICK)
+    return 0.0
+
+
 def _lap_physics(compound: str, tyre_life: int, fuel_kg: float, track) -> float:
     return float(
         predict_physics(
@@ -220,6 +277,15 @@ def _lap_physics(compound: str, tyre_life: int, fuel_kg: float, track) -> float:
     )
 
 
+def fuel_correction_s(fuel_kg: float) -> float:
+    """Seconds of fuel-mass pace in a physics lap (k_fuel × load).
+
+    Simple linear fuel correction; k_fuel ≈ 0.03 s/kg, fuel_start ≈ 110 kg.
+    To be refined with better fuel estimates in future work.
+    """
+    return K_FUEL_S_PER_KG * max(0.0, float(fuel_kg))
+
+
 def _simulate_remainder(
     state: RaceState,
     *,
@@ -228,6 +294,9 @@ def _simulate_remainder(
     line_delta_first_lap_s: float = 0.0,
     pit_status_by_lap: dict[int, str] | None = None,
     dirty_air_penalty: float = 0.0,
+    deg_multiplier: float = 1.0,
+    fuel_deg_correction: bool = True,
+    lap_times_out: list[float] | None = None,
 ) -> RemainderResult:
     """Forward-sim remaining laps.
 
@@ -246,7 +315,7 @@ def _simulate_remainder(
     total = 0.0
     laps = 0
     compound = state.compound
-    tyre_life = state.tyre_life
+    tyre_life_eff: float = float(state.tyre_life)  # float for deg_multiplier scaling
     evidence_parts: list[str] = []
     recent_times: list[float] = []
     if state.lag1_pace is not None:
@@ -256,6 +325,9 @@ def _simulate_remainder(
     pit_map = dict(pit_schedule)
     green_pit_loss = _pit_loss_s(state)
     track = _track_for(state)
+    raining = bool(getattr(state, "rainfall", False)) or bool(
+        getattr(state, "weather_rainfall", False)
+    )
     noise_idx = 0
     first_lap = True
     prev_physics: float | None = None
@@ -264,17 +336,28 @@ def _simulate_remainder(
 
     for lap in range(state.lap_number, state.total_laps + 1):
         fuel = estimate_fuel_kg(lap, total_laps=state.total_laps)
-        physics = _lap_physics(compound, tyre_life, fuel, track)
+        physics_raw = _lap_physics(compound, int(tyre_life_eff), fuel, track)
+        # Simple linear fuel correction; k_fuel ≈ 0.03 s/kg, fuel_start ≈ 110 kg.
+        # To be refined with better fuel estimates in future work.
+        # Bicycle already adds k_fuel*fuel to the absolute lap. FP2 slopes are
+        # fuel-corrected (practice starts light). Race fuel burn (~1.7 kg/lap x
+        # 0.03 s/kg ~ 0.05 s/lap) otherwise masks tyre drop in the chained
+        # delta and makes stay-out look better than it is.
+        #   lap_time_fuel_adjusted = lap_time_raw - k_fuel * fuel_load
+        fuel_term = fuel_correction_s(fuel)
+        if fuel_deg_correction:
+            physics = physics_raw - fuel_term
+        else:
+            physics = physics_raw
         noise = 0.0
         if pace_noise is not None and noise_idx < len(pace_noise):
             noise = pace_noise[noise_idx]
             noise_idx += 1
-
         if prev_physics is None:
             lag1, lag2, roll3 = _update_lags(recent_times)
             pred = _predict_lap(
                 compound=compound,
-                tyre_life=tyre_life,
+                tyre_life=int(tyre_life_eff),
                 fuel_kg=fuel,
                 pit_lap=False,
                 lag1=lag1,
@@ -286,7 +369,7 @@ def _simulate_remainder(
         else:
             pred = float(prev_pred) + (physics - prev_physics) + noise
 
-        max_tyre_life[compound] = max(max_tyre_life.get(compound, 0), int(tyre_life))
+        max_tyre_life[compound] = max(max_tyre_life.get(compound, 0), int(tyre_life_eff))
 
         if lap in pit_map:
             pit_compound = pit_map[lap]
@@ -308,12 +391,16 @@ def _simulate_remainder(
                 )
             else:
                 pit_loss = green_pit_loss
-            total += pred + pit_loss
+            # In-lap on the old set: no new-stint warm-up (that starts next lap).
+            in_lap = pred + pit_loss + _wet_on_dry_penalty(compound, raining)
+            total += in_lap
+            if lap_times_out is not None:
+                lap_times_out.append(in_lap)
             recent_times.append(pred)
             prev_physics = physics
             prev_pred = pred
             compound = pit_compound
-            tyre_life = 1
+            tyre_life_eff = 1.0  # reset after pit
             laps += 1
             first_lap = False
             continue
@@ -322,13 +409,38 @@ def _simulate_remainder(
             pred += line_delta_first_lap_s
         if dirty_air_penalty:
             pred += float(dirty_air_penalty)
-        total += pred
+
+        # T7: STINT_URGENCY_PENALTY is currently 0.0 (disabled).
+        # Kept as a hook for T8/T9 per-circuit calibration. When non-zero,
+        # applies only when compound=HARD AND tyre_life ≥ STINT_URGENCY_AGE_THRESHOLD
+        # AND (total_laps - lap) ≤ STINT_URGENCY_LAP_THRESHOLD.
+        if STINT_URGENCY_PENALTY > 0.0:
+            laps_remaining_this_lap = state.total_laps - lap
+            if (
+                deg_multiplier > 0.0
+                and str(compound).upper() == "HARD"
+                and int(tyre_life_eff) >= STINT_URGENCY_AGE_THRESHOLD
+                and laps_remaining_this_lap <= STINT_URGENCY_LAP_THRESHOLD
+            ):
+                pred += STINT_URGENCY_PENALTY
+
+        # Warm-up is added to the lap total only — not to pred — so the
+        # chained physics-delta path does not accumulate it. Out-lap after
+        # a pit is tyre_life==1; lap 2 of a new set still carries lap-2 cost.
+        stint_lap = int(tyre_life_eff)
+        pred_with_warmup = apply_warmup(
+            pred, compound, stint_lap, is_out_lap=(stint_lap <= 1)
+        )
+        green_lap = pred_with_warmup + _wet_on_dry_penalty(compound, raining)
+        total += green_lap
+        if lap_times_out is not None:
+            lap_times_out.append(green_lap)
         recent_times.append(pred)
         if len(recent_times) > 10:
             recent_times = recent_times[-10:]
         prev_physics = physics
         prev_pred = pred
-        tyre_life += 1
+        tyre_life_eff += deg_multiplier  # scaled aging (0.0 = paused under SC)
         laps += 1
         first_lap = False
 
@@ -357,6 +469,9 @@ def simulate(
     *,
     pace_noise: list[float] | None = None,
     dirty_air_penalty: float = 0.0,
+    deg_multiplier: float = 1.0,
+    fuel_deg_correction: bool = True,
+    lap_times_out: list[float] | None = None,
 ) -> PredictedOutcome:
     penalty = float(dirty_air_penalty or 0.0)
     stay_schedule: list[tuple[int, str]] = []
@@ -365,6 +480,8 @@ def simulate(
         pit_schedule=stay_schedule,
         pace_noise=pace_noise,
         dirty_air_penalty=penalty,
+        deg_multiplier=deg_multiplier,
+        fuel_deg_correction=fuel_deg_correction,
     )
 
     line_delta = _line_delta_s(state, action)
@@ -378,6 +495,9 @@ def simulate(
         pace_noise=pace_noise,
         line_delta_first_lap_s=line_delta,
         dirty_air_penalty=action_penalty,
+        deg_multiplier=deg_multiplier,
+        fuel_deg_correction=fuel_deg_correction,
+        lap_times_out=lap_times_out,
     )
     evidence = result.evidence
     if action.kind == ActionKind.LIFT and action.corner_index and action.distance_m:
@@ -418,11 +538,19 @@ def simulate(
     )
 
 
-def _fresh_pace(last_lap_s: float, compound: str, tyre_life: int, slopes: dict[str, float] | None) -> float:
+def _fresh_pace(
+    last_lap_s: float,
+    compound: str,
+    tyre_life: int,
+    slopes: dict[str, float] | None,
+    circuit_id: str | None = None,
+) -> float:
     from aris.physics.tires import tire_pace_loss
 
     life = max(1, int(tyre_life or 1))
-    return float(last_lap_s) - tire_pace_loss(compound, life, slopes=slopes)
+    return float(last_lap_s) - tire_pace_loss(
+        compound, life, slopes=slopes, circuit_id=circuit_id
+    )
 
 
 def _window_cumulative(
@@ -448,7 +576,9 @@ def _window_cumulative(
     life = max(1, int(tyre_life or 1))
     green = float(circuit_pit_loss)
     for lap in range(int(start_lap), int(end_lap) + 1):
-        pace = fresh_pace + tire_pace_loss(c, life, slopes=slopes)
+        pace = fresh_pace + tire_pace_loss(
+            c, life, slopes=slopes, circuit_id=circuit_key
+        )
         if pit_lap is not None and lap == int(pit_lap):
             if lap == int(current_lap):
                 pit_loss = get_pit_loss(green, track_status, circuit_key=circuit_key)
@@ -482,14 +612,17 @@ def simulate_undercut(
         return 0.0
     focus_last = float(state.lag1_pace or getattr(rival, "last_lap_s", 0.0) or 90.0)
     rival_last = float(getattr(rival, "last_lap_s", 0.0) or focus_last)
-    focus_fresh = _fresh_pace(focus_last, state.compound, state.tyre_life, slopes)
+    key = state.country
+    focus_fresh = _fresh_pace(
+        focus_last, state.compound, state.tyre_life, slopes, circuit_id=key
+    )
     rival_fresh = _fresh_pace(
         rival_last,
         getattr(rival, "compound", "MEDIUM"),
         getattr(rival, "tyre_life", 1),
         slopes,
+        circuit_id=key,
     )
-    key = state.country
     focus_t = _window_cumulative(
         fresh_pace=focus_fresh,
         compound=state.compound,
@@ -543,14 +676,17 @@ def simulate_overcut_window(
         return 0.0
     focus_last = float(state.lag1_pace or getattr(rival, "last_lap_s", 0.0) or 90.0)
     rival_last = float(getattr(rival, "last_lap_s", 0.0) or focus_last)
-    focus_fresh = _fresh_pace(focus_last, state.compound, state.tyre_life, slopes)
+    key = state.country
+    focus_fresh = _fresh_pace(
+        focus_last, state.compound, state.tyre_life, slopes, circuit_id=key
+    )
     rival_fresh = _fresh_pace(
         rival_last,
         getattr(rival, "compound", "MEDIUM"),
         getattr(rival, "tyre_life", 1),
         slopes,
+        circuit_id=key,
     )
-    key = state.country
     focus_t = _window_cumulative(
         fresh_pace=focus_fresh,
         compound=state.compound,

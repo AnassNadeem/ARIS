@@ -4,9 +4,12 @@ import pandas as pd
 import pytest
 
 from aris.physics.tires import (
+    CIRCUIT_MEDIUM_OFFSET,
+    COMPOUND_PACE_OFFSET,
     DEFAULT_COMPOUND_SLOPE,
     OUT_LAP_PENALTY_S,
     blend_slope_prior,
+    compound_pace_offset,
     fit_compound_slopes,
     fit_track_compound_slopes,
     normalize_compound,
@@ -18,13 +21,21 @@ from aris.physics.tires import (
 class TestTirePaceLoss:
     def test_out_lap_has_cold_penalty(self):
         loss = tire_pace_loss("SOFT", 1)
-        assert loss == pytest.approx(OUT_LAP_PENALTY_S)
+        assert loss == pytest.approx(OUT_LAP_PENALTY_S + COMPOUND_PACE_OFFSET["SOFT"])
 
     def test_degradation_grows_with_stint_age(self):
         assert tire_pace_loss("MEDIUM", 5) > tire_pace_loss("MEDIUM", 2)
 
     def test_soft_degrades_faster_than_hard(self):
-        assert tire_pace_loss("SOFT", 10) > tire_pace_loss("HARD", 10)
+        soft_deg = tire_pace_loss("SOFT", 10) - tire_pace_loss("SOFT", 1)
+        hard_deg = tire_pace_loss("HARD", 10) - tire_pace_loss("HARD", 1)
+        assert soft_deg > hard_deg
+
+    def test_fresh_soft_faster_than_hard(self):
+        assert tire_pace_loss("SOFT", 2) < tire_pace_loss("HARD", 2)
+        assert tire_pace_loss("MEDIUM", 2) < tire_pace_loss("HARD", 2)
+        assert compound_pace_offset("INTERMEDIATE") == 0.0
+        assert compound_pace_offset("WET") == 0.0
 
     def test_unknown_compound_falls_back_to_medium_slope(self):
         medium = tire_pace_loss("MEDIUM", 8)
@@ -37,7 +48,9 @@ class TestTirePaceLoss:
 
     def test_custom_slopes(self):
         custom = {"SOFT": 0.2}
-        assert tire_pace_loss("SOFT", 3, slopes=custom) == pytest.approx(0.2 * 2)
+        assert tire_pace_loss("SOFT", 3, slopes=custom) == pytest.approx(
+            0.2 * 2 + COMPOUND_PACE_OFFSET["SOFT"]
+        )
 
 
 class TestFitCompoundSlopes:
@@ -110,5 +123,38 @@ def test_track_override_merges_with_defaults():
     custom = {"SOFT": 0.2}
     soft = tire_pace_loss("SOFT", 5, slopes=custom)
     hard = tire_pace_loss("HARD", 5, slopes=custom)
-    assert soft == pytest.approx(0.2 * 4)
-    assert hard == pytest.approx(DEFAULT_COMPOUND_SLOPE["HARD"] * 4)
+    assert soft == pytest.approx(0.2 * 4 + COMPOUND_PACE_OFFSET["SOFT"])
+    assert hard == pytest.approx(
+        DEFAULT_COMPOUND_SLOPE["HARD"] * 4 + COMPOUND_PACE_OFFSET["HARD"]
+    )
+
+
+def test_circuit_medium_offset_overrides_global(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setitem(CIRCUIT_MEDIUM_OFFSET, "bahrain", -0.45)
+    assert compound_pace_offset("MEDIUM", circuit_id="Bahrain") == pytest.approx(-0.45)
+    assert compound_pace_offset("MEDIUM", circuit_id="Sakhir") == pytest.approx(-0.45)
+    assert compound_pace_offset("HARD", circuit_id="Bahrain") == pytest.approx(0.0)
+    assert compound_pace_offset("SOFT", circuit_id="Bahrain") == pytest.approx(
+        COMPOUND_PACE_OFFSET["SOFT"]
+    )
+
+
+def test_circuit_medium_offset_falls_back_when_unknown():
+    assert compound_pace_offset("MEDIUM", circuit_id="Netherlands") == pytest.approx(
+        COMPOUND_PACE_OFFSET["MEDIUM"]
+    )
+    assert compound_pace_offset("MEDIUM") == pytest.approx(COMPOUND_PACE_OFFSET["MEDIUM"])
+
+
+def test_bahrain_medium_offset_is_stronger_than_global_but_weaker_than_soft():
+    bahrain = compound_pace_offset("MEDIUM", circuit_id="Bahrain")
+    assert bahrain == pytest.approx(-0.35)
+    assert bahrain < COMPOUND_PACE_OFFSET["MEDIUM"]
+    assert bahrain > COMPOUND_PACE_OFFSET["SOFT"]
+
+
+def test_tire_pace_loss_uses_circuit_medium_offset(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setitem(CIRCUIT_MEDIUM_OFFSET, "spain", -0.25)
+    loss = tire_pace_loss("MEDIUM", 2, circuit_id="Spain")
+    assert loss == pytest.approx(DEFAULT_COMPOUND_SLOPE["MEDIUM"] * 1 + (-0.25))
+

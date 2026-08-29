@@ -47,6 +47,7 @@ def _simulate_with_draw(
     rng: np.random.Generator,
     *,
     dirty_air_penalty: float = 0.0,
+    deg_multiplier: float = 1.0,
 ) -> float:
     n_laps = max(1, state.laps_remaining)
     noise = rng.normal(0.0, PACE_SIGMA_S, size=n_laps).tolist()
@@ -62,6 +63,7 @@ def _simulate_with_draw(
         pit_schedule=schedule,
         pace_noise=noise,
         dirty_air_penalty=action_penalty,
+        deg_multiplier=deg_multiplier,
     ).total
     return total
 
@@ -73,6 +75,7 @@ def run_mc(
     n_draws: int = DEFAULT_DRAWS,
     seed: int = 42,
     dirty_air_penalty: float = 0.0,
+    deg_multiplier: float = 1.0,
 ) -> MCDistribution:
     rng = np.random.default_rng(seed)
     baseline = _simulate_with_draw(
@@ -80,13 +83,16 @@ def run_mc(
         StrategyAction(kind=ActionKind.STAY_OUT),
         rng,
         dirty_air_penalty=dirty_air_penalty,
+        deg_multiplier=deg_multiplier,
     )
 
     totals: list[float] = []
     for _ in range(n_draws):
         totals.append(
             _simulate_with_draw(
-                state, action, rng, dirty_air_penalty=dirty_air_penalty
+                state, action, rng,
+                dirty_air_penalty=dirty_air_penalty,
+                deg_multiplier=deg_multiplier,
             )
         )
 

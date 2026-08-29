@@ -27,6 +27,7 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
     "diskcache>=5.6",
+    "sentry-sdk>=2.0",
     "signalrcore>=0.9",
     "requests>=2.31",
     "websocket-client>=1.8",

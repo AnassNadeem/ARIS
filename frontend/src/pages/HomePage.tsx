@@ -44,7 +44,7 @@ function LiveCountdown({ seconds }: { seconds: number }) {
 const FEATURES: [string, string][] = [
   ["LAP-BY-LAP STRATEGY", "pit timing, compound choice, pace targets"],
   ["FULL REASONING", "every call shows pace gained vs pit cost"],
-  ["REPLAY ANY RACE", "2024, 2025, 2026 with 1× to 50× speed"],
+  ["REPLAY ANY RACE", "timing, map, and telemetry — view only"],
   ["LIVE RACE MODE", "real OpenF1 data, ARIS recommends in real time"],
 ];
 
@@ -118,7 +118,7 @@ export function HomePage() {
         </p>
         <div style={{ display: "flex", gap: 12, marginTop: 28, flexWrap: "wrap" }}>
           <button
-            onClick={() => navigate("/replay")}
+            onClick={() => navigate("/live")}
             style={{
               padding: "12px 22px",
               background: C.signal,
@@ -131,10 +131,10 @@ export function HomePage() {
               cursor: "pointer",
             }}
           >
-            ▶ REPLAY A RACE
+            {liveLabel}
           </button>
           <button
-            onClick={() => navigate("/live")}
+            onClick={() => navigate("/replay")}
             style={{
               padding: "12px 22px",
               background: "transparent",
@@ -147,7 +147,7 @@ export function HomePage() {
               cursor: "pointer",
             }}
           >
-            {liveLabel}
+            ▶ WATCH A REPLAY
           </button>
         </div>
 
@@ -186,7 +186,7 @@ export function HomePage() {
                   borderRadius: 3,
                 }}
               >
-                REPLAY A RACE
+                WATCH A REPLAY
               </button>
               <button
                 onClick={() => navigate(`/circuits/${next.circuit_key}`)}

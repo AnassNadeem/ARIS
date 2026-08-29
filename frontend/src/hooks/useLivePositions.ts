@@ -27,15 +27,30 @@ export function useLivePositions(active: boolean, replaySessionKey?: number | nu
         const incoming = new Set(data.positions.map((p) => p.driver_code));
         const merged: CarPosition[] = [];
         for (const p of data.positions) {
+          if (p.is_dnf) {
+            lastRef.current.delete(p.driver_code);
+            missRef.current.delete(p.driver_code);
+            continue;
+          }
           missRef.current.set(p.driver_code, 0);
           lastRef.current.set(p.driver_code, p);
           merged.push(p);
         }
         for (const [code, prev] of lastRef.current) {
           if (incoming.has(code)) continue;
+          if (prev.is_dnf) {
+            lastRef.current.delete(code);
+            missRef.current.delete(code);
+            continue;
+          }
           const misses = (missRef.current.get(code) ?? 0) + 1;
           missRef.current.set(code, misses);
-          merged.push({ ...prev, is_pitted: misses >= 3 ? true : prev.is_pitted });
+          if (misses >= 8) {
+            lastRef.current.delete(code);
+            missRef.current.delete(code);
+            continue;
+          }
+          merged.push(prev);
         }
         setPositions(merged);
         setError(null);
@@ -44,7 +59,7 @@ export function useLivePositions(active: boolean, replaySessionKey?: number | nu
       }
     };
     void poll();
-    const id = window.setInterval(() => void poll(), replaySessionKey != null ? 8_000 : 2_000);
+    const id = window.setInterval(() => void poll(), replaySessionKey != null ? 8_000 : 250);
     return () => {
       cancelled = true;
       window.clearInterval(id);

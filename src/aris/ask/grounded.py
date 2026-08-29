@@ -6,9 +6,12 @@ numbers in the answer are copied from retrieved sources.
 
 from __future__ import annotations
 
+import logging
 import re
 from functools import lru_cache
 from typing import Any
+
+_log = logging.getLogger(__name__)
 
 from aris.ask.memory import ConversationMemory
 from aris.ask.retrieve import DEFAULT_TOP_K, MIN_COSINE, AskDocument, AskIndex, Hit
@@ -67,6 +70,11 @@ def answer_question(
     store = index or _default_index()
     query = memory.query_with_context(question) if memory else question
     ephemeral = _ephemeral_docs(session, memory)
+    if _is_results_question(query):
+        result_hits = _lookup_classified_result(store, query, extra=ephemeral)
+        if result_hits:
+            return _compose_results(query, result_hits)
+        return ABSTAIN
     hits = _search(store, query, extra=ephemeral, k=top_k)
     hits = _apply_constraints(query, hits)
     hits = _prefer_shipped_model(hits)
@@ -194,7 +202,19 @@ def _apply_constraints(question: str, hits: list[Hit]) -> list[Hit]:
                 continue
         elif hit.doc.source == "race":
             if cons["lap"] is not None:
-                if not any(tok in q_lower for tok in ("finish", "grid", "classified", "points", "result")):
+                if not any(
+                    tok in q_lower
+                    for tok in (
+                        "finish",
+                        "grid",
+                        "classified",
+                        "points",
+                        "result",
+                        "won",
+                        "winner",
+                        "podium",
+                    )
+                ):
                     continue
         filtered.append(hit)
     return filtered
@@ -249,11 +269,21 @@ def _compose(question: str, hits: list[Hit]) -> str:
     clipped = ". ".join(sentences[:3])
     if clipped and not clipped.endswith("."):
         clipped += "."
-    prose = clipped or body
-    # Exact JSON numbers + Cited: must sit after the 3-sentence clip so
-    # periods inside floats / event ids are not dropped.
-    extras = [_grounding_numbers(primary), _cited_block(primary)]
-    return " ".join(x for x in (prose, *extras) if x)
+    prose = _strip_raw_markdown(clipped or body)
+    methodology = primary.source == "decision" or _is_methodology_question(question)
+    extras = [_grounding_numbers(primary)]
+    if methodology:
+        extras.append(_cited_block(primary))
+    out = " ".join(x for x in (prose, *extras) if x)
+    if not methodology:
+        out = _strip_raw_markdown(out)
+    _log.debug(
+        "ask_answer q=%s source=%s has_Cited=%s",
+        q[:80],
+        primary.source,
+        "Cited:" in out,
+    )
+    return out
 
 
 def _grounding_numbers(doc: AskDocument) -> str:
@@ -359,7 +389,122 @@ def _concept_answer(doc: AskDocument) -> str:
     body = doc.text
     if "Source:" in body:
         body = body.split("Source:")[0].strip()
-    return body
+    return _strip_raw_markdown(body)
+
+
+_RESULTS_RE = re.compile(
+    r"who\s+won|who'?s\s+the\s+winner|\blast year\b|\bpodium\b|winner of",
+    re.I,
+)
+_MD_HEADING_RE = re.compile(r"^#{1,6}\s+", re.M)
+_MD_TABLE_RE = re.compile(r"^\s*\|.*\|\s*$", re.M)
+
+
+def _is_results_question(question: str) -> bool:
+    q = question.lower()
+    if _RESULTS_RE.search(q):
+        return True
+    return "won" in q and "race" in q
+
+
+def _is_methodology_question(question: str) -> bool:
+    q = question.lower()
+    return any(
+        tok in q
+        for tok in (
+            "recommend",
+            "delta",
+            "what did aris",
+            "fia",
+            "rule",
+            "article",
+            "undercut",
+            "overcut",
+            "safety car",
+            "vsc",
+            "compound",
+            "tyre",
+            "tire",
+            "why",
+            "how",
+            "parc",
+            "pit lane",
+        )
+    )
+
+
+def _strip_raw_markdown(text: str) -> str:
+    if not text:
+        return text
+    cleaned = _MD_TABLE_RE.sub("", text)
+    cleaned = _MD_HEADING_RE.sub("", cleaned)
+    cleaned = cleaned.replace("\n", " ")
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
+def _lookup_classified_result(
+    store: AskIndex,
+    question: str,
+    *,
+    extra: list[AskDocument],
+) -> list[Hit]:
+    cons = _query_constraints(question)
+    q_lower = cons["q_lower"]
+    year = cons["year"]
+    want_podium = "podium" in q_lower
+    countries = {
+        str(doc.facts.get("country") or "").lower()
+        for doc in [*store.documents, *extra]
+        if str(doc.facts.get("country") or "")
+        and str(doc.facts.get("country") or "").lower() in q_lower
+    }
+    matches: list[Hit] = []
+    for doc in [*store.documents, *extra]:
+        if doc.source != "race":
+            continue
+        facts = doc.facts
+        pos = facts.get("finish_pos")
+        if pos is None:
+            continue
+        try:
+            pos_i = int(pos)
+        except (TypeError, ValueError):
+            continue
+        if year is not None and facts.get("year") not in (None, year):
+            continue
+        country = str(facts.get("country") or "").lower()
+        if countries and country not in countries:
+            continue
+        if not year and not countries:
+            continue
+        if want_podium:
+            if pos_i > 3:
+                continue
+        elif pos_i != 1:
+            continue
+        matches.append(Hit(doc=doc, cosine=1.0, score=1.0))
+    matches.sort(key=lambda h: int(h.doc.facts.get("finish_pos") or 99))
+    return matches
+
+
+def _compose_results(question: str, hits: list[Hit]) -> str:
+    q = question.lower()
+    if "podium" in q:
+        bits = []
+        for hit in hits[:3]:
+            facts = hit.doc.facts
+            name = facts.get("full_name") or facts.get("driver_code")
+            bits.append(f"P{facts.get('finish_pos')} {name}")
+        country = hits[0].doc.facts.get("country") or "that race"
+        year = hits[0].doc.facts.get("year") or ""
+        return _strip_raw_markdown(f"The {year} {country} podium was {', '.join(bits)}.")
+    primary = hits[0].doc
+    facts = primary.facts
+    name = facts.get("full_name") or facts.get("driver_code")
+    code = facts.get("driver_code")
+    country = facts.get("country") or "that race"
+    year = facts.get("year") or ""
+    return _strip_raw_markdown(f"{name} ({code}) won the {year} {country} race.")
 
 
 @lru_cache(maxsize=1)

@@ -159,7 +159,22 @@ def _zandvoort_state() -> RaceState:
 
 
 def test_zandvoort_identity_flag_off():
-    result = recommend(_zandvoort_state(), top_k=3, mc_draws=0)
+    from aris.recommend import pit_window_compound_times
+
+    state = _zandvoort_state()
+    for pit_lap in (33, 30):
+        times = pit_window_compound_times(state, pit_lap)
+        print(
+            f"Pit lap {pit_lap}: HARD = {times['HARD']:.1f} s, "
+            f"MEDIUM = {times['MEDIUM']:.1f} s, SOFT = {times['SOFT']:.1f} s."
+        )
+        assert times["HARD"] <= times["MEDIUM"], (
+            f"MEDIUM beat HARD at pit lap {pit_lap}: {times}"
+        )
+        assert times["HARD"] <= times["SOFT"], (
+            f"SOFT beat HARD at pit lap {pit_lap}: {times}"
+        )
+    result = recommend(state, top_k=3, mc_draws=0)
     labels = [r.label for r in result.recommendations]
     assert labels[0].startswith("Pit lap 33 for HARD")
     assert any(l.startswith("Pit lap 30 for HARD") for l in labels)

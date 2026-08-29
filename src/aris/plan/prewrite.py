@@ -6,7 +6,6 @@ from pydantic import BaseModel, Field
 
 from aris.io import db
 from aris.plan.weekend_form import DriverForm, weekend_form
-from aris.simulate import simulate_full_race
 from aris.state import RaceState
 from aris.tracks import load_track_config
 
@@ -102,6 +101,9 @@ def generate_strat_plans(
     weather: dict | None = None,
     hist_first_stop: int | None = None,
     hist_stop_count: float | None = None,
+    hist_scope: str = "2018–present at this circuit",
+    score: bool = True,
+    use_weekend_form: bool = True,
 ) -> StratPlanSet:
     track = load_track_config(country, year=year, round_no=round_no)
     total = track.total_laps
@@ -111,7 +113,7 @@ def generate_strat_plans(
         except Exception:
             weather = None
 
-    if form is None:
+    if form is None and use_weekend_form:
         try:
             forms = weekend_form(year, round_no)
             form = next((f for f in forms if f.driver_id == driver_id), None)
@@ -127,7 +129,7 @@ def generate_strat_plans(
     if hist_first_stop is not None:
         stops = f"{hist_stop_count:g}-stop" if hist_stop_count is not None else "historical"
         hist_note = (
-            f" 2018–present at this circuit: typical {stops}, "
+            f" {hist_scope}: typical {stops}, "
             f"median first stop lap {hist_first_stop}."
         )
 
@@ -172,28 +174,34 @@ def generate_strat_plans(
 
     if hot_track:
         plans[2].recommended = True
+    elif hist_stop_count is not None and hist_stop_count >= 1.6:
+        plans[2].recommended = True
+    elif not any(p.recommended for p in plans):
+        plans[1].recommended = True
 
-    base = _base_state(session_id, driver_id, year, round_no, country, total)
-    base = base.model_copy(update={"driver_code": driver_code, "compound": plans[0].start_compound})
+    if score:
+        from aris.simulate import simulate_full_race
 
-    scored: list[tuple[StratPlan, float]] = []
-    for plan in plans:
-        t = simulate_full_race(
-            base.model_copy(update={"compound": plan.start_compound}),
-            pit_laps=plan.pit_laps,
-            pit_compounds=plan.pit_compounds,
-        )
-        plan.expected_race_time_s = round(t, 1)
-        scored.append((plan, t))
-
-    scored.sort(key=lambda x: x[1])
-    for i, (plan, _) in enumerate(scored):
-        plan.recommended = i == 0
+        base = _base_state(session_id, driver_id, year, round_no, country, total)
+        base = base.model_copy(update={"driver_code": driver_code, "compound": plans[0].start_compound})
+        scored: list[tuple[StratPlan, float]] = []
+        for plan in plans:
+            t = simulate_full_race(
+                base.model_copy(update={"compound": plan.start_compound}),
+                pit_laps=plan.pit_laps,
+                pit_compounds=plan.pit_compounds,
+            )
+            plan.expected_race_time_s = round(t, 1)
+            scored.append((plan, t))
+        scored.sort(key=lambda x: x[1])
+        for i, (plan, _) in enumerate(scored):
+            plan.recommended = i == 0
+        plans = [p for p, _ in scored]
 
     return StratPlanSet(
         year=year,
         round_no=round_no,
         driver_code=driver_code,
-        plans=[p for p, _ in scored],
+        plans=plans,
         weather=weather,
     )

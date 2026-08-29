@@ -1,4 +1,4 @@
-"""Live F1 dashboard feed for Streamlit — SignalR first, OpenF1 fill, FastF1 replay.
+"""Live F1 dashboard feed for Streamlit — SignalR first, OpenF1 live fill, FastF1 replay.
 
 Streamlit Cloud does not run the FastAPI broker. This module pulls the same
 real feeds the React app uses and exposes a single snapshot the Live page
@@ -7,9 +7,7 @@ can render without a Play click.
 Live path: F1 livetiming SignalR (no auth) + OpenF1 REST when credentials
 or the public post-session API are available.
 
-After the live window ends: replay from OpenF1 historical rows, then FastF1
-when that cache is ready. Speed is a clock multiplier, not interpolated
-animation — cars may jump.
+After the live window ends: replay from FastF1. OpenF1 is live-only.
 """
 
 from __future__ import annotations
@@ -1360,47 +1358,17 @@ def _load_fastf1_pack(year: int, event: str, session_type: str) -> dict[str, Any
 
 
 def _ensure_replay_pack(year: int, session_type: str, circuit: str, event: str) -> dict[str, Any] | None:
-    global _REPLAY_PACK, _REPLAY_KEY, _FF1_THREAD, _FF1_ERROR
+    global _REPLAY_PACK, _REPLAY_KEY, _FF1_ERROR
     key = f"{year}:{session_type}:{event}"
     with _STATE_LOCK:
         if _REPLAY_PACK is not None and _REPLAY_KEY == key:
             return _REPLAY_PACK
     pack = None
     try:
-        pack = _load_openf1_pack(year, session_type, circuit)
+        pack = _load_fastf1_pack(year, event, session_type)
     except Exception as extra:
         _FF1_ERROR = str(extra)
-    if pack is None:
-        try:
-            pack = _load_fastf1_pack(year, event, session_type)
-        except Exception as extra:
-            _FF1_ERROR = str(extra)
-            pack = None
-    elif _FF1_THREAD is None or not _FF1_THREAD.is_alive():
-
-        def _bg() -> None:
-            global _REPLAY_PACK, _FF1_ERROR
-            try:
-                ff1 = _load_fastf1_pack(year, event, session_type)
-            except Exception as extra:
-                _FF1_ERROR = str(extra)
-                return
-            if ff1 is None:
-                return
-            with _STATE_LOCK:
-                current = _REPLAY_PACK or {}
-                if ff1.get("pos_samples"):
-                    current["pos_samples"] = ff1["pos_samples"]
-                if ff1.get("path_x"):
-                    current["path_x"] = ff1["path_x"]
-                    current["path_y"] = ff1["path_y"]
-                if ff1.get("laps") and len(ff1["laps"]) >= len(current.get("laps") or []):
-                    current["laps"] = ff1["laps"]
-                current["source"] = "fastf1+openf1"
-                _REPLAY_PACK = current
-
-        _FF1_THREAD = threading.Thread(target=_bg, name="aris-ff1-replay", daemon=True)
-        _FF1_THREAD.start()
+        pack = None
     if pack is None:
         return None
     with _STATE_LOCK:

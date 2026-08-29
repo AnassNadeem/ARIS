@@ -1,0 +1,403 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { ARISConfigPanel } from "@/components/ARISConfigPanel";
+import { LoadingTransition } from "@/components/LoadingTransition";
+import { ReplaySelector } from "@/components/ReplaySelector";
+import {
+  getCalendar,
+  getCircuitCoords,
+  getDrivers,
+  getQuickAnalysis,
+  getReplayPackStatus,
+  initReplay,
+  circuitCoordsFromReplayOutline,
+  prewarmSession,
+} from "@/lib/api";
+import { MOCK_DRIVERS_2025 } from "@/lib/mockData";
+import { isFullCircuitOutline } from "@/lib/circuitCache";
+import {
+  defaultReplayYear,
+  filterReplayRounds,
+  isAllowedReplayYear,
+} from "@/lib/replayFilter";
+import { canStartRace, nextSelectorStep, sessionLabel, type ReplayMode, type SelectorStep } from "@/lib/sessionFlow";
+import { useRaceStore } from "@/store/raceStore";
+import type { RoundCard } from "@/lib/types";
+
+const RACE_SESSION = "R" as const;
+
+export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
+  const search = useSearchParams();
+  const urlYearRaw = search.get("year");
+  const urlYear = urlYearRaw != null && urlYearRaw !== "" ? Number(urlYearRaw) : null;
+  const yearBlocked = urlYear != null && Number.isFinite(urlYear) && !isAllowedReplayYear(urlYear);
+  const urlRound = Number(search.get("round"));
+
+  const setSession = useRaceStore((s) => s.setSession);
+  const setARISDriver = useRaceStore((s) => s.setARISDriver);
+  const setSelectedDriver = useRaceStore((s) => s.setSelectedDriver);
+  const setARISOn = useRaceStore((s) => s.setARISOn);
+  const setARISMode = useRaceStore((s) => s.setARISMode);
+  const arisMode = useRaceStore((s) => s.arisMode);
+  const arisEnabled = useRaceStore((s) => s.arisEnabled);
+  const setDriverLocked = useRaceStore((s) => s.setDriverLocked);
+  const setStrategies = useRaceStore((s) => s.setStrategies);
+  const setSelectedStrategy = useRaceStore((s) => s.setSelectedStrategy);
+  const strategies = useRaceStore((s) => s.strategies);
+  const selectedStrategy = useRaceStore((s) => s.selectedStrategy);
+  const setFocusDriver = useRaceStore((s) => s.setFocusDriver);
+  const setTotalLaps = useRaceStore((s) => s.setTotalLaps);
+
+  const [step, setStep] = useState<SelectorStep>("circuit");
+  const [year, setYear] = useState(() =>
+    urlYear != null && isAllowedReplayYear(urlYear) ? urlYear : defaultReplayYear(),
+  );
+  const [rounds, setRounds] = useState<RoundCard[]>([]);
+  const [roundsLoading, setRoundsLoading] = useState(true);
+  const [round, setRound] = useState<RoundCard | null>(null);
+  const [mode, setMode] = useState<ReplayMode | null>(null);
+  const [driver, setDriver] = useState<string | null>(null);
+  const [drivers, setDrivers] = useState(MOCK_DRIVERS_2025);
+  const [analysisPending, setAnalysisPending] = useState(false);
+  const [loadReady, setLoadReady] = useState(false);
+  const navigated = useRef(false);
+
+  function storeReplayOutline(src: Parameters<typeof circuitCoordsFromReplayOutline>[0]) {
+    const coords = circuitCoordsFromReplayOutline(src);
+    if (!coords || !isFullCircuitOutline(coords)) return;
+    const cur = useRaceStore.getState().circuitOutline;
+    if (cur && cur.x.length >= coords.x.length) return;
+    useRaceStore.getState().setCircuitOutline({ ...coords, available: true });
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    getCalendar(year, { replay: true }).then((r) => {
+      if (cancelled) return;
+      const playable = filterReplayRounds(r);
+      setRounds(playable);
+      const fromUrl =
+        Number.isFinite(urlRound) && urlRound > 0
+          ? playable.find((x) => x.round === urlRound)
+          : undefined;
+      const preferred =
+        fromUrl ?? playable[0] ?? null;
+      setRound(preferred);
+      setStep("circuit");
+      setStrategies(null);
+      setSelectedStrategy(null);
+      setDriverLocked(false);
+      setRoundsLoading(false);
+    });
+    getDrivers(year).then((d) => {
+      if (cancelled) return;
+      setDrivers(d);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [year]);
+
+  useEffect(() => {
+    if (!driver) return;
+    setARISDriver(driver);
+    setFocusDriver(driver);
+  }, [driver, setARISDriver, setFocusDriver]);
+
+  useEffect(() => {
+    if (!round) return;
+    void prewarmSession({ year, round_number: round.round, session_type: RACE_SESSION });
+  }, [year, round]);
+
+  const commitSession = useCallback(
+    async (withARIS: boolean) => {
+      if (!round) return;
+      navigated.current = false;
+      setLoadReady(false);
+      setStep("loading");
+      setARISOn(withARIS);
+      setMode(withARIS ? "aris" : "data");
+
+      void prewarmSession({
+        year,
+        round_number: round.round,
+        session_type: RACE_SESSION,
+        driver_code: driver ?? undefined,
+      });
+      void getCircuitCoords(year, round.round);
+
+      try {
+        const init = await initReplay({
+          year,
+          round_number: round.round,
+          session_type: RACE_SESSION,
+        });
+        const total = init?.total_laps || round.totalLaps || 72;
+        setSession({
+          year,
+          round: round.round,
+          sessionType: RACE_SESSION,
+          circuitName: init?.circuit || round.circuitName,
+          countryFlag: round.countryFlag,
+          totalLaps: total,
+          date: round.date,
+          driverCode: driver ?? "VER",
+        });
+        setTotalLaps(total);
+        useRaceStore.getState().setGridDrivers(drivers);
+        setARISDriver(driver);
+        setFocusDriver(driver);
+        useRaceStore.getState().setARISModeLocked(withARIS);
+        if (init?.stage) {
+          useRaceStore.getState().setPackStatus({
+            stage: init.stage,
+            progress: init.progress,
+            gpsReady: Boolean(init.flags?.gps_ready),
+          });
+        }
+        storeReplayOutline(init);
+
+        const key = init?.session_key;
+        if (key) {
+          const deadline = Date.now() + 5 * 60 * 1000;
+          while (!navigated.current && Date.now() < deadline) {
+            const needOutline = !useRaceStore.getState().circuitOutline?.x?.length;
+            const st = await getReplayPackStatus({
+              session_key: key,
+              year,
+              round_number: round.round,
+              session_type: RACE_SESSION,
+              outline: needOutline,
+            });
+            const stage = st?.stage ?? "metadata";
+            useRaceStore.getState().setPackStatus({
+              stage,
+              progress: st?.progress,
+              gpsReady: Boolean(st?.flags?.gps_ready ?? st?.gps_ready),
+            });
+            storeReplayOutline(st);
+            if (stage === "minimal" || stage === "full" || st?.ready) {
+              setLoadReady(true);
+              break;
+            }
+            if (st?.status === "error") break;
+            await new Promise((r) => window.setTimeout(r, 800));
+          }
+        }
+      } finally {
+        setLoadReady(true);
+      }
+    },
+    [
+      round,
+      year,
+      driver,
+      drivers,
+      setARISOn,
+      setSession,
+      setTotalLaps,
+      setARISDriver,
+      setFocusDriver,
+    ],
+  );
+
+  function pickCircuit(r: RoundCard) {
+    setRound(r);
+    setStrategies(null);
+    setSelectedStrategy(null);
+    setDriverLocked(false);
+  }
+
+  function continueFromCircuit() {
+    if (!round) return;
+    if (arisEnabled) {
+      setMode("aris");
+      setARISOn(true);
+      setStep(nextSelectorStep("circuit", "aris", { arisEnabled: true }));
+      return;
+    }
+    void commitSession(false);
+  }
+
+  async function fetchStrategies() {
+    if (!round || !driver) return;
+    setDriverLocked(true);
+    setARISDriver(driver);
+    setAnalysisPending(true);
+    setStep("strategies");
+    const payload = await getQuickAnalysis(year, round.round, driver);
+    const plans = payload?.plans ?? [];
+    setStrategies(plans);
+    setSelectedStrategy(null);
+    setAnalysisPending(false);
+  }
+
+  const back = () => {
+    if (step === "loading") return;
+    setStep(nextSelectorStep(step, "back", { arisEnabled }));
+  };
+
+  const finish = useCallback(() => {
+    if (navigated.current) return;
+    navigated.current = true;
+    onLoaded();
+  }, [onLoaded]);
+
+  const viewStep: SelectorStep = step === "loading" ? (mode === "aris" ? (strategies?.length ? "strategies" : "driver") : "circuit") : step;
+
+  const startEnabled = canStartRace({
+    arisEnabled: true,
+    selectedDriver: driver,
+    strategies,
+    selectedStrategy,
+  });
+
+  const summary = useMemo(() => {
+    if (!round) return null;
+    return [
+      String(year),
+      `${round.countryFlag} ${round.circuitName}`,
+      "Race",
+      arisEnabled || mode === "aris" ? "ARIS" : "Data",
+    ]
+      .filter(Boolean)
+      .join("  ·  ");
+  }, [year, round, step, mode, arisEnabled]);
+
+  return (
+    <main className="replay-surface relative flex-1 px-4 py-8 sm:px-6">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="font-mono-data text-[10px] uppercase tracking-[0.28em] text-muted">Replay setup</h1>
+            {summary && <p className="mt-1 font-mono-data text-[12px] text-white">{summary}</p>}
+          </div>
+          {viewStep !== "circuit" && step !== "loading" && (
+            <button
+              type="button"
+              onClick={back}
+              className="font-mono-data text-[11px] uppercase tracking-widest text-muted hover:text-red"
+            >
+              ← Back
+            </button>
+          )}
+        </div>
+
+        <ol className="flex flex-wrap gap-2 font-mono-data text-[9px] uppercase tracking-widest text-muted">
+          {(
+            [
+              ["circuit", "01 Year & Race"],
+              ["driver", "02 Driver"],
+              ["strategies", "03 Strategies"],
+              ["loading", "04 Load"],
+            ] as const
+          ).map(([id, label]) => {
+            const skipped =
+              (id === "driver" || id === "strategies") && step === "loading" && mode === "data";
+            const active = step === id;
+            const done =
+              (id === "circuit" && step !== "circuit") ||
+              (id === "driver" && (step === "strategies" || (step === "loading" && mode === "aris"))) ||
+              (id === "strategies" && step === "loading" && mode === "aris");
+            return (
+              <li
+                key={id}
+                className={`rounded px-2 py-1 ${
+                  skipped
+                    ? "text-muted-2 line-through"
+                    : active
+                      ? "bg-red/15 text-red"
+                      : done
+                        ? "text-white"
+                        : ""
+                }`}
+              >
+                {label}
+              </li>
+            );
+          })}
+        </ol>
+
+        {viewStep === "circuit" && (
+          <ReplaySelector
+            year={year}
+            rounds={rounds}
+            selected={round}
+            selectedSession={RACE_SESSION}
+            loading={roundsLoading}
+            yearBlocked={yearBlocked}
+            arisEnabled={arisEnabled}
+            onYearChange={(y) => {
+              setYear(y);
+              setRoundsLoading(true);
+            }}
+            onArisChange={setARISOn}
+            onSelect={pickCircuit}
+            onContinue={continueFromCircuit}
+          />
+        )}
+
+        {viewStep === "driver" && (
+          <div className="replay-panel rounded-[8px] border border-border p-5">
+            <ARISConfigPanel
+              phase="driver"
+              arisMode={arisMode}
+              drivers={drivers}
+              selectedDriver={driver}
+              plans={strategies ?? []}
+              selectedPlanId={selectedStrategy?.id ?? null}
+              analysisPending={analysisPending}
+              onArisMode={setARISMode}
+              onDriver={(code) => {
+                setDriver(code);
+                setSelectedDriver(code);
+              }}
+              onGetStrategies={() => void fetchStrategies()}
+              onPlan={(id) => {
+                const hit = (strategies ?? []).find((p) => p.id === id) ?? null;
+                setSelectedStrategy(hit);
+              }}
+            />
+          </div>
+        )}
+
+        {viewStep === "strategies" && (
+          <div className="replay-panel rounded-[8px] border border-border p-5">
+            <ARISConfigPanel
+              phase="strategies"
+              arisMode={arisMode}
+              drivers={drivers}
+              selectedDriver={driver}
+              plans={strategies ?? []}
+              selectedPlanId={selectedStrategy?.id ?? null}
+              analysisPending={analysisPending}
+              onArisMode={setARISMode}
+              onDriver={setDriver}
+              onGetStrategies={() => void fetchStrategies()}
+              onPlan={(id) => {
+                const hit = (strategies ?? []).find((p) => p.id === id) ?? null;
+                setSelectedStrategy(hit);
+              }}
+              onContinue={() => {
+                if (!startEnabled) return;
+                void commitSession(true);
+              }}
+            />
+          </div>
+        )}
+      </div>
+
+      {step === "loading" && (
+        <LoadingTransition
+          ready={loadReady}
+          circuitName={round?.circuitName ?? "Race"}
+          sessionLabel={sessionLabel(RACE_SESSION)}
+          onComplete={finish}
+        />
+      )}
+    </main>
+  );
+}

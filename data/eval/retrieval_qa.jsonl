@@ -1,0 +1,25 @@
+{"id": "q01", "question": "Do drivers have to use two compounds in a dry race?", "relevant": ["fia_reg:two-compounds-dry"]}
+{"id": "q02", "question": "What is the pit lane speed limit?", "relevant": ["fia_reg:pit-lane"]}
+{"id": "q03", "question": "What are the rules about pitting under VSC?", "relevant": ["fia_reg:vsc-pit-lane"]}
+{"id": "q04", "question": "May a car enter the pits during a safety car only to change tyres?", "relevant": ["fia_reg:safety-car"]}
+{"id": "q05", "question": "Is a free tyre change allowed under a red flag?", "relevant": ["fia_reg:red-flag"]}
+{"id": "q06", "question": "Does a wet-declared race still require two dry-weather tyre specifications?", "relevant": ["fia_reg:wet-declaration"]}
+{"id": "q07", "question": "How many dry-weather tyre specifications must the supplier provide at each Competition?", "relevant": ["fia_reg:tyre-allocation"]}
+{"id": "q08", "question": "What is parc fermé after qualifying?", "relevant": ["fia_reg:parc-ferme"]}
+{"id": "q09", "question": "Is Hamilton easy on tyres?", "relevant": ["driver_prior:HAM"]}
+{"id": "q10", "question": "How does Verstappen manage tyre pace on a long run?", "relevant": ["driver_prior:VER"]}
+{"id": "q11", "question": "Is Alonso easy on tyres compared to the field?", "relevant": ["driver_prior:ALO"]}
+{"id": "q12", "question": "Is Spa high-deg?", "relevant": ["circuit_prior:belgium"]}
+{"id": "q13", "question": "Is Monaco low-deg and overtaking-poor?", "relevant": ["circuit_prior:monaco"]}
+{"id": "q14", "question": "Is Baku a high safety-car circuit?", "relevant": ["circuit_prior:azerbaijan"]}
+{"id": "q15", "question": "What is the Zandvoort identity strategy at lap 25?", "relevant": ["circuit_prior:netherlands"]}
+{"id": "q16", "question": "Is Silverstone high-deg through Copse and Becketts?", "relevant": ["circuit_prior:britain"]}
+{"id": "q17", "question": "Why can the overcut work at Monza?", "relevant": ["circuit_prior:italy"]}
+{"id": "q18", "question": "What is the ARIS SC/VSC risk model AUC?", "relevant": ["aris_doc:PHASE-T10-SUMMARY", "aris_doc:PHASE-T10A-SUMMARY"]}
+{"id": "q19", "question": "What was conformal 2025 empirical coverage and q_hat?", "relevant": ["aris_doc:PHASE-T10B-SUMMARY", "aris_doc:PHASE-T10-SUMMARY"]}
+{"id": "q20", "question": "Is the wet classifier a fitted model or rule-based?", "relevant": ["aris_doc:PHASE-T10C-SUMMARY", "aris_doc:PHASE-T10-SUMMARY"]}
+{"id": "q21", "question": "How fast is the vectorised Monte Carlo sampler for 200 scenarios?", "relevant": ["aris_doc:PHASE-T10D-SUMMARY"]}
+{"id": "q22", "question": "What are the G1.5 global tyre slopes SOFT MEDIUM HARD?", "relevant": ["aris_doc:how-recommend-works"]}
+{"id": "q23", "question": "What is 2025 simulator compound accuracy in T9?", "relevant": ["aris_doc:PHASE-T9-SUMMARY"]}
+{"id": "q24", "question": "Does FP2 calibration provide weekend HARD slopes?", "relevant": ["aris_doc:PHASE-T9-SUMMARY"]}
+{"id": "q25", "question": "What gap in seconds is the ARIS undercut window?", "relevant": ["aris_doc:how-recommend-works"]}

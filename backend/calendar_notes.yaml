@@ -9,12 +9,19 @@ notes:
     - "First Chinese Grand Prix since 2019. Sprint weekend."
   "2024-14":
     - "Max Verstappen received a 10-place grid penalty. Highlight in qualifying result."
-  "2026-12":
-    - "2026 Dutch Grand Prix at Zandvoort. New 2026 technical regulations (MGU-H removed)."
   "2026-15":
     - "2026 Dutch Grand Prix at Zandvoort. New 2026 technical regulations (MGU-H removed)."
+    - "Isack Hadjar withdrew (injury). Liam Lawson is at Red Bull (promoted from Racing Bulls). Yuki Tsunoda replaces Hadjar at Racing Bulls."
+    - "ARIS focus car is Lewis Hamilton. Strategy uses 2021–2025 Zandvoort races, not Hamilton's real pit calls."
 
-cancelled: {}
+# Drivers who must not appear on the live/replay map for a weekend.
+weekend_lineups:
+  "2026-15":
+    exclude: ["HAD"]
+
+cancelled:
+  "2026-2": "2026 Bahrain Grand Prix cancelled"
+  "2026-3": "2026 Saudi Arabian Grand Prix cancelled"
 
 # Used only if FastF1 EventFormat is missing.
 estimated_sprint:
@@ -119,7 +126,6 @@ estimated_rosters:
       - {code: ALB, name: Alexander Albon, team: Williams, number: 23, colour: "#1868DB"}
       - {code: SAI, name: Carlos Sainz, team: Williams, number: 55, colour: "#1868DB"}
       - {code: TSU, name: Yuki Tsunoda, team: Racing Bulls, number: 22, colour: "#6B98FF"}
-      - {code: HAD, name: Isack Hadjar, team: Racing Bulls, number: 6, colour: "#6B98FF"}
       - {code: HUL, name: Nico Hulkenberg, team: Haas, number: 27, colour: "#B6BABD"}
       - {code: BOR, name: Gabriel Bortoleto, team: Haas, number: 5, colour: "#B6BABD"}
       - {code: ZHO, name: Zhou Guanyu, team: Audi, number: 24, colour: "#E8002D"}

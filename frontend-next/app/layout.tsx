@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
-import { ARISPulse } from "@/components/ui/ARISPulse";
 import "./globals.css";
 
 const inter = Inter({
@@ -21,9 +20,8 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable} h-full dark`}>
-      <body className="min-h-full flex flex-col bg-carbon text-white antialiased">
-        <ARISPulse />
+    <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable} h-full dark`} suppressHydrationWarning>
+      <body className="min-h-full flex flex-col bg-carbon text-white antialiased" suppressHydrationWarning>
         {children}
       </body>
     </html>

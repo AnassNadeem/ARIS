@@ -46,10 +46,12 @@ export function useAsync<T>(
       })
       .catch((err: unknown) => {
         if (!cancelled) {
-          setState({
-            status: "error",
-            data: undefined,
-            error: err instanceof Error ? err.message : String(err),
+          setState((prev) => {
+            const message = err instanceof Error ? err.message : String(err);
+            if (prev.data !== undefined) {
+              return { status: "ok", data: prev.data, error: undefined };
+            }
+            return { status: "error", data: undefined, error: message };
           });
         }
       });

@@ -111,6 +111,16 @@ def main() -> int:
         action="store_true",
         help="Print every scored inflection (state compound/rain, team action, ARIS, class)",
     )
+    parser.add_argument(
+        "--zandvoort-identity",
+        action="store_true",
+        help="Run the Zandvoort recommend identity (Pit 33 HARD / Pit 30 HARD / Stay)",
+    )
+    parser.add_argument(
+        "--lights-out",
+        action="store_true",
+        help="Run the 48-race lights-out ablation (delegates to _lights_out_ablation.py)",
+    )
     filt = parser.add_mutually_exclusive_group()
     filt.add_argument(
         "--undercut-events-only",
@@ -129,6 +139,16 @@ def main() -> int:
         ),
     )
     args = parser.parse_args()
+    if args.zandvoort_identity:
+        return run_zandvoort_identity()
+    if args.lights_out:
+        import subprocess
+
+        return int(
+            subprocess.call(
+                [sys.executable, str(_ROOT / "scripts" / "_lights_out_ablation.py")]
+            )
+        )
     out_dir = args.out_dir if args.out_dir is not None else _OUT_DIR
     if args.out_dir is None:
         if args.undercut_events_only:
@@ -158,6 +178,62 @@ def main() -> int:
     if len(years) > 1:
         return combine_years(out_dir)
     return 0
+
+
+def run_zandvoort_identity() -> int:
+    """Pit 33 HARD / Pit 30 HARD / Stay — fail if MEDIUM or SOFT wins a window."""
+    from aris.models.features import estimate_fuel_kg
+    from aris.recommend import pit_window_compound_times, recommend
+    from aris.simulate import ActionKind
+    from aris.state import RaceState
+
+    state = RaceState(
+        session_id=1,
+        driver_id=1,
+        driver_code="VER",
+        driver_name="Max Verstappen",
+        year=2025,
+        round_no=15,
+        country="Netherlands",
+        lap_number=25,
+        compound="MEDIUM",
+        tyre_life=2,
+        fuel_kg=estimate_fuel_kg(25, total_laps=72),
+        laps_remaining=47,
+        total_laps=72,
+        lag1_pace=74.0,
+        lag2_pace=74.0,
+        stint_roll3=74.0,
+        pit_compound="HARD",
+    )
+    fail = False
+    for pit_lap in (33, 30):
+        times = pit_window_compound_times(state, pit_lap)
+        print(
+            f"Pit lap {pit_lap}: HARD = {times['HARD']:.1f} s, "
+            f"MEDIUM = {times['MEDIUM']:.1f} s, SOFT = {times['SOFT']:.1f} s.",
+            flush=True,
+        )
+        if times["MEDIUM"] < times["HARD"] or times["SOFT"] < times["HARD"]:
+            print(f"FAIL: MEDIUM or SOFT beat HARD at pit lap {pit_lap}", flush=True)
+            fail = True
+    result = recommend(state, top_k=3, mc_draws=0)
+    labels = [r.label for r in result.recommendations]
+    print("recommend top-3:", labels, flush=True)
+    if not labels or not str(labels[0]).startswith("Pit lap 33 for HARD"):
+        print("FAIL: expected Pit lap 33 for HARD as rank 1", flush=True)
+        fail = True
+    if not any(str(lab).startswith("Pit lap 30 for HARD") for lab in labels):
+        print("FAIL: expected Pit lap 30 for HARD in top-3", flush=True)
+        fail = True
+    if not any(
+        r.action.kind == ActionKind.STAY_OUT and not r.action.pit_laps
+        for r in result.recommendations
+    ):
+        print("FAIL: expected Stay out in top-3", flush=True)
+        fail = True
+    print("Zandvoort identity FAIL" if fail else "Zandvoort identity PASS", flush=True)
+    return 1 if fail else 0
 
 
 def walk_year(

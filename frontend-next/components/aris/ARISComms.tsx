@@ -2,8 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRaceStore } from "@/store/raceStore";
-import { askARIS } from "@/lib/api";
+import { askARIS, copilotFeatureEnabled } from "@/lib/api";
 import { RecommendationCard } from "@/components/aris/RecommendationCard";
+import { CopilotPanel } from "@/components/aris/CopilotPanel";
+import { commsTabs } from "@/lib/sessionFlow";
+import { useCommsNarration } from "@/lib/useCommsNarration";
+import { PanelEmpty, PanelSkeleton, usePanelFeedLoading } from "@/components/ui/PanelStates";
 
 const CHIPS = ["Gap to Lando?", "Should we extend?", "What's the undercut window?"];
 
@@ -22,30 +26,63 @@ function SourceLabel({ source }: { source: string }) {
     USER: { text: "YOU", cls: "text-white" },
     ARIS_ANALYSIS: { text: "[ARIS ANALYSIS]", cls: "text-amber" },
     FIELD: { text: "FIELD", cls: "text-[#4FA8E0]" },
+    ARIS_RESET: { text: "⚑ [ARIS — STRATEGY RESET]", cls: "text-[#E8002D]" },
   };
   const cfg = map[source] ?? { text: source, cls: "text-muted" };
   return <span className={`font-mono-data text-[9px] uppercase ${cfg.cls}`}>{cfg.text}</span>;
 }
 
 function MainComms() {
+  useCommsNarration();
   const commsLog = useRaceStore((s) => s.commsLog);
   const pendingRecommendation = useRaceStore((s) => s.pendingRecommendation);
-  const endRef = useRef<HTMLDivElement | null>(null);
+  const isARISOn = useRaceStore((s) => s.isARISOn);
+  const arisDriver = useRaceStore((s) => s.arisDriver);
+  const strategyLoading = useRaceStore((s) => s.strategyLoading);
+  const requestStrategy = useRaceStore((s) => s.requestStrategy);
+  const packStage = useRaceStore((s) => s.packStage);
+  const consoleMode = useRaceStore((s) => s.consoleMode);
+  const strategyReady = consoleMode !== "replay" || packStage === "minimal" || packStage === "full";
+  const loading = usePanelFeedLoading();
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const stickRef = useRef(true);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [commsLog, pendingRecommendation]);
+    const el = scrollerRef.current;
+    if (!el || !stickRef.current) return;
+    el.scrollTop = el.scrollHeight;
+  }, [commsLog.length, pendingRecommendation]);
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
-      <div className="min-h-0 flex-1 overflow-y-auto p-2">
-        {commsLog.length === 0 && !pendingRecommendation && (
-          <div className="p-4 text-center font-mono-data text-[11px] text-muted">
-            No messages yet. Recommendations appear as the race advances.
-          </div>
-        )}
-        {commsLog.map((m) => (
-          <div key={m.id} className="mb-2 border-l-2 border-border pl-2">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      <div
+        ref={scrollerRef}
+        onScroll={() => {
+          const el = scrollerRef.current;
+          if (!el) return;
+          stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 64;
+        }}
+        className="min-h-0 flex-1 overflow-y-auto p-2 [overflow-anchor:none]"
+      >
+        {loading && commsLog.length === 0 && !pendingRecommendation ? (
+          <PanelSkeleton rows={6} />
+        ) : commsLog.length === 0 && !pendingRecommendation ? (
+          <PanelEmpty
+            title="ARIS comms"
+            detail={
+              isARISOn
+                ? `Radio channel for recommendations and field calls${arisDriver ? ` for ${arisDriver}` : ""}. Empty until ARIS speaks or the race starts.`
+                : "ARIS strategy is off. Turn ARIS on from the race selector, or use Copilot to ask about this race."
+            }
+          />
+        ) : null}
+        {commsLog.map((m, i) => (
+          <div
+            key={`${m.id}#${i}`}
+            className={`mb-2 border-l-2 pl-2 ${
+              m.source === "ARIS_RESET" ? "border-[#E8002D] bg-[#E8002D]/10" : "border-border"
+            }`}
+          >
             <div className="flex items-center gap-2">
               <SourceLabel source={m.source} />
               <span className="font-mono-data text-[9px] text-muted-2">L{m.lap}</span>
@@ -59,8 +96,19 @@ function MainComms() {
           </div>
         ))}
         {pendingRecommendation && <RecommendationCard />}
-        <div ref={endRef} />
       </div>
+      {isARISOn && (
+        <div className="shrink-0 border-t border-border p-2">
+          <button
+            type="button"
+            disabled={strategyLoading || !strategyReady}
+            onClick={() => requestStrategy()}
+            className="w-full rounded bg-red px-3 py-1.5 font-mono-data text-[10px] uppercase text-white disabled:opacity-50"
+          >
+            {strategyLoading ? "Analysing…" : !strategyReady ? "Waiting for laps…" : `Get strategy${arisDriver ? ` · ${arisDriver}` : ""}`}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -72,10 +120,12 @@ function AskARIS() {
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
   const askEntries = commsLog.filter((c) => c.source === "USER" || c.source === "ARIS_ANALYSIS");
-  const endRef = useRef<HTMLDivElement | null>(null);
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
+    const el = scrollerRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
   }, [askEntries.length]);
 
   async function send(question: string) {
@@ -84,13 +134,19 @@ function AskARIS() {
     pushComms({ id: nextCommsId("ask"), lap: currentLap, source: "USER", text: question, timestamp: nowTimestamp() });
     setInput("");
     const { answer } = await askARIS(question);
-    pushComms({ id: nextCommsId("ans"), lap: currentLap, source: "ARIS_ANALYSIS", text: answer, timestamp: nowTimestamp() });
+    pushComms({
+      id: nextCommsId("ans"),
+      lap: currentLap,
+      source: "ARIS_ANALYSIS",
+      text: answer,
+      timestamp: nowTimestamp(),
+    });
     setPending(false);
   }
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="min-h-0 flex-1 overflow-y-auto p-2">
+      <div ref={scrollerRef} className="min-h-0 flex-1 overflow-y-auto p-2 [overflow-anchor:none]">
         {askEntries.length === 0 && (
           <div className="flex flex-wrap gap-2 p-2">
             {CHIPS.map((c) => (
@@ -110,7 +166,7 @@ function AskARIS() {
             <div className="mt-0.5 font-mono-data text-[11px] leading-relaxed text-white/90">{m.text}</div>
           </div>
         ))}
-        <div ref={endRef} />
+        {pending && <div className="font-mono-data text-[10px] text-muted">Thinking…</div>}
       </div>
       <div className="flex shrink-0 gap-2 border-t border-border p-2">
         <input
@@ -120,10 +176,7 @@ function AskARIS() {
           placeholder="Ask ARIS a question about this race…"
           className="flex-1 rounded border border-border bg-surface px-2.5 py-1.5 font-mono-data text-[11px] text-white outline-none focus:border-white"
         />
-        <button
-          onClick={() => send(input)}
-          className="rounded bg-red px-3 py-1.5 font-mono-data text-[11px] text-white"
-        >
+        <button onClick={() => send(input)} className="rounded bg-red px-3 py-1.5 font-mono-data text-[11px] text-white">
           →
         </button>
       </div>
@@ -132,24 +185,49 @@ function AskARIS() {
 }
 
 export function ARISComms() {
-  const [tab, setTab] = useState<"main" | "ask">("main");
+  const [tab, setTab] = useState<"main" | "chat">("main");
+  const [threadId, setThreadId] = useState("c1");
+  const [threadSeq, setThreadSeq] = useState(1);
+  const showCopilot = copilotFeatureEnabled();
+  const isARISOn = useRaceStore((s) => s.isARISOn);
+  const copilotDocked = useRaceStore((s) => s.copilotDocked);
+  const tabs = commsTabs({ arisOn: isARISOn, copilotOn: showCopilot, copilotDocked });
+
+  useEffect(() => {
+    if (!tabs.some((t) => t.id === tab)) setTab(tabs[0]?.id ?? "chat");
+  }, [tabs, tab]);
 
   return (
     <div className="flex h-full flex-col bg-carbon">
-      <div className="flex shrink-0 border-b border-border">
-        {(["main", "ask"] as const).map((t) => (
+      <div className="flex shrink-0 items-center border-b border-border">
+        {tabs.map((t) => (
           <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`px-3 py-2 font-mono-data text-[10px] uppercase tracking-wide ${
-              tab === t ? "border-b-2 border-red text-white" : "text-muted hover:text-white"
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`px-4 py-2 font-sans text-[10px] uppercase tracking-wide ${
+              tab === t.id ? "border-b-2 border-red text-white" : "text-muted hover:text-white"
             }`}
           >
-            {t === "main" ? "Main Comms" : "Ask ARIS"}
+            {t.label}
           </button>
         ))}
+        {tab === "chat" && (
+          <button
+            onClick={() => {
+              const next = threadSeq + 1;
+              setThreadSeq(next);
+              setThreadId(`c${next}`);
+            }}
+            className="ml-auto px-2 py-2 font-mono-data text-[9px] uppercase text-muted hover:text-white"
+          >
+            New chat
+          </button>
+        )}
       </div>
-      <div className="min-h-0 flex-1">{tab === "main" ? <MainComms /> : <AskARIS />}</div>
+      <div className="min-h-0 flex-1">
+        {tab === "main" && <MainComms />}
+        {tab === "chat" && (showCopilot ? <CopilotPanel threadId={threadId} /> : <AskARIS />)}
+      </div>
     </div>
   );
 }

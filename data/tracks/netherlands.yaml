@@ -36,6 +36,9 @@ round_aliases:
 - netherlands
 - zandvoort
 - dutch
+drs_zones:
+- {name: "DRS 1", detect_frac: 0.91, activate_frac: 0.95, end_frac: 0.02}
+- {name: "DRS 2", detect_frac: 0.66, activate_frac: 0.70, end_frac: 0.78}
 source:
   year: 2025
   gp: Netherlands

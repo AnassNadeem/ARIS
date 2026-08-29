@@ -19,6 +19,39 @@ def reset_ingest_jobs_for_tests() -> None:
         _in_progress.clear()
 
 
+def peek_ingest_status(year: int, round_no: int, session_type: str = "R") -> IngestStatus | Literal["MISSING"]:
+    session_type = str(session_type).upper()
+    key = (int(year), int(round_no), session_type)
+    try:
+        from aris.io import db
+
+        if session_type == "R":
+            sid = db.fetch_race_session_id(int(year), int(round_no))
+        else:
+            sid = None
+            with db.engine().connect() as conn:
+                from sqlalchemy import text
+
+                row = conn.execute(
+                    text(
+                        "SELECT session_id FROM sessions "
+                        "WHERE year = :year AND round_no = :round_no AND session_type = :st"
+                    ),
+                    {"year": int(year), "round_no": int(round_no), "st": session_type},
+                ).fetchone()
+                if row:
+                    sid = int(row[0])
+        if sid is not None:
+            return "INGESTED"
+    except Exception:
+        logger.debug("ingest peek failed for %s", key, exc_info=True)
+        return "UNAVAILABLE"
+    with _lock:
+        if key in _in_progress:
+            return "INGESTING"
+    return "MISSING"
+
+
 def ensure_session_ingested(
     year: int, round_no: int, session_type: str = "R"
 ) -> IngestStatus:
@@ -31,6 +64,15 @@ def ensure_session_ingested(
     """
     session_type = str(session_type).upper()
     key = (int(year), int(round_no), session_type)
+    try:
+        from backend.calendar import get_round_sessions
+
+        weekend = get_round_sessions(int(year), int(round_no))
+        sess_meta = next((s for s in weekend.sessions if s.session_type == session_type), None)
+        if sess_meta is not None and sess_meta.status in {"UPCOMING", "LIVE"}:
+            return "UNAVAILABLE"
+    except Exception:
+        pass
     try:
         from aris.io import db
 

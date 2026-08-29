@@ -8,7 +8,7 @@ import pytest
 import yaml
 
 from aris.physics.bicycle import Car, Corner, StintState, Track, predict_lap_time
-from aris.physics.tires import DEFAULT_COMPOUND_SLOPE, tire_pace_loss
+from aris.physics.tires import COMPOUND_PACE_OFFSET, DEFAULT_COMPOUND_SLOPE, tire_pace_loss
 from aris.tracks import clear_track_config_cache, load_track_config
 
 
@@ -67,7 +67,9 @@ def test_other_tracks_keep_global_defaults():
             assert cfg.compound_slopes[k] == pytest.approx(DEFAULT_COMPOUND_SLOPE[k])
     track = cfg.load_physics()
     loss = tire_pace_loss("MEDIUM", 4, slopes=track.compound_slopes)
-    assert loss == pytest.approx(DEFAULT_COMPOUND_SLOPE["MEDIUM"] * 3)
+    assert loss == pytest.approx(
+        DEFAULT_COMPOUND_SLOPE["MEDIUM"] * 3 + COMPOUND_PACE_OFFSET["MEDIUM"]
+    )
 
 
 def test_n_corners_netherlands_from_yaml():

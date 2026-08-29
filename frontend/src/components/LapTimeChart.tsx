@@ -34,6 +34,8 @@ export function LapTimeChart({
     return [...new Set(laps.data.laps.map((l) => l.driver_code))];
   }, [laps]);
   const [visible, setVisible] = useState<string[] | null>(null);
+  const [hideOut, setHideOut] = useState(true);
+  const [hidePits, setHidePits] = useState(true);
   const shown = visible ?? allCodes;
 
   const rows = useMemo(() => {
@@ -42,12 +44,14 @@ export function LapTimeChart({
     for (const lap of laps.data.laps) {
       if (lap.lap_number > upTo || lap.lap_time_ms == null) continue;
       if (!shown.includes(lap.driver_code)) continue;
+      if (hideOut && lap.pit_out_lap) continue;
+      if (hidePits && lap.pit_in_lap) continue;
       const row = byLap.get(lap.lap_number) ?? { lap: lap.lap_number };
       row[lap.driver_code] = lap.lap_time_ms / 1000;
       byLap.set(lap.lap_number, row);
     }
     return [...byLap.values()].sort((a, b) => a.lap - b.lap);
-  }, [laps, upTo, shown]);
+  }, [laps, upTo, shown, hideOut, hidePits]);
 
   const lastLap = rows.length ? Number(rows[rows.length - 1].lap) : upTo;
   const chartWidth = Math.max(560, lastLap * 36);
@@ -85,6 +89,12 @@ export function LapTimeChart({
             </button>
             <button onClick={() => setVisible([])} style={chip(false)}>
               CLEAR
+            </button>
+            <button onClick={() => setHideOut((v) => !v)} style={chip(hideOut)}>
+              HIDE OUT LAPS
+            </button>
+            <button onClick={() => setHidePits((v) => !v)} style={chip(hidePits)}>
+              HIDE PITS
             </button>
             {allCodes.map((code) => {
               const on = shown.includes(code);

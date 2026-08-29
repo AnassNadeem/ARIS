@@ -1,6 +1,6 @@
-# Streamlit Community Cloud reads this file, not pyproject.toml.
-# Mirrors the runtime subset of [project].dependencies that the deployed app
-# actually imports. FastF1 stays in — fetch_seasons/fetch_races never touch it
+# Heroku Python buildpack and Streamlit Community Cloud both read this file.
+# FastAPI + uvicorn are required for the Heroku web process (Procfile).
+# FastF1 stays in — fetch_seasons/fetch_races never touch it
 # at request time, but keeping the same import surface as local rules out a
 # whole class of "works on my laptop" surprises.
 streamlit>=1.40
@@ -22,3 +22,7 @@ matplotlib>=3.8
 signalrcore>=0.9
 requests>=2.31
 websocket-client>=1.8
+fastapi>=0.115
+uvicorn[standard]>=0.32
+diskcache>=5.6
+sentry-sdk>=2.0

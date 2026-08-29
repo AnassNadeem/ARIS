@@ -1,13 +1,52 @@
 # Model status — where ARIS actually stands
 
 Interview-ready account of the predictive / decision core as of
-Tier 4 (2026-08-23). This page supersedes scattered phase docs as the
+Tier 7 (2026-08-25). This page supersedes scattered phase docs as the
 one place to point someone asking **how good is this, really**. Those
 phase docs remain the evidence trail. Public-facing numbers in
 `README.md` match this page. A wet INTER heuristic exists and is
 labelled uncalibrated; the dry 87-event slice is still the headline.
 CQL ranking exists as **opt-in research**; default `recommend()`
 scoring remains **physics**.
+
+**T9 (2026-08-25) — PARTIAL.** FP2 long-run deg calibration + multi-compound
+pit shortlist. Evidence: [`docs/PHASE-T9-SUMMARY.md`](./PHASE-T9-SUMMARY.md).
+True T8 floor is **28/87** (not 33/87). T9 dry 87 **32/87 (0.368)**; 2024
+**19/40**; 2025 **13/47** (still below stay-out 14/47). Combined wet
+**41/110 (0.373)**. Lights-out **−1.3125**. Simulator compound
+accuracy on 2025 aris-hindsight is **15%** (label-only was 87.5%). Zandvoort
+identity **PASS**. FP2 HARD slopes for **15 circuits**. G1.5 constants
+unchanged.
+
+**T5 additions:** Ghost Driver (parallel simulation of ARIS's recommended strategy);
+tyre warm-up priors (+1.1 s HARD / +0.7 s MEDIUM / +0.2 s SOFT);
+rival-aware undercut scoring (`_score_undercut_candidate`) promoted to default
+(25/56 = 0.446 on undercut subset, gate ≥ 23/56 **CLEARED**).
+Ghost simulation accuracy: **10/10** directional accuracy on T4 divergence events.
+
+**T6 additions:** Race Control FSM (`fsm.py`, six states: GREEN/VSC/SC/RED_FLAG/
+FORMATION_LAP/STANDING_START); dynamic ghost position estimation; replay ghost pre-computation;
+rival compound inference from stints data; frontend phase banner + chart bands.
+FSM gates: 7/7 test suite PASS, ghost position ≤ 2 pos error.
+Backtest: dry 87 **held at 33/87 (0.379)**, lights-out **held at −1.729**.
+2025 slice unchanged at 14/47 — disrupted 2025 events (Zandvoort, etc.) are already
+excluded from the scored slice; FSM benefit is live-use only (SC/VSC pit cost, RED_FLAG reset).
+See `docs/PHASE-T6-SUMMARY.md`.
+
+**T7 additions (2026-08-25):** Four T6 loose ends closed: `phaseHistory` transition-only push
+(`raceSocket.ts`); ghost cache background pre-computation wired in `replay_ready()` via
+`_precompute_ghost_sync()`; `stints` dict populated in `build_race_state()` from `fetch_all_laps()`
+so `_infer_rival_expected_compound` reads real compound history instead of defaulting to HARD;
+integration tests added. Overcut rival-response model: `_score_overcut_candidate()` using
+remaining-race comparison — 19/42 = 0.452 (gate ≥18/42 **CLEARED**, off by default pending T8).
+Circuit deg script: `scripts/fit_circuit_deg.py` (data-collection only, not integrated).
+Urgency penalty: implemented at 0.08 s/lap, caused -5 regression in 2024, **disabled** (penalty=0),
+hook preserved for per-circuit calibration in T8.
+2025 diagnosis: 20/27 aris-hindsight misses are MEDIUM compound selection misses (hardcoded
+`pit_compound=HARD` cannot match MEDIUM stops) — structural, deferred to T8.
+Stints wiring expanded 2025 scored inflections 47→61 (14 previously insufficient_info now scored);
+original 87-inflection pool holds at 33 matches; combined 38/101=0.376.
+See `docs/PHASE-T7-SUMMARY.md`.
 
 Every number is aimed vs actual. Overlay env
 `ARIS_TRUE_COMPOUND_SLOPES` is **unset**. G1.5 slopes stay the tyre
@@ -30,13 +69,14 @@ sensor. The Zandvoort demo identity is unchanged.
 | Question | Aimed | Actual | Honest reading |
 |---|---|---|---|
 | One-step lap time vs MA(2) | beat baseline | E3 2024 blend **0.583 s** vs MA(2) **0.522** | closest stack; **does not beat** |
-| Mid-race match-rate vs stay-out | > 0.276 | **0.345** (30/87) | **beats** never-box; T2 default (G1.5 + SC pit cost + dynamic undercut + approach trigger). G1.5-only was 0.322 (28/87) |
-| Lights-out position-delta (all 48) | ≤ 0 | **−1.73** | identity-safe; not FIA points |
-| Same, clean races only | report, don't hide | **−1.49** (n=35) | both numbers required |
-| Same, disrupted (red or SC run ≥ 5) | report, don't hide | **−2.38** (n=13) | more negative, not a cherry-pick |
+| Mid-race match-rate vs stay-out | > 0.276 | **0.376** (38/101) | **beats** never-box; T7 stints wiring expanded scored set (87→101, original 33/87 pool preserved). T5 default includes rival-aware undercut. Overcut (flag on): 19/42 = 0.452 (gate CLEARED). |
+| Lights-out position-delta (all 48) | ≤ 0 | **−1.729** | identity-safe; not FIA points |
+| Same, clean races only | report, don't hide | **−1.486** (n=35) | both numbers required |
+| Same, disrupted (red or SC run ≥ 5) | report, don't hide | **−2.385** (n=13) | more negative, not a cherry-pick |
 | Absolute `team_sim − actual` | a stable intercept | mean **+989 s**, std **544** | **closed** — do not subtract |
 | Tyre slopes from lap time | physical C1<…<C5 | G2/G3/G4 miss; T2-A identity **moved** | **G1.5 locked**; `ARIS_USE_CIRCUIT_DEG` stays off |
-| Wet / rain-affected races | a wet strategy | heuristic only — **not calibrated**; dry 87 still **0.345**; combined **0.345 (38/110)** (0.340 gate **PASSED**); 2025 wet **19/61 tied with stay-out** (accepted limitation) | INTER tagged `wet_heuristic`; rain from FastF1 `weather_data['Rainfall']`, not SC `4`; already-on-INTER also uses session rain as fallback |
+| Wet / rain-affected races | a wet strategy | heuristic only — **not calibrated**; dry 87 still **0.345**; combined **0.355 (39/110)** (0.340 gate **PASSED**); 2025 wet **20/61 strictly above stay-out** (19/61) after T4 DRY_WINDOW fix | INTER tagged `wet_heuristic`; rain from FastF1 `weather_data['Rainfall']`, not SC `4`; already-on-INTER also uses session rain as fallback |
+| Ghost simulation accuracy | ≥ 60% directional | **10/10 (100%)** on T4 divergence events | T5 new: `GhostState` + `advance_ghost_lap()` using G1.5 physics. RESOLUTION_MIN_LAPS=25 prevents premature resolution from ±22.5 s pit-loss one-shot. |
 | Zandvoort recommend identity | Pit 33 HARD / Pit 30 HARD / Stay out | same on the **default** path | demo path **untouched** unless T2-A is forced on |
 | CQL / blend vs physics (dry 87) | blend **> 30/87** to become default | CQL **6/87**; best blend **30/87 @ w=0.2** (tie) | **gate failed**; default stays `physics` |
 
@@ -562,6 +602,43 @@ for that policy to consume. It is not a live ranking win.
 
 ---
 
+## T4 (2026-08-24)
+
+Wet tie-break fix, overcut young-tyre guard, full gate re-walk.
+Architecture lock held. Field flags not promoted (0 pp, arcs formally closed).
+Dry 87 and lights-out unchanged. Wet combined improved. Zandvoort identity PASS.
+Write-up: [`docs/PHASE-T4-SUMMARY.md`](./PHASE-T4-SUMMARY.md).
+
+| Metric | T3-patch | T4 |
+|---|---|---|
+| Dry match-rate (87 events) | **0.345 (30/87)** | **0.345 (30/87)** — 2024 **0.375 (15/40)**, 2025 **0.319 (15/47)** |
+| Combined `--include-wet` | **0.345 (38/110)** | **0.355 (39/110)** — 2024 **0.388 (19/49)**, 2025 **0.328 (20/61)** |
+| 2025 wet vs stay-out | 19/61 = 19/61 (tied) | **20/61 > 19/61** (DRY_WINDOW fix, strictly above) |
+| Field undercut | CLOSED — 21/56 (0 pp) | **CLOSED** — 21/56 flag off = on (0 pp); diagnosed: G1.5 HARD slope makes stay-out win every targeted event |
+| Overcut | CLOSED — 16/42 (0 pp) | **CLOSED** — 16/42 flag off = on (0 pp); young-tyre guard added (logically correct, 0 pp effect) |
+| Lights-out all / clean / disrupted | −1.73 / −1.49 / −2.38 | **−1.73 / −1.49 / −2.38** (unchanged) |
+| Zandvoort identity | PASS | **PASS** (Pit 33 HARD / Pit 30 HARD / Stay out) |
+
+**DRY_WINDOW rainfall guard.** `_generate_wet_stay_candidates` (recommend.py line 365): `and not bool(getattr(state, "rainfall", False))` added to the `remaining <= 10` branch. Prevents a slick-compound pit card on an SC lap where `rainfall=True` (Australia 2025 ALB L47 false positive). 2025 wet: 19/61 → **20/61**, strictly above stay-out.
+
+**Overcut young-tyre guard.** `generate_overcut_candidates` (recommend.py line 116): suppress overcut when `state.tyre_life < field_median(rival_estimates)`. Logically removes "fresh-tyre car overcuts older-tyre field" cards (an overcut requires being the older-tyre car). Zero pp effect — those cards were not changing rank-1.
+
+**should_recommend_inter remaining fix.** wet.py line 144: `remaining = max(remaining, total - lap)` before the `< MIN_LAPS_FOR_INTER` guard. Handles stale `laps_remaining` states. Zero net wet effect (remaining wet misses are structural, not this guard).
+
+### T4 readiness
+
+| Check | Aimed | Actual | Ready? |
+|---|---|---|---|
+| Dry 87 | ≥ 0.345 | **0.345 (30/87)** | **YES** |
+| Combined wet | ≥ 0.340 | **0.355 (39/110)** | **YES** |
+| 2025 wet vs stay-out | > 19/61 | **20/61** | **YES** |
+| Undercut / overcut | arc closed with diagnosis | **arc closed** (0 pp, G1.5 prior is the ceiling) | **YES** |
+| Lights-out all 48 | ≤ −1.70 | **−1.73** | **YES** |
+| Zandvoort identity | PASS | PASS | **YES** |
+| **Overall** | all of the above | — | **READY FOR T5** |
+
+---
+
 ## T4 CQL (2026-08-23)
 
 Conservative Q-learning over 2018–2023 P1–P10 dry transitions.
@@ -623,7 +700,7 @@ G1.5 stays the tyre prior.
   and is labelled as such; the dry 87-event **0.345** slice is still the
   headline. Combined rainfall/wet/red exclusions remain a missing
   fitted model, not a solved one.
-- That 2025 wet beats always-stay-out. It is **tied** at 19/61.
+- That 2025 wet beats always-stay-out by a wide margin. It is **above** at 20/61 (strictly; T4 DRY_WINDOW fix) vs stay-out 19/61.
 - That field undercut or overcut is a shipped ranking improvement.
   Both scored **0 pp** on their targeted subsets; the arcs are closed.
 - That CQL or a physics/CQL blend is a better mid-race ranker than

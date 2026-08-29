@@ -250,3 +250,22 @@ def test_dry_identity_unchanged_without_rain():
     assert result.recommendations[0].wet_heuristic is False
     assert "INTERMEDIATE" not in result.recommendations[0].label
     assert result.recommendations[0].label.startswith("Pit lap 33 for HARD")
+
+
+def test_damp_single_tick_rain_does_not_recommend_inter():
+    from tests.test_circuit_deg import _zandvoort_state
+
+    state = _zandvoort_state().model_copy(
+        update={
+            "track_state": "DAMP",
+            "rainfall": True,
+            "weather_rainfall": False,
+            "rainfall_mm_per_lap": None,
+            "tyre_life": 18,
+        }
+    )
+    result = recommend(state, top_k=3, mc_draws=0)
+    assert not any(
+        (r.action.pit_compound or "") == "INTERMEDIATE" and r.wet_heuristic
+        for r in result.recommendations
+    ), [r.label for r in result.recommendations]

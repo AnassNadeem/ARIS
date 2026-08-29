@@ -105,6 +105,8 @@ def test_no_overcut_when_gap_ahead_under_2s():
 
 
 def test_window_eligible_candidate_has_negative_delta():
+    # Focus car on older tyres (tyre_life=15) than the rival (tyre_life=14 on SOFT).
+    # Overcut guard requires our tyre_life >= field median; 15 >= 14 passes.
     state = _sample_state(
         lap_number=50,
         laps_remaining=28,
@@ -112,7 +114,7 @@ def test_window_eligible_candidate_has_negative_delta():
         gap_ahead_s=3.0,
         country="Monaco",
         compound="HARD",
-        tyre_life=2,
+        tyre_life=15,
         lag1_pace=73.0,
         pit_compound="HARD",
         position=2,
@@ -128,6 +130,8 @@ def test_window_eligible_candidate_has_negative_delta():
 
 
 def test_monaco_overcut_in_shortlist_when_field_present():
+    # Focus car on older tyres than the rival (tyre_life=15 > rival VER tyre_life=14).
+    # Overcut guard requires our tyre_life >= field median; 15 >= 14 passes.
     state = _sample_state(
         driver_code="NOR",
         lap_number=50,
@@ -136,7 +140,7 @@ def test_monaco_overcut_in_shortlist_when_field_present():
         gap_ahead_s=3.0,
         country="Monaco",
         compound="HARD",
-        tyre_life=2,
+        tyre_life=15,
         lag1_pace=73.0,
         pit_compound="HARD",
         position=2,

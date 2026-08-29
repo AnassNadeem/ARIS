@@ -140,9 +140,9 @@ def should_recommend_inter(
     remaining = int(getattr(state, "laps_remaining", 0) or 0)
     total = int(getattr(state, "total_laps", 0) or 0)
     lap = int(getattr(state, "lap_number", 0) or 0)
+    if total:
+        remaining = max(remaining, total - lap)
     if remaining < MIN_LAPS_FOR_INTER:
-        return False
-    if total and (total - lap) < MIN_LAPS_FOR_INTER:
         return False
     if _is_red(state, track_status):
         return False

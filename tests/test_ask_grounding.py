@@ -96,3 +96,26 @@ def test_grounding_does_not_mix_another_lap_delta():
     assert json_number(-72.72805747985858) in answer
     assert json_number(-45.83318244933962) not in answer
     assert json.dumps("Pit now for HARD") in answer or "Pit now for HARD" in answer
+
+
+def test_who_won_here_last_year_does_not_dump_fia_tyre_doc():
+    index = _index()
+    answer = answer_question(None, "who won here last year", index=index)
+    low = answer.lower()
+    assert "fia" not in low
+    assert "cited:" not in low
+    assert "dry-tyres" not in low
+    assert "article 30" not in low
+    assert not answer.lstrip().startswith("#")
+    assert "won't guess" in low or "no relevant source" in low or "no classified" in low
+
+
+def test_who_won_2024_netherlands_returns_winner_not_sar():
+    index = _index()
+    answer = answer_question(None, "Who won the 2024 Netherlands race?", index=index)
+    low = answer.lower()
+    assert "cited:" not in low
+    assert "sar" not in low
+    assert "p16" not in low
+    assert "NOR" in answer or "Norris" in answer
+    assert "won" in low

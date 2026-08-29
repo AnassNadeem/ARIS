@@ -57,6 +57,7 @@ class FieldSnapshot:
     total_laps: int
     drivers: list[DriverSnap] = field(default_factory=list)
     messages: list[dict[str, Any]] = field(default_factory=list)
+    rainfall: bool = False
 
     def get_driver(self, code: str) -> DriverSnap | None:
         needle = code.upper()
@@ -259,6 +260,49 @@ class CommentaryEngine:
             self.prev_field = current_field
             self.prev_fastest_lap_holder = current_field.fastest_lap_holder()
             return messages
+
+        # Observed rainfall only — never track_status 4 (Safety Car).
+        if current_field.rainfall and not self.prev_field.rainfall:
+            messages.append(
+                CommentaryMessage(
+                    type="ALERT",
+                    text=(
+                        "RAIN DETECTED. Track conditions changing. "
+                        "Intermediate window opening if conditions worsen. "
+                        "[WET HEURISTIC — reduced confidence]"
+                    ),
+                )
+            )
+        if (not current_field.rainfall) and self.prev_field.rainfall:
+            messages.append(
+                CommentaryMessage(
+                    type="INFO",
+                    text=(
+                        "Rain easing. Track drying. Monitor conditions "
+                        "for slick window. Intermediates may begin graining."
+                    ),
+                )
+            )
+        focus_wet = current_field.get_driver(focus) if focus else None
+        focus_compound = normalize_compound(focus_wet.compound if focus_wet else None)
+        remaining_now = total_laps - lap
+        if (
+            current_field.rainfall
+            and focus_compound in {"INTERMEDIATE", "INTER", "WET"}
+            and remaining_now > 10
+            and lap % 5 == 0
+        ):
+            hold = "INTER" if focus_compound in {"INTERMEDIATE", "INTER"} else "WET"
+            messages.append(
+                CommentaryMessage(
+                    type="INFO",
+                    text=(
+                        f"Conditions still wet. Hold {hold}. "
+                        f"{remaining_now} laps remaining. "
+                        "Monitor for dry window."
+                    ),
+                )
+            )
 
         for drv in current_field.drivers:
             prev = self.prev_field.get_driver(drv.code)

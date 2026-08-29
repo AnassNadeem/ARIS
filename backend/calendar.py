@@ -1,7 +1,8 @@
-"""F1 calendar for 2024–2026: FastF1 schedule + overlay notes + computed status."""
+"""F1 calendar from 2018 onward: FastF1 schedule + overlay notes + computed status."""
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -20,8 +21,57 @@ from backend.models import (
 )
 from backend.paths import BACKEND
 
+_log = logging.getLogger(__name__)
+
 NOTES_PATH = BACKEND / "calendar_notes.yaml"
 _SCHED_MEM: dict[int, pd.DataFrame] = {}
+
+# Replay FastF1 window — older seasons are calendar/standings only (no session packs).
+ALLOWED_REPLAY_YEARS = frozenset({2024, 2025, 2026})
+REPLAY_YEAR_LIMIT_MSG = (
+    "Replay is only available for 2024, 2025, and 2026 to improve loading speed."
+)
+
+
+class ReplayYearBlocked(ValueError):
+    """Replay was requested for a year outside ALLOWED_REPLAY_YEARS."""
+
+
+REPLAY_SESSION_ONLY_MSG = "Only Race sessions are supported for Replay/ARIS"
+
+
+class ReplaySessionBlocked(ValueError):
+    """Replay/ARIS was requested for a non-Race session."""
+
+
+def replay_year_allowed(year: int) -> bool:
+    return int(year) in ALLOWED_REPLAY_YEARS
+
+
+def replay_session_type_allowed(session_type: str | None) -> bool:
+    return str(session_type or "R").upper() == "R"
+
+
+def assert_replay_session_type(session_type: str | None) -> str:
+    """Replay/ARIS packs are Race-only. Returns 'R' or raises ReplaySessionBlocked."""
+    mapped = str(session_type or "R").upper()
+    if mapped == "R":
+        return "R"
+    raise ReplaySessionBlocked(REPLAY_SESSION_ONLY_MSG)
+
+
+def assert_replay_year(year: int, *, session_load: bool = False) -> int:
+    """Log and raise if `year` is outside the replay FastF1 window."""
+    y = int(year)
+    if y in ALLOWED_REPLAY_YEARS:
+        msg = f"Replay request for year {y} — allowed"
+        _log.info(msg)
+        print(f"[ARIS] {msg}", flush=True)
+        return y
+    msg = f"Replay request for year {y} — blocked (not in 2024–2026)"
+    _log.info(msg)
+    print(f"[ARIS] {msg}", flush=True)
+    raise ReplayYearBlocked("Replay not allowed for this year" if session_load else REPLAY_YEAR_LIMIT_MSG)
 
 # FIA 2026 championship calendar. FastF1 currently omits at least one round;
 # merge any missing round_number from this overlay so GET /api/calendar/2026
@@ -97,6 +147,65 @@ SESSION_NAME_MAP = {
 }
 
 
+COUNTRY_FLAGS: dict[str, str] = {
+    "australia": "🇦🇺",
+    "bahrain": "🇧🇭",
+    "saudi arabia": "🇸🇦",
+    "saudiarabia": "🇸🇦",
+    "japan": "🇯🇵",
+    "china": "🇨🇳",
+    "united states": "🇺🇸",
+    "usa": "🇺🇸",
+    "miami": "🇺🇸",
+    "italy": "🇮🇹",
+    "emilia romagna": "🇮🇹",
+    "monaco": "🇲🇨",
+    "spain": "🇪🇸",
+    "canada": "🇨🇦",
+    "austria": "🇦🇹",
+    "united kingdom": "🇬🇧",
+    "great britain": "🇬🇧",
+    "britain": "🇬🇧",
+    "belgium": "🇧🇪",
+    "hungary": "🇭🇺",
+    "netherlands": "🇳🇱",
+    "azerbaijan": "🇦🇿",
+    "singapore": "🇸🇬",
+    "mexico": "🇲🇽",
+    "mexico city": "🇲🇽",
+    "brazil": "🇧🇷",
+    "sao paulo": "🇧🇷",
+    "qatar": "🇶🇦",
+    "uae": "🇦🇪",
+    "abu dhabi": "🇦🇪",
+    "las vegas": "🇺🇸",
+}
+
+
+def country_flag(country: str | None, circuit_key: str | None = None) -> str:
+    for raw in (country, circuit_key):
+        if not raw:
+            continue
+        key = str(raw).strip().lower().replace("_", " ").replace("-", " ")
+        if key in COUNTRY_FLAGS:
+            return COUNTRY_FLAGS[key]
+        for needle, flag in COUNTRY_FLAGS.items():
+            if needle in key or key in needle:
+                return flag
+    return "🏁"
+
+
+def replay_years(as_of: datetime | None = None) -> list[int]:
+    end = max(now_utc(as_of).year, 2026)
+    return list(range(end, 2017, -1))
+
+
+def replayable_rounds(year: int, as_of: datetime | None = None) -> list[CalendarRound]:
+    """Completed or in-progress weekends; cancelled and future rounds omitted."""
+    cal = get_calendar(year, as_of=as_of)
+    return [r for r in cal.rounds if r.status not in {"CANCELLED", "UPCOMING"}]
+
+
 def now_utc(as_of: datetime | None = None) -> datetime:
     if as_of is not None:
         if as_of.tzinfo is None:
@@ -108,6 +217,28 @@ def now_utc(as_of: datetime | None = None) -> datetime:
 def load_notes() -> dict[str, Any]:
     raw = yaml.safe_load(NOTES_PATH.read_text(encoding="utf-8")) or {}
     return raw
+
+
+def weekend_excluded_codes(year: int | None, round_number: int | None) -> set[str]:
+    """Drivers withdrawn for a specific weekend — do not draw them on the map."""
+    if year is None or round_number is None:
+        return set()
+    notes = load_notes()
+    block = (notes.get("weekend_lineups") or {}).get(f"{int(year)}-{int(round_number)}") or {}
+    return {str(c).upper() for c in (block.get("exclude") or []) if c}
+
+
+def session_is_open(
+    year: int, round_number: int, session_type: str = "R", as_of: datetime | None = None
+) -> bool:
+    """True when FastF1 must not load this session in-process (upcoming or live)."""
+    try:
+        weekend = get_round_sessions(int(year), int(round_number), as_of=as_of)
+    except Exception:
+        return False
+    want = str(session_type or "R").upper()
+    hit = next((s for s in weekend.sessions if s.session_type == want), None)
+    return hit is not None and hit.status in {"UPCOMING", "LIVE"}
 
 
 def _to_dt(value: Any) -> datetime | None:
@@ -280,10 +411,11 @@ def _round_status(
         return "LIVE"
     if race_dt is None:
         return "UPCOMING"
-    # Session windows: treat as complete once race start + 4h has passed.
-    if as_of >= race_dt + timedelta(hours=4):
+    # Typical GP is ~90–110 minutes. After this window, advance next_race.
+    race_done = race_dt + timedelta(hours=2, minutes=15)
+    if as_of >= race_done:
         return "COMPLETED"
-    if first_dt is not None and first_dt <= as_of <= race_dt + timedelta(hours=4):
+    if first_dt is not None and first_dt <= as_of < race_done:
         return "LIVE"
     if as_of >= race_dt:
         return "LIVE"
@@ -294,12 +426,18 @@ def _schedule_from_fastf1(year: int) -> pd.DataFrame:
     hit = _SCHED_MEM.get(year)
     if hit is not None:
         return hit
+    from backend.fastf1_guard import FASTF1_LOCK
+
     enable_fastf1_cache()
     import fastf1
 
-    sched = fastf1.get_event_schedule(year, include_testing=False)
-    _SCHED_MEM[year] = sched
-    return sched
+    with FASTF1_LOCK:
+        hit = _SCHED_MEM.get(year)
+        if hit is not None:
+            return hit
+        sched = fastf1.get_event_schedule(year, include_testing=False)
+        _SCHED_MEM[year] = sched
+        return sched
 
 
 def _fallback_rounds(year: int, notes: dict[str, Any], as_of: datetime) -> list[CalendarRound]:
@@ -519,13 +657,14 @@ def _round_from_overlay(raw: dict[str, Any], as_of: datetime, *, from_fia_gap: b
     circuit = str(raw.get("circuit_name") or city or name)
     sprint = bool(raw.get("is_sprint_weekend"))
     first = fp1 or (race_dt - timedelta(days=2) if race_dt else None)
+    cancelled = _cancelled(load_notes(), 2026, int(raw["round_number"]))
     status = _round_status(
         year=2026,
         round_no=int(raw["round_number"]),
         race_dt=race_dt,
         first_dt=first,
         as_of=as_of,
-        cancelled=None,
+        cancelled=cancelled,
         live_keys=set(),
     )
     notes = [str(n) for n in (raw.get("notes") or [])]
@@ -549,6 +688,7 @@ def _round_from_overlay(raw: dict[str, Any], as_of: datetime, *, from_fia_gap: b
         date_race=race_dt,
         status=status,  # type: ignore[arg-type]
         is_sprint_weekend=sprint,
+        cancelled_reason=cancelled,
         notes=notes,
         estimated=True,
         official_event_name=name,
@@ -604,7 +744,14 @@ def _ensure_complete_calendar(year: int, rounds: list[CalendarRound], as_of: dat
                         "circuit_key": rnd.circuit_key or ff1.circuit_key,
                     }
                 )
-            rnd = rnd.model_copy(update={"is_sprint_weekend": n in FIA_2026_SPRINT_ROUNDS})
+            extra_notes = _overlay_notes(load_notes(), year, n)
+            merged = list(rnd.notes or [])
+            for note in extra_notes:
+                if note not in merged:
+                    merged.append(note)
+            rnd = rnd.model_copy(
+                update={"is_sprint_weekend": n in FIA_2026_SPRINT_ROUNDS, "notes": merged}
+            )
             out.append(rnd)
         if missing:
             print(f"[ARIS] FastF1 calendar 2026 missing {missing} — filled from FIA overlay", flush=True)
@@ -628,7 +775,32 @@ def _ensure_complete_calendar(year: int, rounds: list[CalendarRound], as_of: dat
     return [by_num[n] for n in sorted(by_num)]
 
 
-def get_calendar(year: int, as_of: datetime | None = None) -> CalendarResponse:
+_LAPS_MEM: dict[tuple[int, int], int | None] = {}
+
+
+def scheduled_laps(
+    year: int, round_number: int, country: str = "", circuit_key: str = ""
+) -> int | None:
+    """Race lap count from track YAML. Does not call get_calendar (avoids recursion)."""
+    key = (int(year), int(round_number))
+    if key in _LAPS_MEM:
+        return _LAPS_MEM[key]
+    n: int | None = None
+    try:
+        from aris.tracks import load_track_config
+
+        cfg = load_track_config(country or circuit_key, year=year, round_no=round_number)
+        val = int(getattr(cfg, "total_laps", 0) or 0)
+        n = val if val > 0 else None
+    except Exception:
+        n = None
+    _LAPS_MEM[key] = n
+    return n
+
+
+def get_calendar(year: int, as_of: datetime | None = None, *, for_replay: bool = False) -> CalendarResponse:
+    if for_replay:
+        assert_replay_year(year)
     wall = datetime.now(timezone.utc)
     as_of = now_utc(as_of)
     near_now = abs((as_of - wall).total_seconds()) < 180
@@ -637,15 +809,44 @@ def get_calendar(year: int, as_of: datetime | None = None) -> CalendarResponse:
     if hit is not None:
         return hit
     notes = load_notes()
-    try:
-        sched = _schedule_from_fastf1(year)
-        rounds = _rounds_from_schedule(year, sched, as_of)
-        source: str = "fastf1"
-    except Exception:
-        rounds = _fallback_rounds(year, notes, as_of)
+    sched = _SCHED_MEM.get(year)
+    source: str = "estimated"
+    if sched is not None:
+        try:
+            rounds = _rounds_from_schedule(year, sched, as_of)
+            source = "fastf1"
+        except Exception:
+            rounds = _fallback_rounds(year, notes, as_of)
+    elif year in NOTES_OVERLAY:
+        # Never block the request path on FastF1 — 2026 is fully in the FIA overlay.
+        rounds = [_round_from_overlay(raw, as_of) for raw in NOTES_OVERLAY[year]]
         source = "estimated"
+    else:
+        try:
+            sched = _schedule_from_fastf1(year)
+            rounds = _rounds_from_schedule(year, sched, as_of)
+            source = "fastf1"
+        except Exception:
+            rounds = _fallback_rounds(year, notes, as_of)
+            source = "estimated"
     rounds = _ensure_complete_calendar(year, rounds, as_of)
     rounds = [_with_sessions(r) for r in rounds]
+    stamped: list[CalendarRound] = []
+    for rnd in rounds:
+        reason = _cancelled(notes, year, rnd.round_number)
+        if reason and rnd.status != "CANCELLED":
+            stamped.append(rnd.model_copy(update={"status": "CANCELLED", "cancelled_reason": reason}))
+        else:
+            stamped.append(rnd)
+    rounds = stamped
+    filled: list[CalendarRound] = []
+    for rnd in rounds:
+        laps = scheduled_laps(year, rnd.round_number, rnd.country, rnd.circuit_key)
+        if laps and rnd.total_laps != laps:
+            filled.append(rnd.model_copy(update={"total_laps": laps}))
+        else:
+            filled.append(rnd)
+    rounds = filled
     result = CalendarResponse(year=year, rounds=rounds, source=source, as_of=as_of)  # type: ignore[arg-type]
     mem_cache.set(cache_key, result)
     return result
@@ -659,6 +860,22 @@ def get_round(year: int, round_number: int, as_of: datetime | None = None) -> Ca
     raise KeyError(f"No round {round_number} in {year}")
 
 
+def peek_round_meta(year: int, round_number: int) -> tuple[str, str]:
+    """Country + circuit_key from memory/overlay only — never loads FastF1."""
+    wall = datetime.now(timezone.utc)
+    hit = mem_cache.get(f"calbuild_{year}", TTL_CALENDAR)
+    if hit is None:
+        hit = mem_cache.get(f"calbuild_{year}_{wall.strftime('%Y-%m-%dT%H:%M:%SZ')}", TTL_CALENDAR)
+    if hit is not None:
+        for rnd in getattr(hit, "rounds", []):
+            if int(getattr(rnd, "round_number", 0) or 0) == int(round_number):
+                return str(rnd.country or ""), str(rnd.circuit_key or "")
+    for row in NOTES_OVERLAY.get(int(year), []):
+        if int(row.get("round_number") or 0) == int(round_number):
+            return str(row.get("country") or ""), str(row.get("circuit_key") or row.get("name") or "")
+    return "", ""
+
+
 def _session_status(dt: datetime | None, as_of: datetime, duration_h: float = 1.5) -> str:
     if dt is None:
         return "UPCOMING"
@@ -670,7 +887,11 @@ def _session_status(dt: datetime | None, as_of: datetime, duration_h: float = 1.
 
 
 def get_round_sessions(
-    year: int, round_number: int, as_of: datetime | None = None
+    year: int,
+    round_number: int,
+    as_of: datetime | None = None,
+    *,
+    replay: bool = False,
 ) -> RoundSessionsResponse:
     as_of = now_utc(as_of)
     rnd = get_round(year, round_number, as_of=as_of)
@@ -681,7 +902,7 @@ def get_round_sessions(
         ("SQ", "Sprint Qualifying", rnd.date_sprint_quali, 0.8),
         ("S", "Sprint", rnd.date_sprint, 1.0),
         ("Q", "Qualifying", rnd.date_quali, 1.5),
-        ("R", "Race", rnd.date_race, 3.0),
+        ("R", "Race", rnd.date_race, 2.25),
     ]
     sessions: list[SessionInfo] = []
     for stype, name, dt, hours in specs:
@@ -692,6 +913,8 @@ def get_round_sessions(
         status = _session_status(dt, as_of, hours)
         if rnd.status == "CANCELLED":
             status = "UPCOMING"
+        if replay and stype != "R":
+            continue
         sessions.append(
             SessionInfo(
                 session_type=stype,
@@ -721,8 +944,16 @@ def next_race(as_of: datetime | None = None, year: int | None = None) -> NextRac
         cal = get_calendar(y, as_of=as_of)
         cal_year = y
         for rnd in cal.rounds:
-            if rnd.status in {"LIVE", "UPCOMING"}:
+            if rnd.status == "UPCOMING":
                 candidates.append(rnd)
+            elif rnd.status == "LIVE":
+                try:
+                    weekend = get_round_sessions(y, rnd.round_number, as_of=as_of)
+                except Exception:
+                    candidates.append(rnd)
+                    continue
+                if any(s.status in {"UPCOMING", "LIVE"} for s in weekend.sessions):
+                    candidates.append(rnd)
         if candidates:
             break
     if not candidates:

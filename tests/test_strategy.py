@@ -88,16 +88,15 @@ class TestPhysicsDeltaRollout:
     def test_later_laps_follow_physics_delta_not_chained_residual(self):
         from aris.models.features import estimate_fuel_kg
         from aris.models.predict import predict_lap_time, predict_physics
-        from aris.tracks import load_track_config
+        from aris.simulate import _track_for
 
         state = _sample_state(
             lap_number=56, laps_remaining=1, total_laps=57, tyre_life=10
         )
         outcome = simulate(state, StrategyAction(kind=ActionKind.STAY_OUT))
         assert outcome.laps_simulated == 2
-        track = load_track_config(
-            state.country, year=state.year, round_no=state.round_no
-        ).load_physics()
+        # Same slope overlay simulate() uses (T9 FP2 calibration).
+        track = _track_for(state)
         fuel0 = estimate_fuel_kg(56, total_laps=57)
         fuel1 = estimate_fuel_kg(57, total_laps=57)
         pred0 = predict_lap_time(
@@ -115,7 +114,51 @@ class TestPhysicsDeltaRollout:
         phys1 = predict_physics(
             compound=state.compound, tyre_life=11, fuel_kg=fuel1, track=track
         )
-        expected = pred0 + (pred0 + (phys1 - phys0))
+        from aris.simulate import fuel_correction_s
+
+        d0 = phys0 - fuel_correction_s(fuel0)
+        d1 = phys1 - fuel_correction_s(fuel1)
+        expected = pred0 + (pred0 + (d1 - d0))
+        assert abs(outcome.total_race_time_s - expected) < 1e-6
+
+    def test_fresh_stint_adds_warmup_to_first_two_laps(self):
+        from aris.models.features import estimate_fuel_kg
+        from aris.models.predict import predict_lap_time, predict_physics
+        from aris.physics.tyre_warmup import tyre_warmup_lap1, tyre_warmup_lap2
+        from aris.simulate import _track_for
+
+        state = _sample_state(
+            lap_number=56, laps_remaining=1, total_laps=57, tyre_life=1, compound="HARD"
+        )
+        outcome = simulate(state, StrategyAction(kind=ActionKind.STAY_OUT))
+        track = _track_for(state)
+        fuel0 = estimate_fuel_kg(56, total_laps=57)
+        fuel1 = estimate_fuel_kg(57, total_laps=57)
+        pred0 = predict_lap_time(
+            compound="HARD",
+            tyre_life=1,
+            fuel_kg=fuel0,
+            track=track,
+            lag1_pace=state.lag1_pace,
+            lag2_pace=state.lag2_pace,
+            stint_roll3=state.stint_roll3,
+        )
+        phys0 = predict_physics(
+            compound="HARD", tyre_life=1, fuel_kg=fuel0, track=track
+        )
+        phys1 = predict_physics(
+            compound="HARD", tyre_life=2, fuel_kg=fuel1, track=track
+        )
+        from aris.simulate import fuel_correction_s
+
+        d0 = phys0 - fuel_correction_s(fuel0)
+        d1 = phys1 - fuel_correction_s(fuel1)
+        expected = (
+            pred0
+            + tyre_warmup_lap1("HARD")
+            + (pred0 + (d1 - d0))
+            + tyre_warmup_lap2("HARD")
+        )
         assert abs(outcome.total_race_time_s - expected) < 1e-6
 
     def test_long_remaining_hard_pit_beats_soft_pit(self):
@@ -128,6 +171,33 @@ class TestPhysicsDeltaRollout:
             state, StrategyAction(kind=ActionKind.PIT_NOW, pit_compound="SOFT")
         )
         assert hard.total_race_time_s < soft.total_race_time_s
+
+    def test_short_remaining_medium_can_beat_hard(self):
+        """Fresh MEDIUM pace offset should win a short final stint vs HARD slope."""
+        state = _sample_state(
+            lap_number=50, laps_remaining=7, total_laps=57, tyre_life=20
+        )
+        hard = simulate(
+            state, StrategyAction(kind=ActionKind.PIT_NOW, pit_compound="HARD")
+        )
+        medium = simulate(
+            state, StrategyAction(kind=ActionKind.PIT_NOW, pit_compound="MEDIUM")
+        )
+        assert medium.total_race_time_s < hard.total_race_time_s
+
+    def test_fuel_deg_correction_unmasks_drop_on_long_remainder(self):
+        state = _sample_state(lap_number=8, laps_remaining=49, total_laps=57)
+        with_corr = simulate(
+            state,
+            StrategyAction(kind=ActionKind.STAY_OUT),
+            fuel_deg_correction=True,
+        )
+        without = simulate(
+            state,
+            StrategyAction(kind=ActionKind.STAY_OUT),
+            fuel_deg_correction=False,
+        )
+        assert with_corr.total_race_time_s > without.total_race_time_s
 
 
 class TestExtrapolation:
@@ -242,6 +312,70 @@ class TestUndercutBonus:
         assert stay, "stay-out must remain in top-3"
 
 
+class TestInferFocusCompound:
+    """Unit tests for _infer_focus_compound() in isolation."""
+
+    def _call(self, stints, race_frac=0.4, laps_remaining=30):
+        from aris.recommend import _infer_focus_compound
+        state = _sample_state(laps_remaining=laps_remaining)
+        return _infer_focus_compound(state, stints, race_frac)
+
+    def test_empty_stints_falls_back_to_state_pit_compound(self):
+        result = self._call([])
+        assert result == "HARD"
+
+    def test_soft_only_returns_hard(self):
+        # SOFT-only: HARD is the dominant 2nd-stint compound; returning MEDIUM
+        # broke 2024 correct HARD matches.
+        stints = [{"compound": "SOFT", "lap_start": 1}]
+        assert self._call(stints, race_frac=0.30) == "HARD"
+        assert self._call(stints, race_frac=0.60) == "HARD"
+
+    def test_medium_only_early_long_returns_medium(self):
+        stints = [{"compound": "MEDIUM", "lap_start": 1}]
+        assert self._call(stints, race_frac=0.25, laps_remaining=40) == "MEDIUM"
+
+    def test_medium_only_early_short_returns_hard(self):
+        stints = [{"compound": "MEDIUM", "lap_start": 1}]
+        assert self._call(stints, race_frac=0.30, laps_remaining=20) == "HARD"
+
+    def test_medium_only_late_returns_hard(self):
+        stints = [{"compound": "MEDIUM", "lap_start": 1}]
+        assert self._call(stints, race_frac=0.65) == "HARD"
+
+    def test_year_gate_2024_no_inference(self):
+        """Year gate: inference is off for 2024 — state.pit_compound unchanged."""
+        from aris.recommend import recommend
+        # 2024 state with MEDIUM stints that would infer MEDIUM in 2025
+        state = _sample_state(
+            year=2024, lap_number=15, total_laps=57,
+            compound="MEDIUM", laps_remaining=40, pit_compound="HARD",
+            stints={"VER": [{"lap_start": 1, "compound": "MEDIUM"}]},
+        )
+        result = recommend(state, top_k=3, mc_draws=0)
+        # Year=2024: compound inference is off, pit_compound stays HARD
+        pit = next((r for r in result.recommendations if r.action.pit_compound), None)
+        assert pit is None or any(
+            "HARD" in (r.action.pit_compound or "") for r in result.recommendations
+        ), "2024 must not change compound to MEDIUM via inference"
+
+    def test_hard_only_returns_medium(self):
+        stints = [{"compound": "HARD", "lap_start": 1}]
+        assert self._call(stints) == "MEDIUM"
+
+    def test_soft_plus_medium_returns_hard(self):
+        stints = [{"compound": "SOFT", "lap_start": 1}, {"compound": "MEDIUM", "lap_start": 20}]
+        assert self._call(stints) == "HARD"
+
+    def test_soft_plus_hard_returns_medium(self):
+        stints = [{"compound": "SOFT", "lap_start": 1}, {"compound": "HARD", "lap_start": 20}]
+        assert self._call(stints) == "MEDIUM"
+
+    def test_medium_plus_hard_returns_soft(self):
+        stints = [{"compound": "MEDIUM", "lap_start": 1}, {"compound": "HARD", "lap_start": 20}]
+        assert self._call(stints) == "SOFT"
+
+
 class TestMonteCarlo:
     def test_distribution_has_std(self):
         state = _sample_state()
@@ -257,3 +391,41 @@ class TestNarrate:
         text = narrate_recommendation(result.recommendations[0], use_llm=False)
         assert "VER" in text or "ver" in text.lower()
         assert len(text) > 10
+
+
+def _plan_pit_laps(rec) -> list[int]:
+    action = rec.action
+    pits = list(action.pit_laps or [])
+    if not pits and action.pit_lap is not None:
+        pits = [int(action.pit_lap)]
+    if not pits and str(action.kind).lower() in {"actionkind.pit_now", "pit_now"}:
+        pits = [int(rec.narration_context.get("lap") or 0)]
+    return pits
+
+
+def test_72_lap_ver_does_not_fabricate_two_stop():
+    state = _sample_state(
+        driver_code="VER",
+        country="Netherlands",
+        year=2025,
+        round_no=15,
+        lap_number=1,
+        total_laps=72,
+        laps_remaining=71,
+        compound="MEDIUM",
+        tyre_life=1,
+        lag1_pace=74.0,
+        lag2_pace=74.0,
+        stint_roll3=74.0,
+        track_state="DRY",
+        rainfall=False,
+        weather_rainfall=False,
+        rainfall_mm_per_lap=None,
+    )
+    result = recommend(state, top_k=5, mc_draws=0)
+    top = result.recommendations[0]
+    pits = _plan_pit_laps(top)
+    assert len(pits) <= 1, top.label
+    assert "L31" not in top.label and "L46" not in top.label, top.label
+    for rec in result.recommendations:
+        assert len(_plan_pit_laps(rec)) <= 1, rec.label

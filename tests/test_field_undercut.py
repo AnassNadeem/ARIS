@@ -6,8 +6,9 @@ from aris.field.rivals import RivalPitEstimate, RivalState, estimate_rival_pit_l
 from aris.field.standings import StandingRow
 from aris.field.state import FieldState, ReplayIndex
 from aris.recommend import (
-    FIELD_UNDERCUT_CAP,
     T2D_FALLBACK_NOTE,
+    TRACK_POSITION_VALUE,
+    _score_undercut_candidate,
     compute_field_undercut_value,
     compute_undercut_bonus,
     recommend,
@@ -146,4 +147,69 @@ def test_field_path_when_rival_not_pitting_immediately(monkeypatch):
     )
     assert source in {"field", "t2d"}
     if source == "field":
-        assert FIELD_UNDERCUT_CAP <= bonus < 0
+        # T5 removed the −1.2 s cap; remaining-race delta is the signal.
+        # Bound rejects the T7 double-sim bug (~−4000 s) without re-imposing the cap.
+        assert bonus < 0
+        assert bonus > -60.0
+
+
+def test_score_undercut_comparable_windows_not_full_race_mismatch():
+    """Remaining-race delta must be a few seconds, not a missing-lap (~90 s)
+    or double-sim (~4000 s) artifact. Rival post-pit is a fresh set."""
+    state = _sample_state(
+        lap_number=31,
+        tyre_life=31,
+        compound="HARD",
+        laps_remaining=26,
+        total_laps=57,
+        gap_ahead_s=2.0,
+        lag1_pace=94.5,
+    )
+    rival = RivalPitEstimate(
+        driver_code="LEC",
+        compound="HARD",
+        tyre_life=31,
+        estimated_pit_lap=38,
+        laps_until_pit=7,
+        confidence="MEDIUM",
+        reasoning="test",
+        last_lap_s=94.5,
+        position=1,
+    )
+    delta = _score_undercut_candidate(state, rival, "HARD", 21.8, None)
+    assert abs(delta) < 60.0
+    # T7 double-sim and T8 1-lap mismatch were ~90 s or thousands.
+    assert abs(delta) < 90.0
+
+
+def test_score_undercut_adds_track_position_when_ahead(monkeypatch):
+    """When remaining-race time says we emerge ahead, add TRACK_POSITION_VALUE."""
+    state = _sample_state(
+        lap_number=31,
+        tyre_life=31,
+        compound="HARD",
+        laps_remaining=26,
+        total_laps=57,
+        gap_ahead_s=2.0,
+        lag1_pace=94.5,
+    )
+    rival = RivalPitEstimate(
+        driver_code="LEC",
+        compound="HARD",
+        tyre_life=31,
+        estimated_pit_lap=38,
+        laps_until_pit=7,
+        confidence="MEDIUM",
+        reasoning="test",
+        last_lap_s=94.5,
+        position=1,
+    )
+    monkeypatch.setattr("aris.recommend.TRACK_POSITION_VALUE", 0.0)
+    raw = _score_undercut_candidate(state, rival, "HARD", 21.8, None)
+    monkeypatch.setattr("aris.recommend.TRACK_POSITION_VALUE", TRACK_POSITION_VALUE)
+    scored = _score_undercut_candidate(state, rival, "HARD", 21.8, None)
+    if raw > 0:
+        assert abs(scored - (raw + TRACK_POSITION_VALUE)) < 1e-9
+    else:
+        assert abs(scored - raw) < 1e-9
+    assert -60.0 < scored < 60.0

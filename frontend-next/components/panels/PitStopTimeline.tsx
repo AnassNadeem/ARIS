@@ -10,19 +10,29 @@ import {
   ResponsiveContainer,
   ZAxis,
 } from "recharts";
-import { getRaceHistoryMock } from "@/lib/mockRaceHistory";
-import { MOCK_DRIVERS_2025 } from "@/lib/mockData";
+import { usePanelHistory } from "@/lib/usePanelHistory";
+import { PanelEmpty, PanelSkeleton, usePanelFeedLoading } from "@/components/ui/PanelStates";
 
 export function PitStopTimeline() {
-  const { pitStops } = getRaceHistoryMock();
+  const { pitStops, drivers, totalLaps } = usePanelHistory();
+  const loading = usePanelFeedLoading();
+  const distance = Math.max(1, totalLaps);
   const data = pitStops.map((p) => {
-    const meta = MOCK_DRIVERS_2025.find((d) => d.driver_code === p.driverCode);
+    const meta = drivers.find((d) => d.driver_code === p.driverCode);
     return { ...p, colour: meta?.team_colour ?? "#888888" };
   });
 
   return (
     <div className="flex h-full flex-col bg-carbon p-2">
       <div className="min-h-0 flex-1">
+        {loading && data.length === 0 ? (
+          <PanelSkeleton />
+        ) : data.length === 0 ? (
+          <PanelEmpty
+            title="Pit stop timeline"
+            detail="Pit stops plotted as lap versus duration. Empty when nobody has boxed yet, or pit-in laps have not arrived."
+          />
+        ) : (
         <ResponsiveContainer width="100%" height="100%">
           <ScatterChart margin={{ top: 4, right: 8, bottom: 0, left: -12 }}>
             <CartesianGrid stroke="#2a2a2a" strokeDasharray="2 4" />
@@ -32,7 +42,7 @@ export function PitStopTimeline() {
               name="Lap"
               stroke="#888888"
               tick={{ fontFamily: "var(--font-jbmono)", fontSize: 10 }}
-              domain={[1, 72]}
+              domain={[1, distance]}
             />
             <YAxis
               type="number"
@@ -61,6 +71,7 @@ export function PitStopTimeline() {
             />
           </ScatterChart>
         </ResponsiveContainer>
+        )}
       </div>
     </div>
   );

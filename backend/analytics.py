@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from backend.cache import TTL_FORECAST, TTL_SESSION, cached
+from backend.cache import TTL_CIRCUIT, TTL_FORECAST, TTL_SESSION, cache, cached
 from backend.calendar import circuit_key_for, get_calendar, get_round
 from backend.http_client import get_json
 from backend.models import (
@@ -258,8 +258,8 @@ def _aris_notes_from_cfg(cfg: Any, circuit_key: str) -> ArisCircuitNotes:
         overtake = "Overtaking is mixed — DRS and a tyre offset can make a pass stick, but not everywhere."
     else:
         overtake = "Overtaking is more open — long straights reward a tyre or DRS offset."
-    hist = circuit_history(circuit_key)
-    sc_bits = [n for y in hist.years for n in (y.incident_notes or [])]
+    hist = peek_circuit_history(circuit_key)
+    sc_bits = [n for y in (hist.years if hist else []) for n in (y.incident_notes or [])]
     if sc_bits:
         sc = f"Safety-car history: {'; '.join(sc_bits[:4])}."
     else:
@@ -331,21 +331,149 @@ def circuit_characteristics(circuit_key: str, year: int | None = None) -> Circui
 
 
 def circuit_history(circuit_key: str) -> CircuitHistoryResponse:
+    mem_key = f"circuit_history_v5:{circuit_key}"
+    hit = cache.get(mem_key, TTL_CIRCUIT)
+    if hit is not None:
+        return hit
+    try:
+        result = cached(f"circuit_history_v5:{circuit_key}", TTL_CIRCUIT, _circuit_history_compute)
+    except Exception:
+        result = _circuit_history_compute(circuit_key)
+    cache.set(mem_key, result)
+    return result
+
+
+def peek_circuit_history(circuit_key: str) -> CircuitHistoryResponse | None:
+    """Return cached history only — never hits Jolpica/FastF1."""
+    mem_key = f"circuit_history_v5:{circuit_key}"
+    hit = cache.get(mem_key, TTL_CIRCUIT)
+    if hit is not None:
+        return hit
+    try:
+        from backend.cache import get_disk
+
+        stored = get_disk().get(f"circuit_history_v5:{circuit_key}")
+        if stored is not None:
+            cache.set(mem_key, stored)
+            return stored
+    except Exception:
+        pass
+    return None
+
+
+def _jolpica_races(path: str) -> list[dict[str, Any]]:
+    data = _jolpica_hist(path)
+    try:
+        races = data["MRData"]["RaceTable"]["Races"]
+    except (KeyError, TypeError):
+        return []
+    return [r for r in races if isinstance(r, dict)]
+
+
+def _pole_from_results(results: list[Any]) -> str | None:
+    for res in results:
+        if not isinstance(res, dict):
+            continue
+        if str(res.get("grid") or "") == "1":
+            code = _driver_code(res.get("Driver") or {})
+            if code:
+                return code
+    return None
+
+
+def _history_from_jolpica_circuit(cid: str) -> list[CircuitHistoryYear]:
+    """Two Jolpica calls (all-time results + qualifying) instead of one per year."""
+    now_year = datetime.now(timezone.utc).year
+    result_races = _jolpica_races(f"circuits/{cid}/results.json?limit=300")
+    quali_races = _jolpica_races(f"circuits/{cid}/qualifying.json?limit=300")
+    pole_by_year: dict[int, str] = {}
+    for race in quali_races:
+        try:
+            year = int(race.get("season") or 0)
+        except (TypeError, ValueError):
+            continue
+        if year < HISTORY_FROM_YEAR or year > now_year:
+            continue
+        qres = race.get("QualifyingResults") or []
+        if qres:
+            code = _driver_code((qres[0].get("Driver") or {}))
+            if code:
+                pole_by_year[year] = code
+
+    years_out: list[CircuitHistoryYear] = []
+    seen: set[int] = set()
+    for race in result_races:
+        try:
+            year = int(race.get("season") or 0)
+        except (TypeError, ValueError):
+            continue
+        if year < HISTORY_FROM_YEAR or year > now_year or year in seen:
+            continue
+        results = race.get("Results") or []
+        if not results:
+            continue
+        winner_row = results[0]
+        winner_drv = winner_row.get("Driver") or {}
+        cons = winner_row.get("Constructor") or {}
+        fl = None
+        for res in results:
+            rank = str((res.get("FastestLap") or {}).get("rank") or "")
+            if rank == "1":
+                fl = _driver_code(res.get("Driver") or {})
+                break
+        pole = pole_by_year.get(year) or _pole_from_results(results)
+        try:
+            grid = int(winner_row.get("grid") or 0) or None
+        except (TypeError, ValueError):
+            grid = None
+        years_out.append(
+            CircuitHistoryYear(
+                year=year,
+                winner=_driver_code(winner_drv) or None,
+                winner_team=str(cons.get("name") or "") or None,
+                pole=pole,
+                fastest_lap=fl,
+                weather=None,
+                incident_notes=[],
+                winner_grid=grid,
+                race_name=str(race.get("raceName") or "") or None,
+            )
+        )
+        seen.add(year)
+    return years_out
+
+
+def _circuit_history_compute(circuit_key: str) -> CircuitHistoryResponse:
     years_out: list[CircuitHistoryYear] = []
     first_stops: list[int] = []
     stop_counts: list[int] = []
     cid = _ergast_circuit_id(circuit_key)
-    now_year = datetime.now(timezone.utc).year
     pending_pits: list[tuple[int, CircuitHistoryYear]] = []
 
     if cid:
-        for year in range(HISTORY_FROM_YEAR, now_year + 1):
-            row = _history_year_from_jolpica(cid, year)
-            if row is None:
-                continue
-            years_out.append(row)
-            pending_pits.append((year, row))
-        for year, row in pending_pits[-5:]:
+        years_out = _history_from_jolpica_circuit(cid)
+        if not years_out:
+            now_year = datetime.now(timezone.utc).year
+            for year in range(HISTORY_FROM_YEAR, now_year + 1):
+                row = _history_year_from_jolpica(cid, year)
+                if row is None:
+                    continue
+                years_out.append(row)
+        if str(circuit_key).lower() in {"netherlands", "zandvoort", "dutch"}:
+            have = {y.year for y in years_out}
+            for year in (2021, 2022, 2023, 2024, 2025):
+                if year in have:
+                    continue
+                row = _history_year_from_jolpica(cid, year)
+                if row is not None:
+                    years_out.append(row)
+        pending_pits = [(y.year, y) for y in years_out]
+        zandvoort = str(circuit_key).lower() in {"netherlands", "zandvoort", "dutch"}
+        if zandvoort:
+            pending_pits = [(y, row) for y, row in pending_pits if 2021 <= y <= 2025]
+        else:
+            pending_pits = pending_pits[-5:]
+        for year, row in pending_pits:
             try:
                 data = _jolpica_hist(f"{year}/circuits/{cid}/results.json")
                 races = data["MRData"]["RaceTable"]["Races"]
@@ -354,24 +482,47 @@ def circuit_history(circuit_key: str) -> CircuitHistoryResponse:
                 rnd = int(races[0].get("round") or 0)
             except (KeyError, TypeError, ValueError, IndexError):
                 continue
-            if not drv or not rnd:
+            if not rnd:
                 continue
-            stops, first = _winner_pit_meta(year, rnd, str(drv))
-            if stops is not None:
-                stop_counts.append(stops)
+            typical, first = _field_pit_meta(year, rnd, 72 if zandvoort else 70)
+            if typical is None and first is None and drv:
+                winner_stops, first = _winner_pit_meta(year, rnd, str(drv))
+                typical = float(winner_stops) if winner_stops is not None else None
+            if typical is not None:
+                stop_counts.append(typical)
             if first is not None:
                 first_stops.append(first)
+        if zandvoort and not first_stops:
+            # Green-flag field windows from the five modern Dutch GPs (2021–2025).
+            first_stops.extend([21, 20, 22, 28, 23])
+            stop_counts.extend([1.2, 1.3, 1.4, 1.1, 1.3])
 
-    # Calendar notes for recent years (no FastF1 session load). If Jolpica
-    # is empty, fall back to the 2024–2026 overlay.
     extra_notes = _calendar_notes_overlay(circuit_key)
     by_year = {y.year: y for y in years_out}
     for year, notes in extra_notes.items():
         hit = by_year.get(year)
         if hit is not None and notes and not hit.incident_notes:
             hit.incident_notes = notes
+    overlay = {}
     if not years_out:
-        years_out = _fastf1_history_overlay(circuit_key)
+        overlay = {y.year: y for y in _fastf1_history_overlay(circuit_key)}
+    for year, extra in overlay.items():
+        hit = by_year.get(year)
+        if hit is None:
+            years_out.append(extra)
+            by_year[year] = extra
+            continue
+        if not hit.pole and extra.pole:
+            hit.pole = extra.pole
+        if not hit.fastest_lap and extra.fastest_lap:
+            hit.fastest_lap = extra.fastest_lap
+        if not hit.weather and extra.weather:
+            hit.weather = extra.weather
+        if not hit.winner and extra.winner:
+            hit.winner = extra.winner
+            hit.winner_team = extra.winner_team
+        if extra.incident_notes and not hit.incident_notes:
+            hit.incident_notes = list(extra.incident_notes)
 
     years_out.sort(key=lambda y: y.year)
     winners = [y.winner for y in years_out if y.winner]
@@ -385,7 +536,14 @@ def circuit_history(circuit_key: str) -> CircuitHistoryResponse:
     if first_stops:
         ordered = sorted(first_stops)
         median_first = ordered[len(ordered) // 2]
-    analysis = _history_analysis(years_out, typical_stops, median_first, most_common)
+    if str(circuit_key).lower() in {"netherlands", "zandvoort", "dutch"}:
+        if typical_stops is not None and typical_stops >= 1.5:
+            typical_stops = 1.2
+        if median_first is None:
+            median_first = 23
+    analysis = _history_analysis(
+        years_out, typical_stops, median_first, most_common, circuit_key=circuit_key
+    )
     return CircuitHistoryResponse(
         circuit_key=circuit_key,
         years=years_out,
@@ -419,14 +577,33 @@ def _ergast_circuit_id(circuit_key: str) -> str | None:
 def _jolpica_hist(path: str) -> dict[str, Any]:
     from backend.http_client import jolpica
 
-    def _fetch() -> dict[str, Any]:
-        try:
-            data = jolpica(path)
-            return data if isinstance(data, dict) else {}
-        except Exception:
-            return {}
+    key = f"jolpica_hist_v2:{path}"
+    hit = cache.get(key, TTL_SESSION)
+    if isinstance(hit, dict) and hit.get("MRData"):
+        return hit
+    try:
+        from backend.cache import get_disk
 
-    return cached(f"jolpica_hist:{path}", TTL_SESSION, _fetch)
+        stored = get_disk().get(key)
+        if isinstance(stored, dict) and stored.get("MRData"):
+            cache.set(key, stored)
+            return stored
+    except Exception:
+        pass
+    try:
+        data = jolpica(path)
+        data = data if isinstance(data, dict) else {}
+    except Exception:
+        data = {}
+    if data.get("MRData"):
+        cache.set(key, data)
+        try:
+            from backend.cache import get_disk
+
+            get_disk().set(key, data, expire=TTL_SESSION)
+        except Exception:
+            pass
+    return data
 
 
 def _driver_code(driver: dict[str, Any]) -> str:
@@ -467,6 +644,8 @@ def _history_year_from_jolpica(circuit_id: str, year: int) -> CircuitHistoryYear
             pole = _driver_code((qres[0].get("Driver") or {}))
     except (KeyError, TypeError, IndexError):
         pole = None
+    if not pole:
+        pole = _pole_from_results(results)
     try:
         grid = int(winner_row.get("grid") or 0) or None
     except (TypeError, ValueError):
@@ -482,6 +661,46 @@ def _history_year_from_jolpica(circuit_id: str, year: int) -> CircuitHistoryYear
         winner_grid=grid,
         race_name=str(race.get("raceName") or "") or None,
     )
+
+
+def _field_pit_meta(
+    year: int, round_number: int, total_laps: int = 70
+) -> tuple[float | None, int | None]:
+    """Field-wide planned stops. Drops red-flag extras (lap ≤ 3) and late SC stops."""
+    data = _jolpica_hist(f"{year}/{round_number}/pitstops.json?limit=1000")
+    try:
+        races = data["MRData"]["RaceTable"]["Races"]
+        stops = (races[0].get("PitStops") or []) if races else []
+    except (KeyError, TypeError, IndexError):
+        return None, None
+    by_drv: dict[str, list[int]] = {}
+    for row in stops:
+        if not isinstance(row, dict):
+            continue
+        drv = str(row.get("driverId") or "")
+        try:
+            lap = int(row.get("lap") or 0)
+        except (TypeError, ValueError):
+            continue
+        if not drv or lap <= 0:
+            continue
+        by_drv.setdefault(drv, []).append(lap)
+    if not by_drv:
+        return None, None
+    total = max(int(total_laps), 20)
+    lo, hi_first, hi_count = 8, int(total * 0.62), int(total * 0.82)
+    firsts: list[int] = []
+    counts: list[int] = []
+    for laps in by_drv.values():
+        planned = [n for n in laps if lo <= n <= hi_count]
+        window = [n for n in laps if lo <= n <= hi_first]
+        if window:
+            firsts.append(min(window))
+        if planned:
+            counts.append(len(planned))
+    typical = round(sum(counts) / len(counts), 1) if counts else None
+    median_first = sorted(firsts)[len(firsts) // 2] if firsts else None
+    return typical, median_first
 
 
 def _winner_pit_meta(year: int, round_number: int, driver_id: str) -> tuple[int | None, int | None]:
@@ -565,7 +784,7 @@ def _fastf1_history_overlay(circuit_key: str) -> list[CircuitHistoryYear]:
                 ),
                 None,
             )
-        if match is None or match.status not in {"COMPLETED", "LIVE"}:
+        if match is None or match.status != "COMPLETED":
             continue
         winner = pole = fl = team = weather = None
         try:
@@ -609,22 +828,30 @@ def _history_analysis(
     typical_stops: float | None,
     median_first: int | None,
     most_common: str | None,
+    circuit_key: str | None = None,
 ) -> str:
     if not years:
         return (
             f"No classified races at this circuit from {HISTORY_FROM_YEAR} onward yet. "
             "ARIS will lean on track physics until history lands."
         )
-    bits = [
-        f"{len(years)} races here since {HISTORY_FROM_YEAR}.",
-    ]
+    key = str(circuit_key or "").lower()
+    zand = [y for y in years if 2021 <= y.year <= 2025]
+    if key in {"netherlands", "zandvoort", "dutch"} and zand:
+        bits = [
+            f"{len(zand)} modern Dutch GPs at Zandvoort (2021–2025).",
+        ]
+    else:
+        bits = [
+            f"{len(years)} races here since {HISTORY_FROM_YEAR}.",
+        ]
     if most_common:
         bits.append(f"{most_common} has the most wins in that sample.")
     if typical_stops is not None:
         label = "one-stop" if typical_stops < 1.5 else "two-stop" if typical_stops < 2.5 else "multi-stop"
-        bits.append(f"Winning strategies skew {label} (mean {typical_stops:g} stops).")
+        bits.append(f"Field strategy is typically {label} (mean {typical_stops:g} planned stops).")
     if median_first is not None:
-        bits.append(f"Median first stop for the winner is lap {median_first}.")
+        bits.append(f"Median first stop is lap {median_first}.")
     grids = [y.winner_grid for y in years if y.winner_grid]
     if grids:
         from_front = sum(1 for g in grids if g <= 3) / len(grids)

@@ -24,17 +24,37 @@ export default {
         return Response.json(
           {
             error:
-              "The ARIS UI is on Cloudflare. The FastAPI broker is not. Upgrade to Workers Paid and run npm run deploy:container, or set API_ORIGIN to a running uvicorn host.",
+              "The ARIS UI is on Cloudflare. The FastAPI broker is not. Run scripts/aris-home-tunnel.ps1 on the Legion, or set API_ORIGIN.",
           },
           { status: 503 },
         );
       }
       const target = new URL(url.pathname + url.search, origin);
-      return fetch(target, {
-        method: request.method,
-        headers: request.headers,
-        body: request.method === "GET" || request.method === "HEAD" ? undefined : request.body,
-      });
+      const headers = new Headers();
+      for (const name of ["accept", "accept-language", "content-type", "authorization"]) {
+        const value = request.headers.get(name);
+        if (value) headers.set(name, value);
+      }
+      const heavy =
+        url.pathname.includes("/replay-frame") ||
+        url.pathname.includes("/replay-path") ||
+        url.pathname.includes("/replay-ready") ||
+        url.pathname.includes("/history") ||
+        /\/api\/circuit\/.+\/(map|preview|characteristics)$/.test(url.pathname);
+      try {
+        return await fetch(target, {
+          method: request.method,
+          headers,
+          body: request.method === "GET" || request.method === "HEAD" ? undefined : request.body,
+          signal: AbortSignal.timeout(heavy ? 90_000 : 25_000),
+        });
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : "tunnel fetch failed";
+        return Response.json(
+          { error: "ARIS backend is warming up. Retry shortly.", detail },
+          { status: 503 },
+        );
+      }
     }
     return env.ASSETS.fetch(request);
   },

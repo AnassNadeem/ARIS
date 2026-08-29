@@ -6,8 +6,11 @@ import { MOCK_DRIVERS_2025 } from "@/lib/mockData";
 export function ARISToggle({ disabled, disabledReason }: { disabled?: boolean; disabledReason?: string }) {
   const isARISOn = useRaceStore((s) => s.isARISOn);
   const arisMode = useRaceStore((s) => s.arisMode);
+  const arisModeLocked = useRaceStore((s) => s.arisModeLocked);
   const arisDriver = useRaceStore((s) => s.arisDriver);
+  const gridDrivers = useRaceStore((s) => s.gridDrivers);
   const setARISOn = useRaceStore((s) => s.setARISOn);
+  const drivers = gridDrivers.length ? gridDrivers : MOCK_DRIVERS_2025;
   const setARISMode = useRaceStore((s) => s.setARISMode);
   const setARISDriver = useRaceStore((s) => s.setARISDriver);
 
@@ -37,13 +40,15 @@ export function ARISToggle({ disabled, disabledReason }: { disabled?: boolean; d
           <div className="flex items-center gap-2 font-mono-data text-[11px]">
             <span className="text-muted">Mode</span>
             <div className="flex gap-1">
-              {(["assisted", "auto"] as const).map((m) => (
+              {(["auto", "assisted"] as const).map((m) => (
                 <button
                   key={m}
+                  disabled={arisModeLocked}
                   onClick={() => setARISMode(m)}
+                  title={arisModeLocked ? "Mode was chosen before the race and cannot be changed" : undefined}
                   className={`rounded px-2 py-1 uppercase ${
                     arisMode === m ? "bg-red text-white" : "bg-carbon text-muted hover:text-white"
-                  }`}
+                  } ${arisModeLocked ? "cursor-not-allowed opacity-50" : ""}`}
                 >
                   {m}
                 </button>
@@ -57,7 +62,7 @@ export function ARISToggle({ disabled, disabledReason }: { disabled?: boolean; d
               onChange={(e) => setARISDriver(e.target.value)}
               className="rounded border border-border bg-carbon px-2 py-1 text-white"
             >
-              {MOCK_DRIVERS_2025.map((d) => (
+              {drivers.map((d) => (
                 <option key={d.driver_code} value={d.driver_code}>{d.driver_code} — {d.full_name}</option>
               ))}
             </select>

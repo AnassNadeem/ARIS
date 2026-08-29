@@ -394,6 +394,39 @@ export function formatMs(ms: number | null | undefined): string {
   return m > 0 ? `${m}:${rest.toFixed(3).padStart(6, "0")}` : rest.toFixed(3);
 }
 
+export function YearSelect({
+  year,
+  years,
+  onChange,
+}: {
+  year: number;
+  years: number[];
+  onChange: (y: number) => void;
+}) {
+  return (
+    <select
+      value={year}
+      onChange={(e) => onChange(Number(e.target.value))}
+      style={{
+        background: C.raised,
+        color: C.paper,
+        border: `1px solid ${C.border}`,
+        fontFamily: T.mono,
+        fontSize: 13,
+        padding: "8px 12px",
+        borderRadius: 4,
+        minWidth: 120,
+      }}
+    >
+      {years.map((y) => (
+        <option key={y} value={y}>
+          {y}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 export function initials(name: string): string {
   const parts = name.split(" ").filter(Boolean);
   if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();

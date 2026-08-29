@@ -3,34 +3,50 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import BackgroundTasks, Body, Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import JSONResponse, Response, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 
 from backend.paths import ROOT  # noqa: F401  # sys.path bootstrap
+from backend.observability import init_sentry
+
+init_sentry()
+
 from backend.cache import (
     TTL_CALENDAR,
     TTL_CIRCUIT,
+    TTL_COMPLETED,
     TTL_DRIVERS,
     TTL_LIVE,
     TTL_NEXT_RACE,
     TTL_SESSION,
     TTL_STANDINGS,
+    TTL_STATS,
     cache,
     enable_fastf1_cache,
+    get_memory_then_disk,
+    put_both,
 )
-from backend.utils import executor, run_sync
+from backend.utils import prewarm_executor, run_light, run_prewarm, run_sync
 
 CACHE_DIR = os.path.join(os.path.dirname(__file__), "..", "cache", "fastf1")
-os.makedirs(CACHE_DIR, exist_ok=True)
+try:
+    os.makedirs(CACHE_DIR, exist_ok=True)
+except OSError:
+    pass
 enable_fastf1_cache()
+_log = logging.getLogger("aris.api")
 
-from backend import analytics, aris_api, calendar, live, sessions, standings  # noqa: E402
+from backend import analytics, aris_api, calendar, live, live_hub, sessions, standings  # noqa: E402
 from backend.models import (  # noqa: E402
     ArisStatsResponse,
     CalendarResponse,
@@ -41,6 +57,8 @@ from backend.models import (  # noqa: E402
     CircuitPathResponse,
     CompareDriversResponse,
     ConstructorStandingsResponse,
+    CopilotChatRequest,
+    CopilotChatResponse,
     DebriefResponse,
     DriverSeasonResponse,
     DriverStandingsResponse,
@@ -48,22 +66,29 @@ from backend.models import (  # noqa: E402
     FastestLapEvolutionResponse,
     ForecastResponse,
     GapHistoryResponse,
-    HealthResponse,
+    IngestStatusResponse,
     LapsResponse,
     LiveIntervalsResponse,
     LivePositionsResponse,
     LiveRaceControlResponse,
+    LiveHubResponse,
     LiveStatus,
     LiveStintsResponse,
+    LiveLapsResponse,
+    LiveTelemetryResponse,
     LiveTimingResponse,
     LiveWeatherResponse,
     MessagesResponse,
     NextRaceResponse,
     PitStopsResponse,
     PositionHistoryResponse,
+    PrewarmRequest,
+    PrewarmResponse,
     RecommendRequest,
     RecommendResponse,
     ReplayFrameResponse,
+    ReplayInitRequest,
+    ReplayInitResponse,
     RoundSessionsResponse,
     SessionEventsResponse,
     SessionPositionsAllResponse,
@@ -79,60 +104,224 @@ from backend.models import (  # noqa: E402
     TyreStrategyResponse,
     WeatherSeries,
 )
+from aris.schemas import (  # noqa: E402
+    DegradationCurveResponse,
+    GhostVsRealResponse,
+    RaceDebriefResponse,
+)
 
 
+# Race day: only the live weekend + last year's Zandvoort outline.
+# Loading every 2025 quali in-process crashed uvicorn (Win access violation).
 CIRCUITS_TO_PREWARM = [
-    (2025, 1),
-    (2025, 2),
-    (2025, 3),
-    (2025, 4),
-    (2025, 5),
-    (2025, 6),
-    (2025, 7),
-    (2025, 8),
-    (2025, 9),
-    (2025, 10),
-    (2025, 11),
-    (2025, 12),
-    (2025, 13),
-    (2025, 14),
-    (2025, 15),
-    (2025, 16),
-    (2025, 17),
-    (2025, 18),
-    (2025, 19),
-    (2025, 20),
-    (2025, 21),
-    (2025, 22),
-    (2025, 23),
-    (2025, 24),
+    (2026, 15),
     (2024, 15),
 ]
 
+# Lift these Race packs from diskcache into `_REPLAY_PACKS` at startup.
+# Disk-only — never call FastF1 here (that has crashed uvicorn on Windows).
+HOT_REPLAY_PACKS: list[tuple[int, int, str]] = [
+    (2025, 15, "R"),  # Zandvoort
+    (2024, 8, "R"),  # Monaco
+    (2025, 8, "R"),  # Monaco
+    (2024, 15, "R"),  # Zandvoort
+    (2025, 12, "R"),  # Silverstone
+    (2024, 12, "R"),  # Silverstone
+    (2025, 16, "R"),  # Monza
+    (2024, 16, "R"),  # Monza
+]
 
-def _prewarm_calendars() -> None:
-    """Run at startup in a thread — calendars, next race, and cheap circuit profiles."""
-    keys: set[str] = set()
-    for year in [2024, 2025, 2026]:
+
+def warmup_startup() -> dict[str, int]:
+    """Preload calendar, driver lists, and hot replay packs into RAM.
+
+    Called from the FastAPI lifespan before the first request is served.
+    Replay packs are hydrated from memory/disk only — no FastF1.
+    """
+    years = sorted(calendar.ALLOWED_REPLAY_YEARS)
+    calendars = 0
+    drivers_n = 0
+    packs = 0
+    for year in years:
         try:
             cal = calendar.get_calendar(year)
+            put_both(f"calendar_{year}_now", cal, TTL_CALENDAR)
+            calendars += 1
             print(f"[ARIS] Calendar {year} cached OK ({len(cal.rounds)} rounds)", flush=True)
-            for rnd in cal.rounds:
-                keys.add(rnd.circuit_key)
         except Exception as e:
             print(f"[ARIS] Calendar {year} prewarm failed: {e}", flush=True)
+        try:
+            roster = standings.get_drivers(year)
+            put_both(f"drivers_{year}", roster, TTL_DRIVERS)
+            drivers_n += 1
+            n = len(getattr(roster, "drivers", []) or [])
+            print(f"[ARIS] Drivers {year} cached OK ({n})", flush=True)
+        except Exception as e:
+            print(f"[ARIS] Drivers {year} prewarm failed: {e}", flush=True)
+    for year, rnd, stype in HOT_REPLAY_PACKS:
+        try:
+            key = live.synthetic_session_key(year, rnd, stype)
+            pack, memory_hit, disk_hit = live.hydrate_replay_pack_cache(
+                key, year, rnd, stype, log_hits=True
+            )
+            if pack is not None and (memory_hit or disk_hit):
+                packs += 1
+                print(
+                    f"[ARIS] Hot pack {year} R{rnd} {stype} "
+                    f"memory_hit={memory_hit} disk_hit={disk_hit}",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"[ARIS] Hot pack {year} R{rnd} {stype} skipped (not on disk)",
+                    flush=True,
+                )
+        except Exception as e:
+            print(f"[ARIS] Hot pack {year} R{rnd} {stype} failed: {e}", flush=True)
+    msg = f"Warmup complete: calendar, drivers, {packs} hot packs loaded."
+    _log.info(msg)
+    print(f"[ARIS] {msg}", flush=True)
+    return {"calendars": calendars, "drivers": drivers_n, "hot_packs": packs}
+
+
+def _prewarm_catalog_extras() -> None:
+    """Next-race, stats, and historical standings — not on the first-request path."""
     try:
-        calendar.next_race()
+        nxt = calendar.next_race()
+        put_both("next_race_None_now", nxt, TTL_NEXT_RACE)
         print("[ARIS] Next race cached OK", flush=True)
     except Exception as e:
         print(f"[ARIS] Next race prewarm failed: {e}", flush=True)
-    for key in keys:
+    try:
+        put_both("aris_stats", aris_api.model_stats(), TTL_STATS)
+    except Exception as e:
+        print(f"[ARIS] Stats prewarm failed: {e}", flush=True)
+    for year in (2018, 2019, 2020, 2021, 2022, 2023):
         try:
-            analytics.circuit_characteristics(key)
+            standings.driver_standings(year)
+            print(f"[ARIS] Standings {year} cached OK", flush=True)
+        except Exception as e:
+            print(f"[ARIS] Standings {year} prewarm failed: {e}", flush=True)
+
+
+def _prewarm_calendars() -> None:
+    """Back-compat alias used by tests / scripts that expected the old name."""
+    warmup_startup()
+    _prewarm_catalog_extras()
+
+
+def _recent_circuit_rounds(limit: int = 5) -> list[tuple[int, int]]:
+    """Last 3–5 completed races (fill from previous season if needed)."""
+    year = datetime.now(timezone.utc).year
+    year = min(max(year, 2024), 2026)
+    picks: list[tuple[int, int]] = []
+    try:
+        cal = calendar.get_calendar(year)
+        completed = [r for r in cal.rounds if r.status == "COMPLETED"]
+        completed.sort(key=lambda r: int(r.round_number))
+        picks = [(year, int(r.round_number)) for r in completed[-limit:]]
+    except Exception:
+        picks = []
+    if len(picks) < 3 and year > 2024:
+        try:
+            prev = calendar.get_calendar(year - 1)
+            prev_c = [r for r in prev.rounds if r.status == "COMPLETED"]
+            prev_c.sort(key=lambda r: int(r.round_number))
+            need = limit - len(picks)
+            extra = [(year - 1, int(r.round_number)) for r in prev_c[-need:]]
+            picks = extra + picks
         except Exception:
             pass
-    if keys:
-        print(f"[ARIS] {len(keys)} circuit profiles cached OK", flush=True)
+    if not picks:
+        return list(CIRCUITS_TO_PREWARM)
+    return picks
+
+
+# fix-pass item 2: cap prewarm concurrency explicitly so background warming never
+# fans out past the dedicated prewarm pool and starves user-facing requests.
+_PREWARM_CONCURRENCY = asyncio.Semaphore(2)
+
+
+async def _prewarm_weekend_packs() -> None:
+    """Load completed weekend packs in the background so replay is already warm.
+
+    Runs as a background task (never blocks startup) and does all of its blocking
+    work on `prewarm_executor` — a pool dedicated to prewarm — so it can never
+    queue-block a live user's request on the general/light pools (fix-pass item 2).
+    """
+    await asyncio.sleep(1.5)
+    try:
+        nxt = await run_prewarm(calendar.next_race)
+    except Exception as e:
+        print(f"[ARIS] Weekend pack prewarm skipped: {e}", flush=True)
+        return
+    try:
+        weekend = await run_prewarm(calendar.get_round_sessions, nxt.year, nxt.round_number)
+    except Exception as e:
+        print(f"[ARIS] Weekend sessions prewarm failed: {e}", flush=True)
+        weekend = None
+    try:
+        cmap = await run_prewarm(sessions.circuit_map_quick, nxt.year, nxt.round_number)
+        put_both(f"circuit_map_v6_{nxt.year}_{nxt.round_number}", cmap, TTL_CIRCUIT)
+        print(f"[ARIS] Circuit map cached: {nxt.year} R{nxt.round_number}", flush=True)
+    except Exception as e:
+        print(f"[ARIS] Circuit map prewarm failed: {e}", flush=True)
+    for year, rnd in _recent_circuit_rounds(5):
+        if year == nxt.year and rnd == nxt.round_number:
+            continue
+        try:
+            cmap = await run_prewarm(sessions.circuit_map_quick, year, rnd)
+            put_both(f"circuit_map_v6_{year}_{rnd}", cmap, TTL_CIRCUIT)
+            print(f"[ARIS] Circuit map cached: {year} R{rnd}", flush=True)
+        except Exception as e:
+            print(f"[ARIS] Circuit map prewarm failed {year} R{rnd}: {e}", flush=True)
+    if nxt.circuit_key:
+        try:
+            from backend.analytics import circuit_history
+
+            hist = await run_prewarm(circuit_history, nxt.circuit_key)
+            print(
+                f"[ARIS] Circuit history cached: {nxt.circuit_key} "
+                f"years={len(hist.years)} first_stop={hist.median_first_stop_lap} "
+                f"stops={hist.typical_stop_count}",
+                flush=True,
+            )
+        except Exception as e:
+            print(f"[ARIS] Circuit history prewarm failed: {e}", flush=True)
+    for sess in (weekend.sessions if weekend is not None else []):
+        if sess.status != "COMPLETED":
+            continue
+        if sess.session_type != "R":
+            continue
+        async with _PREWARM_CONCURRENCY:
+            try:
+                key = live.synthetic_session_key(nxt.year, nxt.round_number, sess.session_type)
+                await live._ensure_replay_pack(
+                    key,
+                    nxt.year,
+                    nxt.round_number,
+                    session_type=sess.session_type,
+                    executor=prewarm_executor,
+                    wait_for="full",
+                )
+                print(f"[ARIS] Replay pack warm: {sess.session_type} {key}", flush=True)
+            except Exception as e:
+                print(f"[ARIS] Replay pack warm failed {sess.session_type}: {e}", flush=True)
+            if sess.session_type == "R":
+                # fix-pass item 6: warm ARIS-DB ingestion for the race here too, so
+                # a later `recommend()` call doesn't hit a cold ingest check.
+                try:
+                    from backend.ingest_jobs import ensure_session_ingested
+
+                    status = await run_prewarm(
+                        ensure_session_ingested, nxt.year, nxt.round_number, "R"
+                    )
+                    print(
+                        f"[ARIS] Ingest warm: {nxt.year} R{nxt.round_number} -> {status}",
+                        flush=True,
+                    )
+                except Exception as e:
+                    print(f"[ARIS] Ingest warm failed: {e}", flush=True)
 
 
 def _prewarm_circuit_previews() -> None:
@@ -155,8 +344,15 @@ def _prewarm_circuit_previews() -> None:
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     loop = asyncio.get_running_loop()
-    loop.run_in_executor(executor, _prewarm_calendars)
-    loop.run_in_executor(executor, _prewarm_circuit_previews)
+    # Calendar + drivers + disk-only hot packs before the first HTTP request.
+    try:
+        await run_prewarm(warmup_startup)
+    except Exception as e:
+        print(f"[ARIS] Startup warmup failed: {e}", flush=True)
+    loop.run_in_executor(prewarm_executor, _prewarm_catalog_extras)
+    # Circuit previews load FastF1 telemetry and have crashed uvicorn on Windows.
+    # Serve calendars/live first; previews fill on demand.
+    asyncio.create_task(_prewarm_weekend_packs(), name="weekend-pack-warm")
     poller = asyncio.create_task(live.poll_openf1_forever(), name="openf1-poller")
     try:
         yield
@@ -169,17 +365,78 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="ARIS V3 Data Broker", version="0.3.0", lifespan=lifespan)
+
+
+@app.exception_handler(calendar.ReplayYearBlocked)
+async def replay_year_blocked_handler(_request, extra: calendar.ReplayYearBlocked) -> JSONResponse:
+    return JSONResponse(status_code=400, content={"detail": str(extra)})
+
+
+@app.exception_handler(calendar.ReplaySessionBlocked)
+async def replay_session_blocked_handler(_request, extra: calendar.ReplaySessionBlocked) -> JSONResponse:
+    return JSONResponse(status_code=400, content={"detail": str(extra)})
+
+
+@app.middleware("http")
+async def _catalog_cache_headers(request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    if path.startswith("/api/standings/") or path.startswith("/api/drivers/") or path.startswith("/api/teams/"):
+        response.headers["Cache-Control"] = "public, max-age=120, stale-while-revalidate=600"
+    elif "/api/calendar/" in path or path.endswith("/characteristics") or path.endswith("/history"):
+        response.headers["Cache-Control"] = "public, max-age=60, stale-while-revalidate=300"
+    elif path.endswith("/preview") or path.endswith("/map"):
+        response.headers["Cache-Control"] = "public, max-age=300"
+    elif path in {
+        "/api/next-race",
+        "/api/live/status",
+        "/api/live/hub",
+        "/api/live/next",
+        "/health",
+        "/api/health",
+        "/api/status",
+        "/api/aris/stats",
+    }:
+        response.headers["Cache-Control"] = "public, max-age=5"
+    return response
+
+
+from backend.cors_origins import cors_allow_origins  # noqa: E402
+
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:3000",
-    ],
+    allow_origins=cors_allow_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 1. Resolve absolute path
+ROOT_DIR = Path(__file__).resolve().parent.parent
+STATIC_DIR = ROOT_DIR / "static_replays"
+os.makedirs(STATIC_DIR, exist_ok=True)
+
+# 2. MOUNT FIRST: Ensure this is above all other @app.get routes
+app.mount("/static_replays", StaticFiles(directory=str(STATIC_DIR)), name="static_replays")
+
+# 3. Debug Endpoint to verify paths
+@app.get("/api/debug-static")
+def debug_static():
+    test_file = STATIC_DIR / "2024_zandvoort_r" / "manifest.json"
+
+    try:
+        contents = os.listdir(STATIC_DIR) if STATIC_DIR.exists() else []
+    except Exception as e:
+        contents = [str(e)]
+
+    return {
+        "backend_file_path": str(Path(__file__).resolve()),
+        "calculated_static_dir": str(STATIC_DIR),
+        "static_dir_exists": STATIC_DIR.exists(),
+        "manifest_exists": test_file.exists(),
+        "files_in_static": contents,
+    }
 
 
 def _parse_as_of(
@@ -196,71 +453,342 @@ def _http(exc: Exception, status: int = 404) -> HTTPException:
     return HTTPException(status_code=status, detail=str(exc))
 
 
+def _require_replay_year(year: int) -> int:
+    """400 before any FastF1 / background pack work for years outside 2024–2026."""
+    try:
+        return calendar.assert_replay_year(year)
+    except calendar.ReplayYearBlocked as extra:
+        raise HTTPException(status_code=400, detail=str(extra)) from extra
+
+
+def _require_replay_session_type(session_type: str | None) -> str:
+    """400 when Replay/ARIS is asked for FP / Sprint / Quali."""
+    try:
+        return calendar.assert_replay_session_type(session_type)
+    except calendar.ReplaySessionBlocked as extra:
+        raise HTTPException(status_code=400, detail=str(extra)) from extra
+
+
+def _require_standings_year(year: int) -> int:
+    try:
+        return standings.assert_standings_year(year)
+    except standings.StandingsYearBlocked as extra:
+        raise HTTPException(status_code=400, detail=str(extra)) from extra
+
+
 def _as_of_key(as_of: datetime | None) -> str:
     if as_of is None:
         return "now"
     return as_of.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _history_ttl(year: int) -> int:
+    """Past seasons are frozen; keep this season at one day so today's race can fill."""
+    return TTL_COMPLETED if year < datetime.now(timezone.utc).year else TTL_SESSION
+
+
+def _replay_feed_ttl(replay_session_key: int | None) -> int:
+    """Replay of a finished session is static. Live timing must stay short."""
+    return TTL_SESSION if replay_session_key is not None else TTL_LIVE
+
+
+_REFRESHING: set[str] = set()
+_PREWARM_INFLIGHT: set[tuple[int, int, str]] = set()
+
+
+def _pack_memory_ready(session_key: int) -> bool:
+    cached = live._REPLAY_PACKS.get(session_key)
+    return bool(
+        cached is not None
+        and live._ff1_pack_ready(cached)
+        and cached.get("path_traces")
+        and cached.get("path_traces_v") == live._PATH_TRACES_V
+    )
+
+
+async def _prewarm_round_pack(year: int, round_number: int, session_type: str = "R") -> None:
+    """Build the Race replay pack after round select. Never blocks the HTTP response."""
+    if not calendar.replay_year_allowed(year):
+        msg = f"Replay request for year {year} — blocked (not in 2024–2026)"
+        _log.info(msg)
+        print(f"[ARIS] {msg}", flush=True)
+        return
+    stype = str(session_type or "R").upper()
+    if stype != "R":
+        _log.info("Replay/ARIS prewarm skipped for non-Race session %s", stype)
+        return
+    token = (int(year), int(round_number), stype)
+    if token in _PREWARM_INFLIGHT:
+        return
+    _PREWARM_INFLIGHT.add(token)
+    try:
+        from backend.sessions import _pack_cache_key
+
+        key = live.synthetic_session_key(year, round_number, stype)
+        cache_key = _pack_cache_key(year, round_number, stype)
+        msg = f"[prewarm] started pack for {year} R{round_number} key={cache_key}"
+        _log.info(msg)
+        print(msg, flush=True)
+        pack, memory_hit, disk_hit = live.hydrate_replay_pack_cache(
+            key, year, round_number, stype, log_hits=True
+        )
+        _log.info("key=%s memory_hit=%s disk_hit=%s", cache_key, memory_hit, disk_hit)
+        if _pack_memory_ready(key) or (
+            pack is not None and live.replay_pack_stage(pack) == "full" and live._ff1_pack_ready(pack)
+        ):
+            skip = f"[prewarm] memory_hit={memory_hit} disk_hit={disk_hit} for {year} R{round_number} - skip reload"
+            _log.info(skip)
+            print(skip, flush=True)
+            return
+        await live._ensure_replay_pack(key, year, round_number, session_type=stype, wait_for="full")
+        done = f"[prewarm] ready pack for {year} R{round_number} key={cache_key}"
+        _log.info(done)
+        print(done, flush=True)
+    except Exception:
+        _log.info("[prewarm] failed for %s R%s (replay will cold-load)", year, round_number, exc_info=True)
+        print(f"[prewarm] failed for {year} R{round_number} (replay will cold-load)", flush=True)
+    finally:
+        _PREWARM_INFLIGHT.discard(token)
+
+
 async def _cached_sync(key: str, ttl: int, fn, *args, **kwargs):
-    hit = cache.get(key, ttl)
+    refresh = bool(kwargs.pop("refresh", False))
+    if refresh:
+        cache.delete(key)
+        _log.info("HTTP cache BYPASS key=%s", key)
+        value = await run_sync(fn, *args, **kwargs)
+        cache.set(key, value)
+        return value
+    hit = get_memory_then_disk(key, ttl)
     if hit is not None:
+        _log.debug("HTTP cache HIT key=%s", key)
         return hit
+    stale = cache.peek(key)
+    if stale is not None:
+        if key not in _REFRESHING:
+            _REFRESHING.add(key)
+
+            async def _refresh() -> None:
+                try:
+                    value = await run_sync(fn, *args, **kwargs)
+                    cache.set(key, value)
+                except Exception:
+                    pass
+                finally:
+                    _REFRESHING.discard(key)
+
+            asyncio.create_task(_refresh())
+        _log.debug("HTTP cache STALE key=%s", key)
+        return stale
+    _log.info("HTTP cache MISS key=%s", key)
     value = await run_sync(fn, *args, **kwargs)
-    cache.set(key, value)
+    put_both(key, value, ttl)
     return value
 
 
-async def _cached_await(key: str, ttl: int, factory):
-    hit = cache.get(key, ttl)
+async def _cached_await(key: str, ttl: int, factory, *, refresh: bool = False):
+    if refresh:
+        cache.delete(key)
+        _log.info("HTTP cache BYPASS key=%s", key)
+        value = await factory()
+        cache.set(key, value)
+        return value
+    hit = get_memory_then_disk(key, ttl)
     if hit is not None:
+        _log.debug("HTTP cache HIT key=%s", key)
         return hit
+    stale = cache.peek(key)
+    if stale is not None:
+        if key not in _REFRESHING:
+            _REFRESHING.add(key)
+
+            async def _refresh() -> None:
+                try:
+                    value = await factory()
+                    cache.set(key, value)
+                except Exception:
+                    pass
+                finally:
+                    _REFRESHING.discard(key)
+
+            asyncio.create_task(_refresh())
+        _log.debug("HTTP cache STALE key=%s", key)
+        return stale
+    _log.info("HTTP cache MISS key=%s", key)
     value = await factory()
-    cache.set(key, value)
+    put_both(key, value, ttl)
     return value
 
 
 @app.get("/")
 def root() -> dict[str, object]:
-    return {"status": "ok", "service": "ARIS backend", "port": 8765}
+    return {
+        "status": "ok",
+        "service": "ARIS backend",
+        "port": int(os.environ.get("PORT", "8765")),
+    }
 
 
 @app.get("/health")
-def health_probe() -> dict[str, bool]:
-    return {"ok": True}
+def health_probe():
+    from backend.health import build_health
+
+    payload = build_health()
+    return JSONResponse(status_code=200 if payload["ok"] else 503, content=payload)
 
 
-@app.get("/api/health", response_model=HealthResponse)
-def health() -> HealthResponse:
-    return HealthResponse(ok=True)
+@app.get("/api/health")
+def health():
+    from backend.health import build_health
+
+    payload = build_health()
+    return JSONResponse(status_code=200 if payload["ok"] else 503, content=payload)
 
 
 @app.get("/api/calendar/{year}", response_model=CalendarResponse)
-async def api_calendar(year: int, as_of: AsOf) -> CalendarResponse:
-    if year not in {2024, 2025, 2026}:
-        raise HTTPException(400, "year must be 2024, 2025, or 2026")
-    return await _cached_sync(
-        f"calendar_{year}_{_as_of_key(as_of)}",
-        TTL_CALENDAR,
-        calendar.get_calendar,
-        year,
-        as_of=as_of,
-    )
+async def api_calendar(
+    year: int,
+    as_of: AsOf,
+    replay: bool = Query(False, description="If true, only 2024–2026 are served (no FastF1 for older seasons)."),
+) -> CalendarResponse:
+    now_year = datetime.now(timezone.utc).year
+    if year < 2018 or year > max(now_year, 2026):
+        raise HTTPException(400, f"year must be 2018–{max(now_year, 2026)}")
+    if replay:
+        _require_replay_year(year)
+    key = f"calendar_{year}_{_as_of_key(as_of)}_{'replay' if replay else 'full'}"
+    try:
+        cal = await asyncio.wait_for(
+            _cached_sync(key, TTL_CALENDAR, calendar.get_calendar, year, as_of=as_of, for_replay=replay),
+            timeout=20.0,
+        )
+    except Exception:
+        stale = cache.peek(key) or cache.peek(f"calendar_{year}_now")
+        if stale is not None:
+            cal = stale
+        else:
+            try:
+                cal = calendar.get_calendar(year, as_of=as_of, for_replay=replay)
+            except Exception:
+                raise HTTPException(503, "Calendar is warming up. Retry in a moment.")
+    if replay:
+        playable = [
+            r
+            for r in cal.rounds
+            if str(getattr(r, "status", "")).upper() not in {"CANCELLED", "UPCOMING"}
+        ]
+        if hasattr(cal, "model_copy"):
+            return cal.model_copy(update={"rounds": playable})
+        cal.rounds = playable
+        return cal
+    return cal
 
 
 @app.get("/api/calendar/{year}/{round_number}/sessions", response_model=RoundSessionsResponse)
-async def api_round_sessions(year: int, round_number: int, as_of: AsOf) -> RoundSessionsResponse:
+async def api_round_sessions(
+    year: int,
+    round_number: int,
+    as_of: AsOf,
+    background_tasks: BackgroundTasks,
+    session_type: str | None = Query(
+        None, description="Unused for Replay/ARIS (Race-only). Kept for older callers."
+    ),
+    replay: bool = Query(
+        False,
+        description="If true, only Race sessions are returned (Replay/ARIS).",
+    ),
+) -> RoundSessionsResponse:
+    # Round select already hits this path — start a pack now, don't wait for Start Replay.
+    # Live OpenF1 weekends are unchanged; FastF1 replay packs are Race-only for 2024–2026.
+    if calendar.replay_year_allowed(year):
+        background_tasks.add_task(_prewarm_round_pack, year, round_number, "R")
     try:
         return await _cached_sync(
-            f"sessions_{year}_{round_number}_{_as_of_key(as_of)}",
+            f"sessions_{year}_{round_number}_{_as_of_key(as_of)}_{int(replay)}",
             TTL_NEXT_RACE,
             calendar.get_round_sessions,
             year,
             round_number,
             as_of=as_of,
+            replay=replay,
         )
-    except KeyError as exc:
-        raise _http(exc) from exc
+    except KeyError as extra:
+        raise _http(extra) from extra
+
+
+@app.get(
+    "/api/session/{year}/{round_number}/{session_type}/ingest",
+    response_model=IngestStatusResponse,
+)
+async def api_ingest_status(year: int, round_number: int, session_type: str) -> IngestStatusResponse:
+    from backend.ingest_jobs import peek_ingest_status
+
+    status = await run_sync(peek_ingest_status, year, round_number, session_type)
+    return IngestStatusResponse(
+        year=year,
+        round_number=round_number,
+        session_type=session_type.upper(),
+        status=status,
+    )
+
+
+@app.post(
+    "/api/session/{year}/{round_number}/{session_type}/ingest",
+    response_model=IngestStatusResponse,
+)
+async def api_ingest_start(year: int, round_number: int, session_type: str) -> IngestStatusResponse:
+    from backend.ingest_jobs import ensure_session_ingested
+
+    status = await run_sync(ensure_session_ingested, year, round_number, session_type)
+    return IngestStatusResponse(
+        year=year,
+        round_number=round_number,
+        session_type=session_type.upper(),
+        status=status,
+    )
+
+
+@app.post("/api/prewarm", response_model=PrewarmResponse)
+async def api_prewarm(
+    background_tasks: BackgroundTasks,
+    year: int | None = Query(None),
+    round_alias: int | None = Query(None, alias="round"),
+    round_number: int | None = Query(None),
+    session_type: str = Query("R"),
+    body: PrewarmRequest | None = Body(default=None),
+) -> PrewarmResponse:
+    """Called when a round is selected. Returns immediately; the pack builds in the background."""
+    y = body.year if body is not None else year
+    rnd = body.round_number if body is not None else (round_number if round_number is not None else round_alias)
+    st = str((body.session_type if body is not None else session_type) or "R").upper()
+    if y is None or rnd is None:
+        raise HTTPException(422, "year and round are required")
+    _require_replay_year(int(y))
+    st = _require_replay_session_type(st)
+    key = live.synthetic_session_key(int(y), int(rnd), st)
+    background_tasks.add_task(_prewarm_round_pack, int(y), int(rnd), st)
+
+    def _bg() -> None:
+        try:
+            sessions.circuit_preview_safe(int(y), int(rnd))
+        except Exception as exc:
+            print(f"[ARIS] prewarm preview failed: {exc}", flush=True)
+        try:
+            from backend.ingest_jobs import ensure_session_ingested
+
+            ensure_session_ingested(int(y), int(rnd), st)
+        except Exception as extra:
+            print(f"[ARIS] prewarm ingest failed: {extra}", flush=True)
+
+    asyncio.get_running_loop().run_in_executor(prewarm_executor, _bg)
+    return PrewarmResponse(
+        year=int(y),
+        round_number=int(rnd),
+        session_type=st,
+        session_key=key,
+        status="ready" if _pack_memory_ready(key) else "warming",
+        tasks=["session_pack", "circuit_preview", "ingest"],
+    )
 
 
 @app.get("/api/next-race", response_model=NextRaceResponse)
@@ -276,13 +804,31 @@ async def api_next_race(as_of: AsOf, year: int | None = None) -> NextRaceRespons
     except Exception as exc:
         try:
             cal = calendar.get_calendar(2026)
-            if cal.rounds:
+            pick = next((r for r in cal.rounds if r.status in {"LIVE", "UPCOMING"}), None)
+            if pick is not None:
                 return calendar._next_from_round(
-                    2026, cal.rounds[0], calendar.now_utc(as_of), off_season=True
+                    2026, pick, calendar.now_utc(as_of), off_season=False
                 )
         except Exception:
             pass
         raise _http(exc, 503) from exc
+
+
+@app.get("/api/live/next", response_model=NextRaceResponse)
+async def api_live_next(as_of: AsOf, year: int | None = None) -> NextRaceResponse:
+    """Alias of /api/next-race — current or next weekend."""
+    return await api_next_race(as_of, year)
+
+
+@app.get("/api/live/hub", response_model=LiveHubResponse)
+async def api_live_hub(as_of: AsOf) -> LiveHubResponse:
+    try:
+        return await asyncio.wait_for(live_hub.build_live_hub(as_of), timeout=6.0)
+    except Exception:
+        try:
+            return await run_sync(live_hub.build_live_hub_fast, as_of)
+        except Exception as extra:
+            raise _http(extra, 503) from extra
 
 
 @app.get("/api/drivers/{year}", response_model=DriversResponse)
@@ -297,58 +843,77 @@ async def api_teams(year: int) -> TeamsResponse:
 
 @app.get("/api/standings/drivers/{year}", response_model=DriverStandingsResponse)
 async def api_driver_standings(year: int) -> DriverStandingsResponse:
+    _require_standings_year(year)
+    ttl = TTL_COMPLETED if year < datetime.now(timezone.utc).year else TTL_STANDINGS
     return await _cached_sync(
-        f"standings_drivers_{year}", TTL_STANDINGS, standings.driver_standings, year
+        f"standings_drivers_{year}", ttl, standings.driver_standings, year
     )
 
 
 @app.get("/api/standings/constructors/{year}", response_model=ConstructorStandingsResponse)
 async def api_constructor_standings(year: int) -> ConstructorStandingsResponse:
+    _require_standings_year(year)
+    ttl = TTL_COMPLETED if year < datetime.now(timezone.utc).year else TTL_STANDINGS
     return await _cached_sync(
-        f"standings_constructors_{year}", TTL_STANDINGS, standings.constructor_standings, year
+        f"standings_constructors_{year}", ttl, standings.constructor_standings, year
     )
 
 
 @app.get("/api/session/{year}/{round_number}/{session_type}/laps", response_model=LapsResponse)
-async def api_laps(year: int, round_number: int, session_type: str) -> LapsResponse:
+async def api_laps(
+    year: int, round_number: int, session_type: str, refresh: bool = False
+) -> LapsResponse:
     try:
+        if refresh:
+            sessions.clear_session_cache(year, round_number, session_type)
         return await _cached_sync(
             f"laps_{year}_{round_number}_{session_type}",
-            TTL_SESSION,
+            _history_ttl(year),
             sessions.session_laps,
             year,
             round_number,
             session_type,
+            refresh=refresh,
         )
     except Exception as exc:
         raise _http(exc) from exc
 
 
 @app.get("/api/session/{year}/{round_number}/{session_type}/summary", response_model=SessionSummary)
-async def api_summary(year: int, round_number: int, session_type: str) -> SessionSummary:
+async def api_summary(
+    year: int, round_number: int, session_type: str, refresh: bool = False
+) -> SessionSummary:
     try:
+        if refresh:
+            sessions.clear_session_cache(year, round_number, session_type)
         return await _cached_sync(
             f"summary_{year}_{round_number}_{session_type}",
-            TTL_SESSION,
+            _history_ttl(year),
             sessions.session_summary,
             year,
             round_number,
             session_type,
+            refresh=refresh,
         )
     except Exception as exc:
         raise _http(exc) from exc
 
 
 @app.get("/api/session/{year}/{round_number}/{session_type}/stints", response_model=StintsResponse)
-async def api_stints(year: int, round_number: int, session_type: str) -> StintsResponse:
+async def api_stints(
+    year: int, round_number: int, session_type: str, refresh: bool = False
+) -> StintsResponse:
     try:
+        if refresh:
+            sessions.clear_session_cache(year, round_number, session_type)
         return await _cached_sync(
             f"stints_{year}_{round_number}_{session_type}",
-            TTL_SESSION,
+            _history_ttl(year),
             sessions.session_stints,
             year,
             round_number,
             session_type,
+            refresh=refresh,
         )
     except Exception as exc:
         raise _http(exc) from exc
@@ -364,7 +929,7 @@ async def api_telemetry(
     try:
         return await _cached_sync(
             f"telemetry_{year}_{round_number}_{session_type}_{driver_code}_{full}",
-            TTL_SESSION,
+            _history_ttl(year),
             sessions.session_telemetry,
             year,
             round_number,
@@ -381,7 +946,7 @@ async def api_weather(year: int, round_number: int, session_type: str) -> Weathe
     try:
         return await _cached_sync(
             f"weather_{year}_{round_number}_{session_type}",
-            TTL_SESSION,
+            _history_ttl(year),
             sessions.session_weather,
             year,
             round_number,
@@ -396,7 +961,7 @@ async def api_results(year: int, round_number: int, session_type: str) -> Sessio
     try:
         return await _cached_sync(
             f"results_{year}_{round_number}_{session_type}",
-            TTL_SESSION,
+            _history_ttl(year),
             sessions.session_results,
             year,
             round_number,
@@ -411,7 +976,7 @@ async def api_messages(year: int, round_number: int, session_type: str) -> Messa
     try:
         return await _cached_sync(
             f"messages_{year}_{round_number}_{session_type}",
-            TTL_SESSION,
+            _history_ttl(year),
             sessions.session_messages,
             year,
             round_number,
@@ -428,7 +993,7 @@ async def api_replay_timing(
     try:
         return await _cached_sync(
             f"timing_{year}_{round_number}_{session_type}_{lap}",
-            TTL_SESSION,
+            _history_ttl(year),
             sessions.replay_timing,
             year,
             round_number,
@@ -443,7 +1008,7 @@ async def api_replay_timing(
 async def api_circuit_path(year: int, round_number: int, session_type: str) -> CircuitPathResponse:
     return await _cached_sync(
         f"circuit_path_{year}_{round_number}_{session_type}",
-        TTL_SESSION,
+        _history_ttl(year),
         sessions.circuit_path,
         year,
         round_number,
@@ -454,13 +1019,14 @@ async def api_circuit_path(year: int, round_number: int, session_type: str) -> C
 @app.get("/api/circuit/{year}/{round_number}/map", response_model=CircuitMapResponse)
 async def api_circuit_map(year: int, round_number: int) -> CircuitMapResponse:
     try:
-        return await _cached_sync(
-            f"circuit_map_v2_{year}_{round_number}",
-            TTL_SESSION,
-            sessions.circuit_map,
+        raw = await _cached_sync(
+            f"circuit_map_v6_{year}_{round_number}",
+            _history_ttl(year),
+            sessions.circuit_map_quick,
             year,
             round_number,
         )
+        return sessions.ensure_sector_paths(raw)
     except Exception:
         return CircuitMapResponse(
             year=year, round_number=round_number, available=False, fallback=True, error="Circuit map unavailable"
@@ -469,24 +1035,8 @@ async def api_circuit_map(year: int, round_number: int) -> CircuitMapResponse:
 
 @app.get("/api/circuit/{year}/{round_number}/preview", response_model=CircuitMapResponse)
 async def api_circuit_preview(year: int, round_number: int) -> CircuitMapResponse:
-    """Never triggers a live FastF1 load — cache only (startup pre-warm fills it)."""
-    preview_key = f"circuit_preview_{year}_{round_number}"
-    hit = cache.get(preview_key, TTL_SESSION)
-    if hit is not None:
-        return hit
-    map_key = f"circuit_map_v2_{year}_{round_number}"
-    full = cache.get(map_key, TTL_SESSION)
-    if full is not None:
-        preview = sessions.circuit_preview_from_map(full)
-        cache.set(preview_key, preview)
-        return preview
-    return CircuitMapResponse(
-        year=year,
-        round_number=round_number,
-        available=False,
-        fallback=True,
-        error="Preview not cached yet",
-    )
+    """Never triggers a live FastF1 load — memory/disk only."""
+    return await run_sync(sessions.circuit_preview_safe, year, round_number)
 
 
 @app.get(
@@ -499,7 +1049,7 @@ async def api_session_positions_all(
     try:
         return await _cached_sync(
             f"positions_all_{year}_{round_number}_{session_type}",
-            TTL_SESSION,
+            _history_ttl(year),
             sessions.session_positions_all,
             year,
             round_number,
@@ -520,7 +1070,7 @@ async def api_session_positions(
 ) -> SessionPositionsResponse:
     return await _cached_sync(
         f"positions_{year}_{round_number}_{session_type}_{lap}",
-        TTL_SESSION,
+        _history_ttl(year),
         sessions.session_positions,
         year,
         round_number,
@@ -539,7 +1089,7 @@ async def api_session_events(
     try:
         return await _cached_sync(
             f"events_{year}_{round_number}_{session_type}_{lap}_{driver_code}",
-            TTL_SESSION,
+            _history_ttl(year),
             sessions.session_events,
             year,
             round_number,
@@ -561,7 +1111,7 @@ async def api_session_events(
 async def api_gaps(year: int, round_number: int) -> GapHistoryResponse:
     try:
         return await _cached_sync(
-            f"gaps_{year}_{round_number}", TTL_SESSION, analytics.gap_history, year, round_number
+            f"gaps_{year}_{round_number}", _history_ttl(year), analytics.gap_history, year, round_number
         )
     except Exception as extra:
         raise _http(extra) from extra
@@ -572,7 +1122,7 @@ async def api_positions(year: int, round_number: int) -> PositionHistoryResponse
     try:
         return await _cached_sync(
             f"positions_{year}_{round_number}",
-            TTL_SESSION,
+            _history_ttl(year),
             analytics.position_history,
             year,
             round_number,
@@ -585,7 +1135,7 @@ async def api_positions(year: int, round_number: int) -> PositionHistoryResponse
 async def api_tyre_strategy(year: int, round_number: int) -> TyreStrategyResponse:
     try:
         return await _cached_sync(
-            f"tyres_{year}_{round_number}", TTL_SESSION, analytics.tyre_strategy, year, round_number
+            f"tyres_{year}_{round_number}", _history_ttl(year), analytics.tyre_strategy, year, round_number
         )
     except Exception as extra:
         raise _http(extra) from extra
@@ -595,7 +1145,7 @@ async def api_tyre_strategy(year: int, round_number: int) -> TyreStrategyRespons
 async def api_pits(year: int, round_number: int) -> PitStopsResponse:
     try:
         return await _cached_sync(
-            f"pits_{year}_{round_number}", TTL_SESSION, analytics.pit_stops, year, round_number
+            f"pits_{year}_{round_number}", _history_ttl(year), analytics.pit_stops, year, round_number
         )
     except Exception as extra:
         raise _http(extra) from extra
@@ -606,7 +1156,7 @@ async def api_fl_evo(year: int, round_number: int) -> FastestLapEvolutionRespons
     try:
         return await _cached_sync(
             f"fl_{year}_{round_number}",
-            TTL_SESSION,
+            _history_ttl(year),
             analytics.fastest_lap_evolution,
             year,
             round_number,
@@ -620,7 +1170,7 @@ async def api_race_results(year: int, round_number: int) -> SessionResultsRespon
     try:
         return await _cached_sync(
             f"race_results_{year}_{round_number}",
-            TTL_SESSION,
+            _history_ttl(year),
             sessions.session_results,
             year,
             round_number,
@@ -634,7 +1184,7 @@ async def api_race_results(year: int, round_number: int) -> SessionResultsRespon
 async def api_driver_season(driver_code: str, year: int) -> DriverSeasonResponse:
     return await _cached_sync(
         f"driver_season_{driver_code}_{year}",
-        TTL_SESSION,
+        _history_ttl(year),
         analytics.driver_season,
         driver_code,
         year,
@@ -644,7 +1194,7 @@ async def api_driver_season(driver_code: str, year: int) -> DriverSeasonResponse
 @app.get("/api/circuit/{circuit_key}/history", response_model=CircuitHistoryResponse)
 async def api_circuit_history(circuit_key: str) -> CircuitHistoryResponse:
     return await _cached_sync(
-        f"circuit_history_v2_{circuit_key}", TTL_SESSION, analytics.circuit_history, circuit_key
+        f"circuit_history_v5_{circuit_key}", TTL_SESSION, analytics.circuit_history, circuit_key
     )
 
 
@@ -672,7 +1222,7 @@ async def api_compare(
 ) -> CompareDriversResponse:
     return await _cached_sync(
         f"compare_{driver_a}_{driver_b}_{year}_{round_number}",
-        TTL_SESSION,
+        _history_ttl(year),
         analytics.compare_drivers,
         driver_a,
         driver_b,
@@ -682,19 +1232,138 @@ async def api_compare(
 
 
 @app.get("/api/live/session-key")
-async def api_live_session_key(year: int, round_number: int, session_type: str) -> dict[str, object]:
-    sess = await live.resolve_openf1_session(year, round_number, session_type)
-    if sess is None or sess.get("session_key") is None:
-        raise HTTPException(404, f"No OpenF1 session for {year} R{round_number} {session_type}")
+async def api_live_session_key(
+    year: int, round_number: int, session_type: str, refresh: bool = False
+) -> dict[str, object]:
+    from backend.sessions import _pack_cache_key, quali_windows_for_session_type
+
+    key = live.synthetic_session_key(year, round_number, session_type)
+    cache_key = _pack_cache_key(year, round_number, session_type)
+    start, end = live.calendar_session_window(year, round_number, session_type)
+    pack, memory_hit, disk_hit = live.hydrate_replay_pack_cache(
+        key, year, round_number, session_type, log_hits=False
+    )
+    _log.info("key=%s memory_hit=%s disk_hit=%s", cache_key, memory_hit, disk_hit)
+    # fix-pass item 13: this endpoint is polled repeatedly while a replay is open,
+    # so guard the task spawn — a no-op once the pack is warm or already building,
+    # instead of creating (and immediately discarding) a task on every call.
+    existing_lock = live._REPLAY_LOCKS.get(key)
+    pack_in_flight = existing_lock is not None and existing_lock.locked()
+    if refresh or (not _pack_memory_ready(key) and not pack_in_flight):
+        live._kick_pack_job(key, year, round_number, session_type, refresh=refresh)
+    pack = live._REPLAY_PACKS.get(key) or pack
+    green = None
+    if isinstance(pack, dict):
+        green = (
+            live._race_start_s(pack)
+            if session_type.upper() in {"R", "S"}
+            else pack.get("green_flag_s")
+        )
+        pack_start = pack.get("date_start")
+        pack_end = pack.get("date_end")
+        if pack_start is not None:
+            start = pack_start
+        if pack_end is not None:
+            end = pack_end
+    _log.info(
+        "session-key FastF1 year=%s round=%s type=%s key=%s cache=%s",
+        year,
+        round_number,
+        session_type,
+        key,
+        cache_key,
+    )
     return {
-        "session_key": int(sess["session_key"]),
+        "session_key": key,
         "year": year,
         "round_number": round_number,
         "session_type": session_type,
-        "date_start": sess.get("date_start"),
-        "date_end": sess.get("date_end"),
-        "session_name": sess.get("session_name"),
+        "date_start": start.isoformat() if hasattr(start, "isoformat") else start,
+        "date_end": end.isoformat() if hasattr(end, "isoformat") else end,
+        "session_name": session_type,
+        "quali_windows": quali_windows_for_session_type(session_type),
+        "green_flag_s": green,
+        "source": "fastf1",
     }
+
+
+@app.get("/api/live/replay-ready")
+async def api_live_replay_ready(
+    session_key: int,
+    year: int | None = None,
+    round_number: int | None = None,
+    refresh: bool = False,
+    driver: str | None = None,
+) -> dict[str, object]:
+    return await live.replay_ready(session_key, year, round_number, refresh=refresh, driver=driver)
+
+
+@app.get("/api/live/replay-pack-status")
+async def api_live_replay_pack_status(
+    session_key: int | None = None,
+    session_id: int | None = None,
+    year: int | None = None,
+    round_number: int | None = None,
+    session_type: str | None = None,
+    refresh: bool = False,
+    outline: bool = False,
+) -> dict[str, object]:
+    """Non-blocking cold-load peek. Returns immediately with stage/flags.
+
+    Additive endpoint — does not change `/api/live/replay-ready`. Ready means
+    stage >= minimal so the UI can start before full GPS.
+    """
+    key = session_key if session_key is not None else session_id
+    if key is None:
+        raise HTTPException(status_code=422, detail="session_key or session_id is required")
+    return await live.peek_replay_pack_status(
+        int(key),
+        year,
+        round_number,
+        session_type,
+        refresh=refresh,
+        outline=outline,
+    )
+
+
+@app.post("/api/replay/init", response_model=ReplayInitResponse)
+async def api_replay_init(req: ReplayInitRequest) -> ReplayInitResponse:
+    """Return calendar metadata immediately and start staged FastF1 in the background."""
+    _require_replay_year(req.year)
+    session_type = _require_replay_session_type(req.session_type)
+    payload = await live.init_replay(req.year, req.round_number, session_type)
+    return ReplayInitResponse.model_validate(payload)
+
+
+@app.get("/api/replay/pack-status")
+async def api_replay_pack_status(
+    session_key: int | None = None,
+    session_id: int | None = None,
+    year: int | None = None,
+    round_number: int | None = None,
+    session_type: str | None = None,
+    refresh: bool = False,
+    outline: bool = False,
+) -> dict[str, object]:
+    """Alias of /api/live/replay-pack-status with session_id accepted."""
+    key = session_key if session_key is not None else session_id
+    if key is None:
+        raise HTTPException(status_code=422, detail="session_key or session_id is required")
+    return await live.peek_replay_pack_status(
+        int(key),
+        year,
+        round_number,
+        session_type,
+        refresh=refresh,
+        outline=outline,
+    )
+
+
+@app.get("/api/live/replay-path")
+async def api_live_replay_path(
+    session_key: int, year: int | None = None, round_number: int | None = None
+) -> dict[str, object]:
+    return await live.replay_path(session_key, year, round_number)
 
 
 @app.get("/api/live/replay-frame", response_model=ReplayFrameResponse)
@@ -703,8 +1372,39 @@ async def api_live_replay_frame(
     as_of: datetime = Query(..., description="Replay clock (ISO-8601 UTC)"),
     year: int | None = None,
     round_number: int | None = None,
+    driver: str | None = None,
+    refresh: bool = False,
+    prev_as_of: datetime | None = Query(None, description="Previous applied frame clock for deltas"),
+    full: bool = Query(False, description="Force a full snapshot (seek / first frame)"),
 ) -> ReplayFrameResponse:
-    return await live.replay_frame(session_key, as_of, year=year, round_number=round_number)
+    return await live.serve_replay_frame(
+        session_key,
+        as_of,
+        year=year,
+        round_number=round_number,
+        driver=driver,
+        refresh=refresh,
+        prev_as_of=prev_as_of,
+        force_full=full,
+    )
+
+
+@app.get("/api/aris/ghost")
+async def api_aris_ghost(
+    year: int,
+    round_number: int,
+    driver: str,
+    lap: int = 1,
+    session_key: int | None = None,
+) -> dict[str, object]:
+    """Live/replay ghost tick for the selected driver. Does not change recommend()/simulate()."""
+    return await live.ghost_for_driver(
+        year=year,
+        round_number=round_number,
+        driver=driver,
+        lap=lap,
+        session_key=session_key,
+    )
 
 
 @app.get("/api/live/status", response_model=LiveStatus)
@@ -712,13 +1412,18 @@ async def api_live_status(as_of: AsOf, replay_session_key: int | None = None) ->
     try:
         if as_of is not None and replay_session_key is None:
             return await run_sync(live.simulated_status, as_of)
-        return await _cached_await(
-            f"live_status_{_as_of_key(as_of)}_{replay_session_key}",
-            TTL_LIVE,
-            lambda: live.live_status(as_of, replay_session_key=replay_session_key),
+        return await asyncio.wait_for(
+            live.live_status(as_of, replay_session_key=replay_session_key),
+            timeout=8.0,
         )
-    except Exception as extra:
-        return LiveStatus(is_live=False, error=str(extra))
+    except Exception:
+        ended = live._STATE.get("ended_session")
+        return LiveStatus(
+            is_live=False,
+            session_ended=isinstance(ended, dict),
+            error=None,
+            replay_preparing=True,
+        )
 
 
 @app.get("/api/live/timing", response_model=LiveTimingResponse)
@@ -726,11 +1431,35 @@ async def api_live_timing(as_of: AsOf, replay_session_key: int | None = None) ->
     try:
         return await _cached_await(
             f"live_timing_{_as_of_key(as_of)}_{replay_session_key}",
-            TTL_LIVE,
+            1,
             lambda: live.live_timing(as_of, replay_session_key=replay_session_key),
         )
     except Exception:
         return LiveTimingResponse(is_live=False, rows=[])
+
+
+@app.get("/api/telemetry/cars", response_model=LivePositionsResponse)
+async def api_telemetry_cars(as_of: AsOf, replay_session_key: int | None = None) -> LivePositionsResponse:
+    """Alias of /api/live/positions — GPS car dots for the map."""
+    return await api_live_positions(as_of, replay_session_key)
+
+
+@app.get("/api/circuits/{circuit_id}/layout", response_model=CircuitMapResponse)
+async def api_circuit_layout(
+    circuit_id: str, year: int | None = None, round_number: int | None = None
+) -> CircuitMapResponse:
+    try:
+        return await run_sync(live_hub.circuit_layout, circuit_id, year, round_number)
+    except KeyError as extra:
+        raise HTTPException(404, str(extra)) from extra
+    except Exception:
+        return CircuitMapResponse(
+            year=year or 0,
+            round_number=round_number or 0,
+            available=False,
+            fallback=True,
+            error="Circuit layout unavailable",
+        )
 
 
 @app.get("/api/live/positions", response_model=LivePositionsResponse)
@@ -738,7 +1467,7 @@ async def api_live_positions(as_of: AsOf, replay_session_key: int | None = None)
     try:
         return await _cached_await(
             f"live_positions_{_as_of_key(as_of)}_{replay_session_key}",
-            TTL_LIVE,
+            1,
             lambda: live.live_positions(
                 as_of, replay_session_key=replay_session_key, simulated=as_of is not None and replay_session_key is None
             ),
@@ -749,11 +1478,11 @@ async def api_live_positions(as_of: AsOf, replay_session_key: int | None = None)
 
 @app.get("/api/live/intervals", response_model=LiveIntervalsResponse)
 async def api_live_intervals(as_of: AsOf, replay_session_key: int | None = None) -> LiveIntervalsResponse:
-    return await _cached_await(
-        f"live_intervals_{_as_of_key(as_of)}_{replay_session_key}",
-        TTL_LIVE,
-        lambda: live.live_intervals(as_of, replay_session_key=replay_session_key),
-    )
+        return await _cached_await(
+            f"live_intervals_{_as_of_key(as_of)}_{replay_session_key}",
+            _replay_feed_ttl(replay_session_key),
+            lambda: live.live_intervals(as_of, replay_session_key=replay_session_key),
+        )
 
 
 @app.get("/api/live/race-control", response_model=LiveRaceControlResponse)
@@ -761,7 +1490,7 @@ async def api_live_rc(as_of: AsOf, replay_session_key: int | None = None) -> Liv
     try:
         return await _cached_await(
             f"live_rc_{_as_of_key(as_of)}_{replay_session_key}",
-            TTL_LIVE,
+            _replay_feed_ttl(replay_session_key),
             lambda: live.live_race_control(as_of, replay_session_key=replay_session_key),
         )
     except Exception:
@@ -772,7 +1501,7 @@ async def api_live_rc(as_of: AsOf, replay_session_key: int | None = None) -> Liv
 async def api_live_stints(as_of: AsOf, replay_session_key: int | None = None) -> LiveStintsResponse:
     return await _cached_await(
         f"live_stints_{_as_of_key(as_of)}_{replay_session_key}",
-        TTL_LIVE,
+        _replay_feed_ttl(replay_session_key),
         lambda: live.live_stints(as_of, replay_session_key=replay_session_key),
     )
 
@@ -781,9 +1510,27 @@ async def api_live_stints(as_of: AsOf, replay_session_key: int | None = None) ->
 async def api_live_weather(as_of: AsOf, replay_session_key: int | None = None) -> LiveWeatherResponse:
     return await _cached_await(
         f"live_weather_{_as_of_key(as_of)}_{replay_session_key}",
-        TTL_LIVE,
+        _replay_feed_ttl(replay_session_key),
         lambda: live.live_weather(as_of, replay_session_key=replay_session_key),
     )
+
+
+@app.get("/api/live/laps", response_model=LiveLapsResponse)
+async def api_live_laps(as_of: AsOf, replay_session_key: int | None = None) -> LiveLapsResponse:
+    try:
+        return await live.live_laps(as_of, replay_session_key=replay_session_key)
+    except Exception:
+        return LiveLapsResponse(is_live=False, laps=[])
+
+
+@app.get("/api/live/telemetry", response_model=LiveTelemetryResponse)
+async def api_live_telemetry(
+    driver: str, as_of: AsOf, replay_session_key: int | None = None
+) -> LiveTelemetryResponse:
+    try:
+        return await live.live_telemetry(driver, as_of, replay_session_key=replay_session_key)
+    except Exception:
+        return LiveTelemetryResponse(is_live=False, driver_code=driver.upper())
 
 
 @app.get("/api/live/stream")
@@ -795,10 +1542,39 @@ async def api_live_stream(replay_session_key: int | None = None):
     )
 
 
+async def _live_rainfall_override(body: RecommendRequest) -> RecommendRequest:
+    """Overlay OpenF1 rainfall onto live recommend. Debug override_rainfall wins."""
+    if body.override_rainfall is not None or body.mode != "live":
+        return body
+    key = None
+    if body.session_key:
+        try:
+            key = int(str(body.session_key).strip())
+        except (TypeError, ValueError):
+            key = None
+    if key is None:
+        try:
+            sess = await live.peek_live_session()
+            if isinstance(sess, dict) and sess.get("session_key") is not None:
+                key = int(sess["session_key"])
+        except Exception:
+            key = None
+    if key is None:
+        return body
+    try:
+        raining = await live.get_live_rainfall(key)
+    except Exception:
+        return body
+    return body.model_copy(update={"override_rainfall": raining})
+
+
 @app.post("/api/aris/recommend", response_model=RecommendResponse)
 async def api_recommend(body: RecommendRequest) -> RecommendResponse:
     try:
-        return await run_sync(aris_api.recommend, body)
+        body = await _live_rainfall_override(body)
+        # fix-pass item 1: recommend runs on its own small pool so a slow cold
+        # replay load on the general pool can never queue-block a live recommendation.
+        return await run_light(aris_api.recommend, body)
     except aris_api.ClientInputError as extra:
         raise HTTPException(422, str(extra)) from extra
     except ValueError as extra:
@@ -812,7 +1588,7 @@ async def api_recommend(body: RecommendRequest) -> RecommendResponse:
 @app.post("/api/aris/simulate", response_model=SimulateResponse)
 async def api_simulate(body: SimulateRequest) -> SimulateResponse:
     try:
-        return await run_sync(aris_api.simulate, body)
+        return await run_light(aris_api.simulate, body)
     except aris_api.ClientInputError as extra:
         raise HTTPException(422, str(extra)) from extra
     except ValueError as extra:
@@ -823,9 +1599,24 @@ async def api_simulate(body: SimulateRequest) -> SimulateResponse:
         raise HTTPException(503, str(extra)) from extra
 
 
+def _aris_stats() -> ArisStatsResponse:
+    hit = cache.get("aris_stats", TTL_STATS)
+    if hit is not None:
+        return hit
+    value = aris_api.model_stats()
+    put_both("aris_stats", value, TTL_STATS)
+    return value
+
+
 @app.get("/api/aris/stats", response_model=ArisStatsResponse)
 def api_aris_stats() -> ArisStatsResponse:
-    return aris_api.model_stats()
+    return _aris_stats()
+
+
+@app.get("/api/status", response_model=ArisStatsResponse)
+def api_status() -> ArisStatsResponse:
+    """Fast alias of `/api/aris/stats` — Hero (`getStatus`) hits this path."""
+    return _aris_stats()
 
 
 @app.get("/api/aris/chat", response_model=ChatResponse)
@@ -842,6 +1633,14 @@ async def api_chat(
     )
 
 
+@app.post("/api/copilot/chat", response_model=CopilotChatResponse)
+async def api_copilot_chat(body: CopilotChatRequest) -> CopilotChatResponse:
+    try:
+        return await run_sync(aris_api.copilot_chat, body)
+    except Exception as extra:
+        raise HTTPException(503, str(extra)) from extra
+
+
 @app.get("/api/aris/plans", response_model=StratPlansResponse)
 async def api_plans(year: int, round_number: int, driver_code: str) -> StratPlansResponse:
     try:
@@ -854,6 +1653,92 @@ async def api_plans(year: int, round_number: int, driver_code: str) -> StratPlan
         raise HTTPException(503, str(extra)) from extra
 
 
+@app.get("/api/aris/quick-analysis", response_model=StratPlansResponse)
+async def api_quick_analysis(year: int, round_number: int, driver_code: str) -> StratPlansResponse:
+    """Pre-race top-3 strategies. Wraps plans(); does not change recommend()/simulate()."""
+    try:
+        return await run_sync(aris_api.quick_analysis, year, round_number, driver_code)
+    except aris_api.ClientInputError as extra:
+        raise HTTPException(422, str(extra)) from extra
+    except RuntimeError as extra:
+        raise HTTPException(503, str(extra)) from extra
+    except Exception as extra:
+        raise HTTPException(503, str(extra)) from extra
+
+
 @app.get("/api/aris/debrief", response_model=DebriefResponse)
 async def api_debrief(year: int, round_number: int, driver_code: str) -> DebriefResponse:
     return await run_sync(aris_api.debrief, year, round_number, driver_code)
+
+
+@app.get("/api/explain/degradation", response_model=DegradationCurveResponse)
+async def api_explain_degradation(
+    session_id: str | None = None,
+    driver: str = "VER",
+    stint_id: int | None = None,
+    start_lap: int | None = None,
+    end_lap: int | None = None,
+    year: int | None = None,
+    round_number: int | None = None,
+) -> DegradationCurveResponse:
+    try:
+        payload = await run_sync(
+            aris_api.explain_degradation,
+            session_id,
+            driver,
+            stint_id,
+            start_lap,
+            end_lap,
+            year,
+            round_number,
+        )
+        return DegradationCurveResponse.model_validate(payload)
+    except Exception as extra:
+        raise HTTPException(503, str(extra)) from extra
+
+
+@app.get("/api/explain/ghost", response_model=GhostVsRealResponse)
+async def api_explain_ghost(
+    session_id: str | None = None,
+    driver: str = "VER",
+    year: int | None = None,
+    round_number: int | None = None,
+) -> GhostVsRealResponse:
+    try:
+        payload = await run_sync(
+            aris_api.explain_ghost, session_id, driver, year, round_number
+        )
+        return GhostVsRealResponse.model_validate(payload)
+    except Exception as extra:
+        raise HTTPException(503, str(extra)) from extra
+
+
+@app.get("/api/explain/debrief")
+async def api_explain_debrief(
+    session_id: str | None = None,
+    driver: str | None = None,
+    focus_driver: str | None = None,
+    year: int | None = None,
+    round_number: int | None = None,
+    format: str = Query("json"),
+):
+    try:
+        payload = await run_sync(
+            aris_api.explain_debrief,
+            session_id,
+            focus_driver or driver,
+            year,
+            round_number,
+        )
+    except Exception as extra:
+        raise HTTPException(503, str(extra)) from extra
+    if str(format).lower() == "parquet":
+        from aris.explain.debrief import debrief_to_parquet_bytes
+
+        body, media, filename = debrief_to_parquet_bytes(payload)
+        return Response(
+            content=body,
+            media_type=media,
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    return RaceDebriefResponse.model_validate(payload)

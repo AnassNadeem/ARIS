@@ -1,8 +1,9 @@
 import { useEffect, useRef } from "react";
 import { C, T } from "../theme";
 import { EmptyState } from "./atoms";
+import { WetHeuristicBadge } from "./WetHeuristicBadge";
 
-export type CommMsg = { id: number; type: string; text: string };
+export type CommMsg = { id: number; type: string; text: string; wetHeuristic?: boolean };
 
 export function CommsPanel({
   messages,
@@ -59,6 +60,7 @@ export function CommsPanel({
               {isField ? "FIELD" : (label[m.type] || "ARIS")}
             </div>
             <div style={{ fontFamily: isField ? T.mono : T.body, fontSize: isField ? 11 : 11.5, color: C.paper, lineHeight: 1.5, letterSpacing: isField ? 0.2 : undefined }}>{m.text}</div>
+            {(m.wetHeuristic || /WET HEURISTIC/i.test(m.text)) && <WetHeuristicBadge />}
           </div>
           );
         })}

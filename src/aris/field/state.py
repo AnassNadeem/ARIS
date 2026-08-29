@@ -87,6 +87,7 @@ class FieldState:
     fastest_sectors: dict[int, str] = field(default_factory=dict)
     # Last 5 current-compound lap times per driver code, oldest first.
     lap_times_by_code: dict[str, list[float]] = field(default_factory=dict)
+    rainfall: bool = False
 
     @classmethod
     def from_laps(
@@ -144,6 +145,11 @@ class FieldState:
             )
             for row in standings
         }
+        rainfall = False
+        if all_laps is not None and not all_laps.empty and "rainfall" in all_laps.columns:
+            at = all_laps[all_laps["lap_number"] == display_lap]["rainfall"]
+            if not at.empty:
+                rainfall = bool(at.fillna(False).astype(bool).any())
         return cls(
             session_id=session_id,
             index=index,
@@ -153,6 +159,7 @@ class FieldState:
             session_bests=session_bests,
             fastest_sectors=fastest_sectors,
             lap_times_by_code=lap_times_by_code,
+            rainfall=rainfall,
         )
 
     def standing_for(self, driver_id: int) -> StandingRow | None:

@@ -39,7 +39,7 @@ export class MockRaceFeed {
     return buildPath(coords.x, coords.y);
   })();
   private drivers = buildDrivers();
-  private elapsedRaceS = 23 * LAP_TIME_S; // start mid-race for a lively demo
+  private elapsedRaceS = 0;
   private lastTickAt = 0;
   private commsTimer: ReturnType<typeof setInterval> | null = null;
   private recSent = false;
@@ -50,8 +50,12 @@ export class MockRaceFeed {
 
   start() {
     this.lastTickAt = performance.now();
-    this.store.getState().setTotalLaps(TOTAL_LAPS);
-    this.store.getState().setCurrentLap(Math.floor(this.elapsedRaceS / LAP_TIME_S) + 1);
+    this.elapsedRaceS = 0;
+    const total = this.store.getState().session?.totalLaps || this.store.getState().totalLaps || TOTAL_LAPS;
+    this.store.getState().setTotalLaps(total);
+    this.store.getState().setCurrentLap(1);
+    this.store.getState().setPlaybackSpeed(1);
+    this.store.getState().setIsPlaying(this.store.getState().consolePlayState === "racing");
     this.interval = setInterval(() => this.tick(), 500);
     this.commsTimer = setInterval(() => this.maybeEmitComms(), 6000);
     this.tick();
@@ -70,9 +74,16 @@ export class MockRaceFeed {
 
   private tick() {
     const now = performance.now();
+    const seek = this.store.getState().seekLap;
+    if (seek != null) {
+      this.elapsedRaceS = Math.max(0, (seek - 1) * LAP_TIME_S);
+      this.store.getState().clearSeekLap();
+    }
     const dtS = ((now - this.lastTickAt) / 1000) * this.speedMultiplier();
     this.lastTickAt = now;
-    this.elapsedRaceS += dtS;
+    if (this.store.getState().consolePlayState === "racing") this.elapsedRaceS += dtS;
+
+    const totalLaps = this.store.getState().totalLaps || TOTAL_LAPS;
 
     const cars: Record<string, CarState> = {};
     const rows = this.drivers.map((d) => {
@@ -96,7 +107,7 @@ export class MockRaceFeed {
         team: meta.team,
         team_colour: meta.team_colour,
         position: idx + 1,
-        lap_number: Math.min(r.lapNumber, TOTAL_LAPS),
+        lap_number: Math.min(r.lapNumber, totalLaps),
         compound: r.d.compound,
         tyre_life: r.d.tyreLifeStart + Math.floor(this.elapsedRaceS / paceOf(r.d)),
         gap_to_leader_s: idx === 0 ? 0 : (rows[0].frac - r.frac) * -1 * r.paceLapTime,
@@ -110,8 +121,8 @@ export class MockRaceFeed {
         y: point.y,
         speed_kph: 200 + Math.sin(r.frac * Math.PI * 2) * 100 + 120,
         heading_rad: heading,
-        laps_remaining: Math.max(0, TOTAL_LAPS - r.lapNumber),
-        total_laps: TOTAL_LAPS,
+        laps_remaining: Math.max(0, totalLaps - r.lapNumber),
+        total_laps: totalLaps,
         is_aris_driver: false,
       };
     });
@@ -120,7 +131,7 @@ export class MockRaceFeed {
     const focus = arisDriver ?? "VER";
     if (cars[focus]) cars[focus].is_aris_driver = true;
     setCars(cars);
-    setCurrentLap(Math.min(rows[0]?.lapNumber ?? 1, TOTAL_LAPS));
+    setCurrentLap(Math.min(rows[0]?.lapNumber ?? 1, totalLaps));
     const lap = rows[0]?.lapNumber ?? 1;
     setRacePhase(lap >= 12 && lap <= 15 ? "SC" : "GREEN");
 

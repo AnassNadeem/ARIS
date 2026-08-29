@@ -16,7 +16,6 @@ parameter-binding layer that keeps the queries injection-safe.
 
 from __future__ import annotations
 
-import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -32,13 +31,17 @@ load_dotenv(_REPO_ROOT / ".env")
 
 @lru_cache(maxsize=1)
 def engine() -> Engine:
-    """Process-wide SQLAlchemy Engine. Raises if `ARIS_DB_URL` is unset."""
-    url = os.getenv("ARIS_DB_URL")
+    """Process-wide SQLAlchemy Engine. Raises if no database URL is configured."""
+    from aris.io.db_url import resolve_database_url
+
+    url = resolve_database_url()
     if not url:
         raise RuntimeError(
-            "ARIS_DB_URL not set — copy .env.example to .env (see db/SCHEMA-NOTES.md)"
+            "ARIS_DB_URL not set — copy .env.example to .env (see db/SCHEMA-NOTES.md). "
+            "On Heroku, DATABASE_URL is also accepted."
         )
-    return create_engine(url, pool_pre_ping=True, future=True)
+    connect_args = {"connect_timeout": 3} if "postgres" in url else {}
+    return create_engine(url, pool_pre_ping=True, future=True, connect_args=connect_args)
 
 
 def get_session() -> Session:

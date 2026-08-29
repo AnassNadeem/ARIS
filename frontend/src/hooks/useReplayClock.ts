@@ -55,5 +55,5 @@ export function useReplayClock({
 
   const asOf = Number.isFinite(start) ? new Date(start + elapsedMs).toISOString() : null;
   const ended = durationMs > 0 && elapsedMs >= durationMs - 16;
-  return { elapsedMs, durationMs, asOf, ended, setElapsedMs };
+  return { elapsedMs, durationMs, asOf, ended, setElapsedMs, elapsedRef };
 }

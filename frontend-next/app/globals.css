@@ -11,6 +11,10 @@
   --color-muted: #888888;
   --color-muted-2: #5a5a5a;
   --color-amber: #f5a623;
+  --color-obsidian: #0c0c0c;
+  --color-pitwall: #141414;
+  --color-cyan: #e8002d;
+  --color-safety: #ff3333;
   --font-inter: var(--font-inter);
   --font-mono: var(--font-jbmono);
 }
@@ -26,6 +30,10 @@
   --color-muted: var(--color-muted);
   --color-muted-2: var(--color-muted-2);
   --color-amber: var(--color-amber);
+  --color-obsidian: var(--color-obsidian);
+  --color-pitwall: var(--color-pitwall);
+  --color-cyan: var(--color-cyan);
+  --color-safety: var(--color-safety);
   --font-sans: var(--font-inter);
   --font-mono: var(--font-jbmono);
 }
@@ -68,11 +76,52 @@ body {
   font-family: var(--font-jbmono), "JetBrains Mono", monospace;
 }
 
+.replay-surface {
+  background-color: #0a0a0a;
+  background-image:
+    radial-gradient(ellipse 70% 42% at 50% -8%, rgba(232, 0, 45, 0.16), transparent 58%),
+    radial-gradient(ellipse 40% 30% at 100% 100%, rgba(232, 0, 45, 0.06), transparent 55%),
+    linear-gradient(rgba(255, 255, 255, 0.028) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.028) 1px, transparent 1px);
+  background-size: auto, auto, 44px 44px, 44px 44px;
+}
+
+.replay-panel {
+  background-color: #141414;
+  background-image:
+    repeating-linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.015) 0 2px,
+      transparent 2px 6px
+    );
+}
+
+.replay-glow-cyan,
+.replay-glow-red {
+  box-shadow: 0 0 0 1px #e8002d, 0 0 18px rgba(232, 0, 45, 0.28);
+}
+
+@keyframes replay-bar-pulse {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.35);
+  }
+}
+
+.replay-bar-fill {
+  transform-origin: left center;
+  animation: replay-bar-pulse 1.6s ease-in-out infinite;
+}
+
 /* flexlayout-react base theme overrides, dark/technical */
 .flexlayout__layout {
   --color-text: #ffffff;
   --color-background: #0a0a0a;
   background-color: transparent;
+  overflow-anchor: none;
 }
 .flexlayout__tabset {
   background-color: #131313;
@@ -81,6 +130,7 @@ body {
   background-color: #0a0a0a;
   color: #ffffff;
   overflow: hidden;
+  overflow-anchor: none;
 }
 .flexlayout__tabset-selected,
 .flexlayout__tabset_tabbar_outer {
@@ -88,7 +138,7 @@ body {
   border-bottom: 1px solid #2a2a2a;
 }
 .flexlayout__tab_button {
-  font-family: var(--font-jbmono), monospace;
+  font-family: var(--font-inter), Inter, sans-serif;
   font-size: 11px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -113,4 +163,19 @@ body {
 .flexlayout__tabset_header {
   background-color: #131313;
   color: #888888;
+}
+
+@keyframes panel-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.panel-skeleton-bar {
+  background: linear-gradient(90deg, #131313 0%, #2a2a2a 40%, #131313 80%);
+  background-size: 200% 100%;
+  animation: panel-shimmer 1.4s ease-in-out infinite;
 }

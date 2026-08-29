@@ -1,0 +1,3 @@
+# Heroku errors if requirements.txt and uv.lock both exist. Keep uv.lock
+# for local uv; the slug installs from requirements.txt.
+uv.lock

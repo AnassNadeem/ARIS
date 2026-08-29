@@ -126,7 +126,10 @@ def predict_lap_time(state: StintState) -> float:
     fuel_time = FUEL_PENALTY_S_PER_KG * state.fuel_kg
     pit_time = track.pit_loss_s if state.pit_lap else 0.0
     tire_time = tire_pace_loss(
-        state.compound, state.lap_in_stint, slopes=track.compound_slopes
+        state.compound,
+        state.lap_in_stint,
+        slopes=track.compound_slopes,
+        circuit_id=track.name or None,
     )
     return physics_time + fuel_time + pit_time + tire_time
 

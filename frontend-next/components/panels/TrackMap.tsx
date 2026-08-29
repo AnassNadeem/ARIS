@@ -3,137 +3,233 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRaceStore } from "@/store/raceStore";
 import { getCircuitCoords } from "@/lib/api";
-import { CarAnimator } from "@/lib/deadReckoning";
-import { viewBoxFor } from "@/lib/trackGeometry";
+import { PathCarAnimator } from "@/lib/deadReckoning";
+import {
+  buildPath,
+  fractionAtPoint,
+  polylinePoints,
+  sectorPathsFromOutline,
+  sectorsAreUsable,
+  viewBoxFor,
+} from "@/lib/trackGeometry";
+import { onTrackCarCodes } from "@/lib/mapCars";
+import { chequeredSfFlag, startFinishMarker } from "@/lib/replayFilter";
 import { PlaybackControls } from "@/components/ui/PlaybackControls";
-import type { CarState } from "@/lib/types";
+import { TrackLightsOut } from "@/components/ui/TrackLightsOut";
+import { PanelEmpty, PanelSkeleton, usePanelFeedLoading } from "@/components/ui/PanelStates";
+import { useFocusDriver } from "@/lib/useFocusDriver";
+import type { CarState, CircuitCoords, CircuitSectorPath } from "@/lib/types";
 
 const GHOST_PREFIX = "A_";
+const SECTOR_STROKE: Record<string, string> = {
+  s1: "#39ff14",
+  s2: "#f5a623",
+  s3: "#e8002d",
+};
+
+function resolveSectors(coords: CircuitCoords): CircuitSectorPath[] {
+  if (sectorsAreUsable(coords.sectorPaths)) return coords.sectorPaths as CircuitSectorPath[];
+  const { paths, usedFallback } = sectorPathsFromOutline(coords.x, coords.y, coords.markers);
+  if (usedFallback && coords.x.length >= 4) {
+    console.warn("[ARIS map] Sector markers missing or unordered — using equal-distance S1/S2/S3 thirds.");
+  }
+  return paths;
+}
+
+function readCar(code: string): CarState | null {
+  const s = useRaceStore.getState();
+  if (s.cars[code]) return s.cars[code];
+  if (s.ghostCar?.driver_code === code) return s.ghostCar;
+  return null;
+}
 
 export function TrackMap() {
   const session = useRaceStore((s) => s.session);
-  const cars = useRaceStore((s) => s.cars);
-  const ghostCar = useRaceStore((s) => s.ghostCar);
-  const isARISOn = useRaceStore((s) => s.isARISOn);
-  const arisDriver = useRaceStore((s) => s.arisDriver);
+  const setFocusDriver = useRaceStore((s) => s.setFocusDriver);
+  const setCircuitOutline = useRaceStore((s) => s.setCircuitOutline);
+  const focusCode = useFocusDriver("");
+  const circuitOutline = useRaceStore((s) => s.circuitOutline);
+  const carCodesKey = useRaceStore((s) =>
+    onTrackCarCodes(s.cars, s.isARISOn && s.ghostCar ? s.ghostCar.driver_code : null),
+  );
 
-  const [coords, setCoords] = useState<{ x: number[]; y: number[] } | null>(null);
-  const svgRef = useRef<SVGSVGElement | null>(null);
+  const feedLoading = usePanelFeedLoading();
+  const [coords, setCoords] = useState<CircuitCoords | null>(null);
+  const [outlineSettled, setOutlineSettled] = useState(false);
   const groupRefs = useRef<Map<string, SVGGElement>>(new Map());
-  const dotRefs = useRef<Map<string, SVGCircleElement>>(new Map());
-  const labelRefs = useRef<Map<string, SVGTextElement>>(new Map());
-  const animators = useRef<Map<string, CarAnimator>>(new Map());
+  const animators = useRef<Map<string, PathCarAnimator>>(new Map());
   const rafRef = useRef(0);
+  const pathRef = useRef<ReturnType<typeof buildPath> | null>(null);
+  const codesRef = useRef<string[]>([]);
 
   useEffect(() => {
     let mounted = true;
-    getCircuitCoords(session?.year ?? 2025, session?.round ?? 15).then((c) => {
-      if (mounted) setCoords(c);
-    });
+    setOutlineSettled(false);
+    getCircuitCoords(session?.year ?? new Date().getUTCFullYear(), session?.round ?? 15)
+      .then((c) => {
+        if (!mounted) return;
+        if (c.x.length) {
+          setCoords(c);
+          setCircuitOutline(c);
+        }
+      })
+      .finally(() => {
+        if (mounted) setOutlineSettled(true);
+      });
     return () => {
       mounted = false;
     };
-  }, [session?.year, session?.round]);
+  }, [session?.year, session?.round, setCircuitOutline]);
 
-  const viewBox = useMemo(() => (coords ? viewBoxFor(coords.x, coords.y) : "0 0 800 500"), [coords]);
-  const polylinePoints = useMemo(() => {
-    if (!coords) return "";
-    return coords.x.map((x, i) => `${x},${coords.y[i]}`).join(" ");
-  }, [coords]);
-
-  const allCars: CarState[] = useMemo(() => {
-    const list = Object.values(cars);
-    if (isARISOn && ghostCar) list.push(ghostCar);
-    return list;
-  }, [cars, ghostCar, isARISOn]);
-
-  // Feed real ticks into each car's dead-reckoning animator (no React state
-  // writes for position — only refs, so the 60fps loop below never re-renders).
   useEffect(() => {
-    const now = performance.now();
-    for (const car of allCars) {
-      const speedPxPerS = (car.speed_kph / 3.6) * 0.35; // scaled to map units
-      let animator = animators.current.get(car.driver_code);
-      if (!animator) {
-        animator = new CarAnimator({ x: car.x, y: car.y }, 200);
-        animators.current.set(car.driver_code, animator);
-      }
-      animator.onTick({ x: car.x, y: car.y }, speedPxPerS, car.heading_rad, now);
-    }
-    // Drop animators for cars no longer present.
-    const codes = new Set(allCars.map((c) => c.driver_code));
-    for (const code of Array.from(animators.current.keys())) {
-      if (!codes.has(code)) animators.current.delete(code);
-    }
-  }, [allCars]);
+    if (!circuitOutline?.x?.length) return;
+    setCoords((prev) => {
+      if (prev && prev.x.length >= circuitOutline.x.length) return prev;
+      return circuitOutline;
+    });
+  }, [circuitOutline]);
+
+  const path = useMemo(() => (coords ? buildPath(coords.x, coords.y) : null), [coords]);
+  const viewBox = useMemo(() => (coords ? viewBoxFor(coords.x, coords.y) : "0 0 800 500"), [coords]);
+  const sectors = useMemo(() => (coords ? resolveSectors(coords) : []), [coords]);
+  pathRef.current = path;
+
+  const carCodes = useMemo(() => (carCodesKey ? carCodesKey.split(",") : []), [carCodesKey]);
+  codesRef.current = carCodes;
+
+  // 2A — how positions used to update (before this interpolation pass):
+  // 1. A replay-frame poll writes cars into Zustand. TrackMap does not React-snap the SVG;
+  //    rAF reads path_frac via getState() and called PathCarAnimator.onTick every frame, which
+  //    restarted a 900ms ease so dots lagged then lurched toward each new GPS sample.
+  // 2. Between polls rAF WAS moving cars (currentPosition), but the ease never reached the
+  //    target before the next 250ms tick, so motion looked stepped especially at 4×.
+  // 3. speed_kph comes from timing (FastF1 car samples). heading_rad is not in the replay-frame
+  //    payload (mapCars hardcodes 0). Cartesian dead-reckoning (2C) is skipped; along-track
+  //    velocity from path_frac deltas is kept.
+  const lastFrac = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
     function frame() {
       const now = performance.now();
-      animators.current.forEach((animator, code) => {
-        const pos = animator.currentPosition(now);
-        const g = groupRefs.current.get(code);
-        if (g) g.setAttribute("transform", `translate(${pos.x}, ${pos.y})`);
-      });
+      const line = pathRef.current;
+      const playing = useRaceStore.getState().isPlaying;
+      if (line) {
+        for (const code of codesRef.current) {
+          const car = readCar(code);
+          if (!car) continue;
+          const frac =
+            car.path_frac != null && Number.isFinite(car.path_frac)
+              ? car.path_frac
+              : fractionAtPoint(line, car.x, car.y);
+          let animator = animators.current.get(code);
+          if (!animator) {
+            animator = new PathCarAnimator(line, frac, 140);
+            animators.current.set(code, animator);
+            lastFrac.current.set(code, frac);
+          } else {
+            animator.setPath(line);
+            const prev = lastFrac.current.get(code);
+            let d = frac - (prev ?? frac);
+            if (d > 0.5) d -= 1;
+            if (d < -0.5) d += 1;
+            if (prev == null || Math.abs(d) > 1e-5) {
+              animator.onTick(frac, now, { speedKph: car.speed_kph, headingRad: car.heading_rad });
+              lastFrac.current.set(code, frac);
+            }
+          }
+          const pos = animator.currentPosition(now, playing);
+          const g = groupRefs.current.get(code);
+          if (g) g.setAttribute("transform", `translate(${pos.x}, ${pos.y})`);
+        }
+      }
+      const live = new Set(codesRef.current);
+      for (const code of Array.from(animators.current.keys())) {
+        if (!live.has(code)) {
+          animators.current.delete(code);
+          lastFrac.current.delete(code);
+        }
+      }
       rafRef.current = requestAnimationFrame(frame);
     }
     rafRef.current = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(rafRef.current);
   }, []);
 
-  const focusCode = arisDriver ?? "VER";
+  const sf = coords ? startFinishMarker(coords.markers, coords.x, coords.y) : null;
+  const flag = coords ? chequeredSfFlag(coords.x, coords.y, sf ?? undefined) : null;
 
   return (
-    <div className="flex h-full flex-col bg-carbon">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-carbon">
       <div className="relative min-h-0 flex-1">
-        <svg
-          ref={svgRef}
-          viewBox={viewBox}
-          preserveAspectRatio="xMidYMid meet"
-          className="h-full w-full"
-        >
+        <svg viewBox={viewBox} preserveAspectRatio="xMidYMid meet" className="h-full w-full">
           {coords && (
             <polyline
-              points={polylinePoints}
+              points={polylinePoints(coords.x, coords.y)}
               fill="none"
-              stroke="#2a2a2a"
-              strokeWidth={14}
+              stroke="#1f1f1f"
+              strokeWidth={16}
               strokeLinejoin="round"
             />
           )}
-          {coords && (
+          {sectors.map((seg) => (
             <polyline
-              points={polylinePoints}
+              key={seg.kind}
+              points={polylinePoints(seg.x, seg.y)}
               fill="none"
-              stroke="#3a3a3a"
-              strokeWidth={1}
-              strokeDasharray="4 6"
+              stroke={SECTOR_STROKE[seg.kind] ?? "#3a3a3a"}
+              strokeWidth={5}
+              strokeLinejoin="round"
+              opacity={0.95}
             />
+          ))}
+          {flag && (
+            <g transform={`translate(${sf?.x ?? flag.cx}, ${sf?.y ?? flag.cy}) rotate(${flag.angle})`}>
+              {Array.from({ length: flag.rows * flag.cols }, (_, n) => {
+                const r = Math.floor(n / flag.cols);
+                const c = n % flag.cols;
+                return (
+                  <rect
+                    key={`sf-${r}-${c}`}
+                    x={r * flag.cell - (flag.rows * flag.cell) / 2}
+                    y={c * flag.cell - (flag.cols * flag.cell) / 2}
+                    width={flag.cell}
+                    height={flag.cell}
+                    fill={(r + c) % 2 === 0 ? "#ffffff" : "#111111"}
+                    stroke="#111111"
+                    strokeWidth={0.15}
+                  />
+                );
+              })}
+            </g>
           )}
-          {allCars.map((car) => {
-            const isGhost = car.driver_code.startsWith(GHOST_PREFIX);
-            const isFocus = !isGhost && car.driver_code === focusCode;
+          {carCodes.map((code) => {
+            const car = readCar(code);
+            if (!car) return null;
+            const isGhost = code.startsWith(GHOST_PREFIX);
+            const isFocus = !isGhost && focusCode !== "" && code === focusCode;
             const r = isFocus ? 9 : isGhost ? 8 : 6;
-            const displayCode = isGhost ? car.driver_code.replace(GHOST_PREFIX, "") : car.driver_code;
+            const displayCode = isGhost ? code.replace(GHOST_PREFIX, "") : code;
             return (
               <g
-                key={car.driver_code}
+                key={code}
                 ref={(el) => {
-                  if (el) groupRefs.current.set(car.driver_code, el);
-                  else groupRefs.current.delete(car.driver_code);
+                  if (el) groupRefs.current.set(code, el);
+                  else groupRefs.current.delete(code);
                 }}
+                onClick={() => {
+                  if (!isGhost) setFocusDriver(code);
+                }}
+                style={{ cursor: isGhost ? "default" : "pointer" }}
               >
+                <title>{car.full_name || displayCode}</title>
                 <circle
                   r={r}
-                  fill={isGhost ? car.team_colour : car.team_colour}
-                  fillOpacity={isGhost ? 0.5 : 1}
+                  fill={car.team_colour}
+                  fillOpacity={isGhost ? 0.42 : 1}
                   stroke={isGhost ? "#ffffff" : isFocus ? "#e8002d" : "#0a0a0a"}
-                  strokeWidth={isGhost ? 2 : isFocus ? 2 : 1}
+                  strokeWidth={isGhost ? 2 : isFocus ? 2.5 : 1}
                   strokeDasharray={isGhost ? "3 3" : undefined}
-                  ref={(el) => {
-                    if (el) dotRefs.current.set(car.driver_code, el);
-                    else dotRefs.current.delete(car.driver_code);
-                  }}
+                  filter={isFocus ? "url(#focus-glow)" : undefined}
                 />
                 <text
                   y={-14}
@@ -142,22 +238,48 @@ export function TrackMap() {
                   fontFamily="var(--font-jbmono)"
                   fontWeight={700}
                   fill={isGhost ? "#ffffff" : isFocus ? "#e8002d" : "#ffffff"}
-                  ref={(el) => {
-                    if (el) labelRefs.current.set(car.driver_code, el);
-                    else labelRefs.current.delete(car.driver_code);
-                  }}
                 >
                   {isGhost ? `[A] ${displayCode}` : displayCode}
                 </text>
               </g>
             );
           })}
+          <defs>
+            <filter id="focus-glow" x="-50%" y="-50%" width="200%" height="200%">
+              <feDropShadow dx="0" dy="0" stdDeviation="2.4" floodColor="#e8002d" floodOpacity="0.9" />
+            </filter>
+          </defs>
         </svg>
-        {!coords && (
-          <div className="absolute inset-0 flex items-center justify-center font-mono-data text-xs text-muted">
-            Loading circuit map…
+        {sectors.length > 0 && (
+          <div className="absolute right-2 top-2 z-10 flex items-center gap-2 rounded border border-border bg-carbon/80 px-2 py-1 font-sans text-[10px] uppercase text-white">
+            {(["s1", "s2", "s3"] as const).map((k) => (
+              <span key={k} className="flex items-center gap-1">
+                <span className="inline-block h-2 w-2 rounded-sm" style={{ background: SECTOR_STROKE[k] }} />
+                {k.toUpperCase()}
+              </span>
+            ))}
+            {carCodes.some((c) => c.startsWith(GHOST_PREFIX)) && (
+              <span className="flex items-center gap-1 text-amber">
+                <span className="inline-block h-2 w-2 rounded-full border border-dashed border-white bg-red/50" />
+                Ghost
+              </span>
+            )}
           </div>
         )}
+        {!coords && (feedLoading || !outlineSettled) && (
+          <div className="absolute inset-0">
+            <PanelSkeleton variant="map" />
+          </div>
+        )}
+        {!coords && outlineSettled && !feedLoading && (
+          <div className="absolute inset-0">
+            <PanelEmpty
+              title="Track map"
+              detail="Live circuit outline with car positions, dead-reckoned between ticks. Empty until this session's GPS pack loads the circuit path."
+            />
+          </div>
+        )}
+        <TrackLightsOut />
       </div>
       <PlaybackControls />
     </div>

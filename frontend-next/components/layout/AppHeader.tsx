@@ -8,6 +8,7 @@ const NAV_LINKS = [
   { href: "/", label: "Home" },
   { href: "/live", label: "Live" },
   { href: "/replay", label: "Replay" },
+  { href: "/standings", label: "Standings" },
 ];
 
 /**
@@ -31,7 +32,7 @@ export function AppHeader({
 
   return (
     <header
-      className={`flex shrink-0 items-center gap-2 border-b border-border bg-surface-2 px-3 ${
+      className={`relative z-30 flex shrink-0 items-center gap-2 overflow-visible border-b border-border bg-surface-2 px-4 ${
         compact ? "h-11" : "h-14"
       }`}
     >
@@ -51,20 +52,23 @@ export function AppHeader({
         <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red" />
         ARIS
       </Link>
-      <nav className="ml-1 hidden items-center gap-2 sm:flex">
-        {NAV_LINKS.map((l) => (
-          <Link
-            key={l.href}
-            href={l.href}
-            className={`rounded px-2 py-1 font-mono-data text-[13px] uppercase tracking-wide ${
-              pathname === l.href ? "text-white" : "text-muted hover:text-white"
-            }`}
-          >
-            {l.label}
-          </Link>
-        ))}
+      <nav className="ml-1 flex items-center gap-1 overflow-x-auto sm:gap-2">
+        {NAV_LINKS.map((l) => {
+          const active = l.href === "/" ? pathname === "/" : pathname === l.href || pathname.startsWith(`${l.href}/`);
+          return (
+            <Link
+              key={l.href}
+              href={l.href}
+              className={`rounded px-2 py-1 font-sans text-xs uppercase tracking-wide ${
+                active ? "text-red" : "text-muted hover:text-white"
+              }`}
+            >
+              {l.label}
+            </Link>
+          );
+        })}
       </nav>
-      <div className="ml-auto flex min-w-0 items-center gap-2">{right}</div>
+      <div className="ml-auto flex shrink-0 items-center gap-2 overflow-visible">{right}</div>
     </header>
   );
 }

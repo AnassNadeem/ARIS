@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 RoundStatus = Literal["COMPLETED", "LIVE", "UPCOMING", "CANCELLED"]
 SessionStatus = Literal["COMPLETED", "LIVE", "UPCOMING"]
-SessionFlag = Literal["GREEN", "SC", "VSC", "RED", "UNKNOWN"]
+SessionFlag = Literal["GREEN", "YELLOW", "SC", "VSC", "RED", "UNKNOWN"]
 SectorColour = Literal["purple", "green", "yellow", "grey"]
 ArisAction = Literal["STAY_OUT", "BOX", "PIT_SOON", "MANAGE_PACE", "PUSH"]
 CompoundCode = Literal["S", "M", "H", "I", "W"]
@@ -31,6 +31,7 @@ class CalendarRound(BaseModel):
     circuit_key: str
     country: str
     city: str
+    total_laps: int | None = None
     date_fp1: datetime | None = None
     date_fp2: datetime | None = None
     date_fp3: datetime | None = None
@@ -68,6 +69,57 @@ class RoundSessionsResponse(BaseModel):
     name: str
     is_sprint_weekend: bool
     sessions: list[SessionInfo]
+
+
+class IngestStatusResponse(BaseModel):
+    year: int
+    round_number: int
+    session_type: str
+    status: Literal["INGESTED", "INGESTING", "MISSING", "UNAVAILABLE"]
+
+
+class PrewarmRequest(BaseModel):
+    year: int
+    round_number: int
+    session_type: str
+    driver_code: str | None = None
+
+
+class PrewarmResponse(BaseModel):
+    year: int
+    round_number: int
+    session_type: str
+    session_key: int | None = None
+    status: Literal["ready", "warming"]
+    tasks: list[str] = Field(default_factory=list)
+
+
+class ReplayInitRequest(BaseModel):
+    year: int
+    round_number: int
+    session_type: str = "R"
+
+
+class ReplayInitResponse(BaseModel):
+    session_key: int
+    year: int
+    round_number: int
+    session_type: str
+    stage: str
+    session_status: str
+    source: str
+    circuit: str = ""
+    total_laps: int = 0
+    drivers: list[str] = Field(default_factory=list)
+    date_start: datetime | str | None = None
+    date_end: datetime | str | None = None
+    flags: dict[str, bool] = Field(default_factory=dict)
+    progress: float = 0.0
+    circuit_path: CircuitPathXY | None = None
+    pit_lane_x: list[float] = Field(default_factory=list)
+    pit_lane_y: list[float] = Field(default_factory=list)
+    markers: list[CircuitMarker] = Field(default_factory=list)
+    drs_segments: list[list[int]] = Field(default_factory=list)
 
 
 class WeekendSession(BaseModel):
@@ -165,6 +217,7 @@ class DriverStandingsResponse(BaseModel):
     source: StandingsSource
     champion_code: str | None = None
     leader_code: str | None = None
+    message: str | None = None
 
 
 class ConstructorStandingsResponse(BaseModel):
@@ -172,6 +225,7 @@ class ConstructorStandingsResponse(BaseModel):
     standings: list[ConstructorStanding]
     source: StandingsSource
     champion_name: str | None = None
+    message: str | None = None
 
 
 class LapRow(BaseModel):
@@ -186,6 +240,8 @@ class LapRow(BaseModel):
     is_personal_best: bool = False
     pit_in_lap: bool = False
     pit_out_lap: bool = False
+    position: int | None = None
+    end_time_ms: int | None = None
     track_status: str | None = None
     speed_i1: float | None = None
     speed_i2: float | None = None
@@ -237,6 +293,7 @@ class SessionSummary(BaseModel):
     top_speed_kph: float | None = None
     top_speed_driver: str | None = None
     laps_completed: int
+    total_laps: int | None = None
     weather: WeatherSummary
     wet_reduced_confidence: bool = False
 
@@ -357,6 +414,13 @@ class CircuitMarker(BaseModel):
     label: str
 
 
+class CircuitSectorPath(BaseModel):
+    kind: str
+    label: str
+    x: list[float] = Field(default_factory=list)
+    y: list[float] = Field(default_factory=list)
+
+
 class CircuitMapBounds(BaseModel):
     min_x: float
     max_x: float
@@ -375,6 +439,7 @@ class CircuitMapResponse(BaseModel):
     pit_lane_x: list[float] = Field(default_factory=list)
     pit_lane_y: list[float] = Field(default_factory=list)
     pit_stalls: list[list[float]] = Field(default_factory=list)
+    sector_paths: list[CircuitSectorPath] = Field(default_factory=list)
     bounds: CircuitMapBounds | None = None
     available: bool = True
     fallback: bool = False
@@ -612,6 +677,10 @@ class LiveStatus(BaseModel):
     source: str | None = None
     view_only: bool = False
     aris_ready: bool = False
+    session_ended: bool = False
+    ended_session_name: str | None = None
+    ended_session_type: str | None = None
+    replay_preparing: bool = False
 
 
 class LiveTimingRow(BaseModel):
@@ -641,6 +710,13 @@ class LiveTimingRow(BaseModel):
     q1_ms: int | None = None
     q2_ms: int | None = None
     q3_ms: int | None = None
+    lap_number: int | None = None
+    throttle_pct: float | None = None
+    brake_pct: float | None = None
+    speed_kph: float | None = None
+    status: Literal["RUNNING", "DNF", "DNS"] = "RUNNING"
+    laps_completed: int | None = None
+    laps_down: int | None = None
 
 
 class LiveTimingResponse(BaseModel):
@@ -650,6 +726,27 @@ class LiveTimingResponse(BaseModel):
     last_success_utc: datetime | None = None
     current_lap: int | None = None
     replay: bool = False
+    rainfall: bool = False
+    session_flag: SessionFlag | None = None
+    fastest_lap_ms: int | None = None
+    fastest_lap_driver: str | None = None
+
+
+class LiveLapsResponse(BaseModel):
+    is_live: bool
+    session_key: int | None = None
+    current_lap: int | None = None
+    laps: list[LapRow]
+
+
+class LiveTelemetryResponse(BaseModel):
+    is_live: bool
+    driver_code: str
+    t_s: list[float] = []
+    throttle: list[float] = []
+    speed: list[float] = []
+    brake: list[float] = []
+    rpm: list[float] = []
 
 
 class LivePosition(BaseModel):
@@ -669,6 +766,10 @@ class LivePositionsResponse(BaseModel):
     positions: list[LivePosition]
     last_success_utc: datetime | None = None
     circuit_path: CircuitPathXY | None = None
+    pit_lane_x: list[float] = Field(default_factory=list)
+    pit_lane_y: list[float] = Field(default_factory=list)
+    markers: list[CircuitMarker] = Field(default_factory=list)
+    drs_segments: list[list[int]] = Field(default_factory=list)
 
 
 class LiveInterval(BaseModel):
@@ -724,6 +825,15 @@ class ReplayFrameResponse(BaseModel):
     source: str = "openf1"
     quali_phase: str | None = None
     quali_windows: list[QualiWindow] = Field(default_factory=list)
+    green_flag_s: int | None = None
+    session_flag: str | None = None
+    ready: bool = True
+    ghost: dict | None = None
+    # fix-pass item 5/9: additive, non-breaking — populated only when `ghost` is
+    # None, so the frontend can explain *why* instead of a silent empty state.
+    # One of "no_driver_selected" | "session_not_ingested" | "no_divergence".
+    ghost_reason: str | None = None
+    is_delta: bool = False
 
 
 class RecommendRequest(BaseModel):
@@ -734,6 +844,8 @@ class RecommendRequest(BaseModel):
     driver_code: str
     current_lap: int
     mode: Literal["live", "replay", "pre_race"] = "replay"
+    override_rainfall: bool | None = None
+    force_refresh: bool = False
 
 
 class RecommendAlternative(BaseModel):
@@ -754,10 +866,14 @@ class RecommendResponse(BaseModel):
     decision_record_id: str
     alternatives: list[RecommendAlternative]
     wet_reduced_confidence: bool = False
+    wet_heuristic: bool = False
     reg_note_2026: bool = False
     data_source: str | None = None
     lap_note: str | None = None
     ingest_status: str | None = None
+    p10_delta_s: float | None = None
+    p90_delta_s: float | None = None
+    confidence_note: str | None = None
 
 
 class CustomPitStop(BaseModel):
@@ -893,8 +1009,126 @@ class ArisStatsResponse(BaseModel):
     avg_position_delta: float
     clean_delta: float
     disrupted_delta: float
+    # Hero (`GET /api/status`) aliases — same object as `/api/aris/stats`.
+    version: str = "v0.3"
+    match_rate: float = 0.0
+    match_rate_fraction: str = ""
+    last_gate: str = ""
+    timestamp: str = ""
+
+
+class HealthComponent(BaseModel):
+    ok: bool
+    reason: str | None = None
+    backend: str | None = None
+    persistent_in_production: bool | None = None
+    latency_ms: float | None = None
+    path: str | None = None
+    note: str | None = None
 
 
 class HealthResponse(BaseModel):
     ok: bool
     service: str = "aris-v3-broker"
+    reason: str | None = None
+    db: HealthComponent | None = None
+    cache: HealthComponent | None = None
+    fastf1_cache: HealthComponent | None = None
+
+
+class CopilotChatRequest(BaseModel):
+    message: str
+    session_id: str | None = None
+    year: int | None = None
+    round_number: int | None = None
+    driver_code: str | None = None
+    current_lap: int | None = None
+    conversation_id: str | None = None
+    use_llm: bool | None = None
+
+
+class CopilotRetrievedChunk(BaseModel):
+    chunk_id: str
+    source: str
+    title: str
+    text: str = ""
+    score: float | None = None
+
+
+class CopilotToolCallOut(BaseModel):
+    name: str
+    arguments: dict[str, Any] = Field(default_factory=dict)
+    result: Any = None
+
+
+class CopilotRecommendationRow(BaseModel):
+    rank: int
+    label: str
+    delta_vs_stay_out_s: float | None = None
+    p_best: float | None = None
+    p10_delta_s: float | None = None
+    p90_delta_s: float | None = None
+
+
+class CopilotChatResponse(BaseModel):
+    response: str
+    tool_calls: list[CopilotToolCallOut] = Field(default_factory=list)
+    retrieved_chunks: list[CopilotRetrievedChunk] = Field(default_factory=list)
+    recommendations: list[CopilotRecommendationRow] = Field(default_factory=list)
+    needs_approval: bool = False
+
+
+HubMode = Literal["live_session", "waiting_for_session", "next_weekend", "session_ended"]
+
+
+class HubSession(BaseModel):
+    session_type: str
+    session_name: str
+    datetime_utc: datetime | None = None
+    status: SessionStatus
+    replayable: bool = False
+    live: bool = False
+
+
+class HubStrategyPattern(BaseModel):
+    label: str
+    note: str
+
+
+class HubRaceHistoryRow(BaseModel):
+    year: int
+    winner: str | None = None
+    pole: str | None = None
+    fastest_lap: str | None = None
+    race_name: str | None = None
+
+
+class HubCircuitInfo(BaseModel):
+    circuit_key: str
+    circuit_name: str
+    country: str = ""
+    country_flag: str = ""
+    length_km: float | None = None
+    total_laps: int | None = None
+    turns: int | None = None
+    pit_loss_seconds: float | None = None
+    tyre_stress_rating: str | None = None
+    strategy_patterns: list[HubStrategyPattern] = Field(default_factory=list)
+    race_history: list[HubRaceHistoryRow] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
+class LiveHubResponse(BaseModel):
+    mode: HubMode
+    waiting_reason: str | None = None
+    countdown_seconds: int = 0
+    countdown_target: datetime | None = None
+    live: LiveStatus
+    next: NextRaceResponse
+    weekend_sessions: list[HubSession] = Field(default_factory=list)
+    circuit: HubCircuitInfo
+    as_of: datetime
+
+
+ReplayInitResponse.model_rebuild()
+ReplayFrameResponse.model_rebuild()

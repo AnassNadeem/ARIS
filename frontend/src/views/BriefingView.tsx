@@ -6,6 +6,7 @@ import { C, T, compoundLetter } from "../theme";
 import { Chip, ErrorPanel, ReasoningBar, SectionLabel, SkeletonPanel, TyreBadge } from "../components/atoms";
 import { RaceBrief } from "../components/RaceBrief";
 import { Shell } from "../components/Shell";
+import { WetHeuristicBadge } from "../components/WetHeuristicBadge";
 
 const COMPOUNDS = ["S", "M", "H", "I", "W"] as const;
 
@@ -226,6 +227,7 @@ export function BriefingView({
                 <p style={{ fontFamily: T.body, fontSize: 11, color: C.mist }}>
                   {p.recommended ? rec?.reasoning || p.description : p.description}
                 </p>
+                {p.recommended && (rec?.wet_heuristic || rec?.wet_reduced_confidence) && <WetHeuristicBadge />}
                 <ReasoningBar paceGain={p.pace_gain_s ?? rec?.pace_gain_s ?? 0} pitCost={p.pit_cost_s ?? rec?.pit_cost_s ?? 18} label />
               </button>
             ))}

@@ -1,27 +1,100 @@
 "use client";
 
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import { useRaceStore } from "@/store/raceStore";
 import { TyreIcon } from "@/components/ui/TyreIcon";
+import { PanelEmpty, PanelSkeleton, usePanelFeedLoading } from "@/components/ui/PanelStates";
+import { useFocusDriver } from "@/lib/useFocusDriver";
+import { timingEqual } from "@/lib/mapCars";
+import { driverOutOfRace, fmtGap, fmtLapTime, fmtSectorTime, sectorClass } from "@/lib/timingDisplay";
 import type { CarState } from "@/lib/types";
 
-function fmtGap(v: number | null): string {
-  if (v == null) return "—";
-  return v === 0 ? "LEADER" : `+${v.toFixed(1)}s`;
+const TOWER_COLS = "grid-cols-[28px_48px_58px_72px_72px_52px_52px_52px_28px_32px_40px]";
+
+function fmtGhostDelta(v: number): string {
+  if (v > 0) return `+${v.toFixed(1)}s ↑`;
+  if (v < 0) return `${v.toFixed(1)}s ↓`;
+  return "±0.0s";
 }
 
-function fmtLap(v: number | null): string {
-  if (v == null) return "—";
-  const m = Math.floor(v / 60);
-  const s = (v % 60).toFixed(3);
-  return `${m}:${s.padStart(6, "0")}`;
-}
+const TimingRow = memo(function TimingRow({
+  car,
+  isFocus,
+  onFocus,
+}: {
+  car: CarState;
+  isFocus: boolean;
+  onFocus: (code: string) => void;
+}) {
+  const isGhost = car.driver_code.startsWith("A_");
+  const code = isGhost ? car.driver_code.replace("A_", "") : car.driver_code;
+  const out = driverOutOfRace(car.status, car.is_dnf);
+  return (
+    <div
+      onClick={() => {
+        if (!isGhost) onFocus(car.driver_code);
+      }}
+      title={
+        isGhost
+          ? `ARIS from lap 1: ${car.aris_action || "strategy"}${
+              car.divergence_lap ? ` · vs ${car.real_action ?? "real"}` : ""
+            }`
+          : undefined
+      }
+      className={`grid h-8 cursor-pointer ${TOWER_COLS} items-center gap-x-2 border-b border-border/60 px-2 ${
+        isGhost
+          ? "border-l-[3px] border-l-red"
+          : isFocus
+            ? "border-l-2 border-l-red bg-surface"
+            : ""
+      } ${out ? "opacity-45" : ""}`}
+      style={isGhost ? { background: "rgba(232, 0, 45, 0.08)" } : undefined}
+    >
+      <span className="text-white">{car.position ?? "—"}</span>
+      <span className="flex items-center gap-1 text-white">
+        <span className="h-2 w-1 rounded-sm" style={{ background: car.team_colour }} />
+        {isGhost ? <span className="italic text-amber">[A]</span> : null}
+        <span className={isGhost ? "italic" : ""}>{code}</span>
+      </span>
+      {isGhost ? (
+        <span
+          className={`text-right font-semibold ${
+            (car.ghost_cumulative_delta ?? 0) >= 0 ? "text-green-400" : "text-red-400"
+          }`}
+        >
+          {car.ghost_cumulative_delta != null ? fmtGhostDelta(car.ghost_cumulative_delta) : "—"}
+        </span>
+      ) : (
+        <span className="text-right text-muted">{fmtGap(car.gap_to_leader_s, car.laps_down)}</span>
+      )}
+      <span className="text-right text-white">{isGhost ? "ARIS" : fmtLapTime(car.last_lap_s)}</span>
+      <span className="flex items-center justify-end gap-0.5 text-right text-white">
+        {car.fastest_lap ? <span className="text-[9px] text-[#c44dff]">FL</span> : null}
+        {isGhost ? "—" : fmtLapTime(car.best_lap_s)}
+      </span>
+      <span className={`text-right tabular-nums ${sectorClass(car.s1_colour)}`}>{isGhost ? "—" : fmtSectorTime(car.sector1_s)}</span>
+      <span className={`text-right tabular-nums ${sectorClass(car.s2_colour)}`}>{isGhost ? "—" : fmtSectorTime(car.sector2_s)}</span>
+      <span className={`text-right tabular-nums ${sectorClass(car.s3_colour)}`}>{isGhost ? "—" : fmtSectorTime(car.sector3_s)}</span>
+      <span className="flex justify-center">
+        <TyreIcon compound={car.compound} />
+      </span>
+      <span className="text-right text-muted">{car.tyre_life}</span>
+      <span className="text-right text-muted">
+        {out ? car.status : isGhost ? "ARIS" : (car.laps_completed ?? car.lap_number)}
+      </span>
+    </div>
+  );
+}, (prev, next) => prev.isFocus === next.isFocus && prev.onFocus === next.onFocus && timingEqual(prev.car, next.car));
 
 export function TimingTower() {
   const cars = useRaceStore((s) => s.cars);
   const ghostCar = useRaceStore((s) => s.ghostCar);
   const isARISOn = useRaceStore((s) => s.isARISOn);
-  const arisDriver = useRaceStore((s) => s.arisDriver);
+  const racePhase = useRaceStore((s) => s.racePhase);
+  const currentLap = useRaceStore((s) => s.currentLap);
+  const setFocusDriver = useRaceStore((s) => s.setFocusDriver);
+  const focus = useFocusDriver("");
+  const loading = usePanelFeedLoading();
 
   const rows = useMemo(() => {
     const list = Object.values(cars).sort((a, b) => (a.position ?? 99) - (b.position ?? 99));
@@ -32,52 +105,57 @@ export function TimingTower() {
     return list;
   }, [cars, ghostCar, isARISOn]);
 
-  const focus = arisDriver ?? "VER";
+  const banner =
+    racePhase === "SC"
+      ? `SC DEPLOYED — Lap ${currentLap}`
+      : racePhase === "VSC"
+        ? `VSC DEPLOYED — Lap ${currentLap}`
+        : racePhase === "RED_FLAG"
+          ? `RED FLAG — Lap ${currentLap}`
+          : null;
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-carbon font-mono-data text-[11px]">
-      <div className="grid shrink-0 grid-cols-[28px_56px_1fr_64px_84px_28px_36px_44px] gap-2 border-b border-border px-2 py-1.5 text-[10px] uppercase text-muted">
-        <span>P</span>
-        <span>Driver</span>
-        <span />
-        <span className="text-right">Gap</span>
-        <span className="text-right">Last Lap</span>
-        <span className="text-center">Tyre</span>
-        <span className="text-right">Age</span>
-        <span className="text-right">Stops</span>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {rows.map((car: CarState) => {
-          const isGhost = car.driver_code.startsWith("A_");
-          const code = isGhost ? car.driver_code.replace("A_", "") : car.driver_code;
-          const isFocus = !isGhost && car.driver_code === focus;
-          return (
-            <div
-              key={car.driver_code}
-              className={`grid grid-cols-[28px_56px_1fr_64px_84px_28px_36px_44px] items-center gap-2 border-b border-border/60 px-2 py-1.5 ${
-                isGhost ? "bg-surface/60" : isFocus ? "border-l-2 border-l-red bg-surface" : ""
-              }`}
-            >
-              <span className="text-white">{car.position ?? "—"}</span>
-              <span className="flex items-center gap-1.5 text-white">
-                <span className="h-2 w-1 rounded-sm" style={{ background: car.team_colour }} />
-                {isGhost ? <span className="text-amber">[A]</span> : null}
-                {code}
-              </span>
-              <span />
-              <span className="text-right text-muted">{fmtGap(car.gap_to_leader_s)}</span>
-              <span className="text-right text-white">{fmtLap(car.last_lap_s)}</span>
-              <span className="flex justify-center">
-                <TyreIcon compound={car.compound} />
-              </span>
-              <span className="text-right text-muted">{car.tyre_life}</span>
-              <span className="text-right text-muted">{car.pit_stops}</span>
-            </div>
-          );
-        })}
-        {rows.length === 0 && (
-          <div className="p-4 text-center text-muted">Waiting for timing data…</div>
-        )}
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-carbon font-mono-data text-[11px] [overflow-anchor:none]">
+      {banner && (
+        <div className="h-7 shrink-0 bg-[#FF8700]/20 px-2 py-1 text-center text-[10px] font-semibold uppercase text-[#FF8700]">
+          {banner}
+        </div>
+      )}
+      <div className="min-h-0 flex-1 overflow-auto [overflow-anchor:none]">
+        <div className="min-w-[620px]">
+          <div className={`grid h-8 shrink-0 ${TOWER_COLS} gap-x-2 border-b border-border px-2 py-2 font-sans text-[10px] uppercase text-muted`}>
+            <span>P</span>
+            <span>Drv</span>
+            <span className="text-right">Gap</span>
+            <span className="text-right">Last</span>
+            <span className="text-right">Best</span>
+            <span className="text-right">S1</span>
+            <span className="text-right">S2</span>
+            <span className="text-right">S3</span>
+            <span className="text-center">Ty</span>
+            <span className="text-right">Age</span>
+            <span className="text-right">Laps</span>
+          </div>
+          <div>
+            {loading && rows.length === 0 ? (
+              <PanelSkeleton rows={12} />
+            ) : rows.length === 0 ? (
+              <PanelEmpty
+                title="Timing tower"
+                detail="Position, gap, last lap, and tyre for the field. Empty until the first timing frame arrives from replay or live."
+              />
+            ) : (
+              rows.map((car) => (
+                <TimingRow
+                  key={car.driver_code}
+                  car={car}
+                  isFocus={!car.driver_code.startsWith("A_") && car.driver_code === focus}
+                  onFocus={setFocusDriver}
+                />
+              ))
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

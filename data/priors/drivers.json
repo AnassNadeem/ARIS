@@ -1,0 +1,74 @@
+{
+  "HAM": {
+    "name": "Lewis Hamilton",
+    "year": 2025,
+    "tyre_style": "easy on tyres",
+    "text": "Hamilton is known to be easy on tyres. He typically extends stints, manages rear degradation, and is less likely to cliff a set than more aggressive teammates.",
+    "typical_stint_laps": {"SOFT": 14, "MEDIUM": 26, "HARD": 34},
+    "lap_time_variance_s": 0.16,
+    "overtakes_per_race": 1.1
+  },
+  "VER": {
+    "name": "Max Verstappen",
+    "year": 2025,
+    "tyre_style": "aggressive but consistent",
+    "text": "Verstappen extracts high pace without usually destroying the tyre; he can push early in a stint and still hold a competitive long-run slope.",
+    "typical_stint_laps": {"SOFT": 12, "MEDIUM": 24, "HARD": 32},
+    "lap_time_variance_s": 0.14,
+    "overtakes_per_race": 1.8
+  },
+  "NOR": {
+    "name": "Lando Norris",
+    "year": 2025,
+    "tyre_style": "balanced",
+    "text": "Norris is balanced on tyres: competitive out-lap pace with average degradation, often the undercut reference versus Verstappen.",
+    "typical_stint_laps": {"SOFT": 13, "MEDIUM": 25, "HARD": 33},
+    "lap_time_variance_s": 0.17,
+    "overtakes_per_race": 1.4
+  },
+  "LEC": {
+    "name": "Charles Leclerc",
+    "year": 2025,
+    "tyre_style": "front-limited",
+    "text": "Leclerc is often front-limited: strong qualifying, can grain the front-left on high-deg tracks if he pushes the entry too much.",
+    "typical_stint_laps": {"SOFT": 12, "MEDIUM": 23, "HARD": 30},
+    "lap_time_variance_s": 0.19,
+    "overtakes_per_race": 1.3
+  },
+  "RUS": {
+    "name": "George Russell",
+    "year": 2025,
+    "tyre_style": "smooth",
+    "text": "Russell is smooth on tyres and typically matches Mercedes long-run targets; useful as a one-stop candidate when the car is kind to rears.",
+    "typical_stint_laps": {"SOFT": 13, "MEDIUM": 26, "HARD": 34},
+    "lap_time_variance_s": 0.15,
+    "overtakes_per_race": 1.2
+  },
+  "PIA": {
+    "name": "Oscar Piastri",
+    "year": 2025,
+    "tyre_style": "clean long-run",
+    "text": "Piastri is clean on long runs and rarely overheats the rears; McLaren often uses him as the offset-strategy car versus Norris.",
+    "typical_stint_laps": {"SOFT": 13, "MEDIUM": 25, "HARD": 33},
+    "lap_time_variance_s": 0.16,
+    "overtakes_per_race": 1.5
+  },
+  "SAI": {
+    "name": "Carlos Sainz",
+    "year": 2025,
+    "tyre_style": "heavy on rears",
+    "text": "Sainz can be heavy on rear tyres when rotating the car on throttle; stints sometimes come in a lap or two shorter than the team target.",
+    "typical_stint_laps": {"SOFT": 12, "MEDIUM": 23, "HARD": 31},
+    "lap_time_variance_s": 0.18,
+    "overtakes_per_race": 1.3
+  },
+  "ALO": {
+    "name": "Fernando Alonso",
+    "year": 2025,
+    "tyre_style": "easy on tyres",
+    "text": "Alonso is easy on tyres and historically one of the best at extending a first stint to jump traffic after a safety car.",
+    "typical_stint_laps": {"SOFT": 14, "MEDIUM": 27, "HARD": 35},
+    "lap_time_variance_s": 0.17,
+    "overtakes_per_race": 1.6
+  }
+}
