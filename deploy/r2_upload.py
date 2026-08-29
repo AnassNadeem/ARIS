@@ -11,16 +11,26 @@ Env: R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
+import subprocess
 import sys
+import tempfile
+import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_LOCAL = ROOT / "data" / "replay_r2"
-CORS_ORIGIN = "https://aris-frontend-590.pages.dev"
+PUBLIC_BASE = (os.environ.get("NEXT_PUBLIC_R2_BASE_URL") or "https://pub-9429cde26be84c4c8034f0b5873b9a7d.r2.dev").rstrip("/")
+CORS_ORIGINS = [
+    "https://aris-frontend-590.pages.dev",
+    "https://*.aris-frontend-590.pages.dev",
+    "http://localhost:3000",
+]
 
 _log = logging.getLogger("aris.r2")
+_BOTO_OK: bool | None = None
 
 
 def _env(name: str) -> str:
@@ -44,42 +54,140 @@ def r2_client():
         endpoint_url=endpoint,
         aws_access_key_id=_env("R2_ACCESS_KEY_ID"),
         aws_secret_access_key=_env("R2_SECRET_ACCESS_KEY"),
-        config=Config(signature_version="s3v4"),
+        config=Config(
+            signature_version="s3v4",
+            retries={"max_attempts": 1, "mode": "standard"},
+            connect_timeout=5,
+            read_timeout=10,
+        ),
         region_name="auto",
     )
 
 
-def ensure_cors(client, bucket: str) -> None:
+def _boto_usable(client, bucket: str) -> bool:
+    global _BOTO_OK
+    if _BOTO_OK is not None:
+        return _BOTO_OK
+    key = (os.environ.get("R2_ACCESS_KEY_ID") or "").strip().lower()
+    if key in {"", "wrangler-oauth", "dummy", "missing"}:
+        _BOTO_OK = False
+        return False
     try:
-        client.put_bucket_cors(
-            Bucket=bucket,
-            CORSConfiguration={
-                "CORSRules": [
-                    {
-                        "AllowedHeaders": ["*"],
-                        "AllowedMethods": ["GET", "HEAD"],
-                        "AllowedOrigins": [
-                            CORS_ORIGIN,
-                            "http://localhost:3000",
-                            "http://127.0.0.1:3000",
-                        ],
-                        "ExposeHeaders": ["ETag", "Content-Length"],
-                        "MaxAgeSeconds": 31536000,
-                    }
-                ]
-            },
-        )
-        _log.info("CORS set on bucket %s for %s", bucket, CORS_ORIGIN)
+        client.head_bucket(Bucket=bucket)
+        _BOTO_OK = True
+    except Exception:
+        _BOTO_OK = False
+    return _BOTO_OK
+
+
+def _wrangler(args: list[str], timeout: int = 180) -> subprocess.CompletedProcess[str]:
+    exe = "npx.cmd" if os.name == "nt" else "npx"
+    return subprocess.run(
+        [exe, "--yes", "wrangler", *args],
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=timeout,
+    )
+
+
+def _ensure_cors_wrangler(bucket: str) -> None:
+    payload = {
+        "rules": [
+            {
+                "allowed": {
+                    "origins": list(CORS_ORIGINS),
+                    "methods": ["GET", "HEAD"],
+                    "headers": ["*"],
+                },
+                "exposedHeaders": ["ETag", "Content-Length"],
+                "maxAgeSeconds": 31536000,
+            }
+        ]
+    }
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as handle:
+        json.dump(payload, handle)
+        cors_path = handle.name
+    try:
+        result = _wrangler(["r2", "bucket", "cors", "set", bucket, "--file", cors_path, "--force"])
+        if result.returncode != 0:
+            raise RuntimeError((result.stderr or result.stdout or "wrangler cors set failed").strip())
+        _log.info("CORS set on bucket %s for %s", bucket, ", ".join(CORS_ORIGINS))
+    finally:
+        Path(cors_path).unlink(missing_ok=True)
+
+
+def ensure_cors(client, bucket: str) -> None:
+    cors_rules = {
+        "CORSRules": [
+            {
+                "AllowedHeaders": ["*"],
+                "AllowedMethods": ["GET", "HEAD"],
+                "AllowedOrigins": list(CORS_ORIGINS),
+                "ExposeHeaders": ["ETag", "Content-Length"],
+                "MaxAgeSeconds": 31536000,
+            }
+        ]
+    }
+    try:
+        if _boto_usable(client, bucket):
+            client.put_bucket_cors(Bucket=bucket, CORSConfiguration=cors_rules)
+            _log.info("CORS set on bucket %s for %s", bucket, ", ".join(CORS_ORIGINS))
+            return
+    except Exception as extra:
+        _log.warning("boto3 CORS failed (%s); trying wrangler", extra)
+    try:
+        _ensure_cors_wrangler(bucket)
     except Exception as extra:
         _log.warning("could not set bucket CORS: %s", extra)
 
 
 def object_exists(client, bucket: str, key: str) -> bool:
     try:
-        client.head_object(Bucket=bucket, Key=key)
-        return True
+        if _boto_usable(client, bucket):
+            client.head_object(Bucket=bucket, Key=key)
+            return True
+    except Exception:
+        pass
+    url = f"{PUBLIC_BASE}/{key}"
+    try:
+        req = urllib.request.Request(
+            url,
+            method="HEAD",
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+                )
+            },
+        )
+        with urllib.request.urlopen(req, timeout=20) as res:
+            return 200 <= int(res.status) < 300
     except Exception:
         return False
+
+
+def _upload_wrangler(bucket: str, local: Path, key: str) -> None:
+    result = _wrangler(
+        [
+            "r2",
+            "object",
+            "put",
+            f"{bucket}/{key}",
+            "--file",
+            str(local),
+            "--content-type",
+            "application/json",
+            "--cache-control",
+            "public, max-age=31536000, immutable",
+            "--remote",
+            "--force",
+        ]
+    )
+    if result.returncode != 0:
+        raise RuntimeError((result.stderr or result.stdout or "wrangler put failed").strip())
 
 
 def upload_file(client, bucket: str, local: Path, key: str) -> None:
@@ -87,7 +195,15 @@ def upload_file(client, bucket: str, local: Path, key: str) -> None:
         "ContentType": "application/json",
         "CacheControl": "public, max-age=31536000, immutable",
     }
-    client.upload_file(str(local), bucket, key, ExtraArgs=extra)
+    uploaded = False
+    try:
+        if _boto_usable(client, bucket):
+            client.upload_file(str(local), bucket, key, ExtraArgs=extra)
+            uploaded = True
+    except Exception as extra_err:
+        _log.warning("boto3 upload failed (%s); trying wrangler", extra_err)
+    if not uploaded:
+        _upload_wrangler(bucket, local, key)
     _log.info("uploaded s3://%s/%s (%s bytes)", bucket, key, local.stat().st_size)
 
 

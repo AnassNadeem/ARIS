@@ -9,8 +9,10 @@ import type {
   LivePosition,
   LiveTimingRow,
   RaceField,
+  RaceFieldPosSample,
   StratPlan,
 } from "@/lib/types";
+import { MOCK_DRIVERS_2025 } from "@/lib/mockData";
 
 const R2_BASE = (process.env.NEXT_PUBLIC_R2_BASE_URL || "").replace(/\/$/, "");
 
@@ -143,7 +145,7 @@ export function fieldToStintRows(field: RaceField): ApiStintRow[] {
 
 export function fieldToDrivers(field: RaceField): DriverListing[] {
   return field.drivers.map((d, i) => ({
-    driver_number: i + 1,
+    driver_number: d.number ?? i + 1,
     driver_code: d.code,
     full_name: d.name,
     team: d.team,
@@ -192,26 +194,54 @@ export function elapsedToLap(field: RaceField, elapsedS: number): { lap: number;
   return { lap: total, lapFrac: total };
 }
 
-function interpPathFrac(samples: { lap_frac: number; path_frac: number }[], lapFrac: number): number {
-  if (!samples.length) return 0;
-  if (lapFrac <= samples[0].lap_frac) return samples[0].path_frac;
-  const last = samples[samples.length - 1];
-  if (lapFrac >= last.lap_frac) return last.path_frac;
+/** Nearest-neighbour pos_sample by lap_frac. Tie → earlier sample. */
+export function nearestPosSample(
+  samples: { lap_frac: number; path_frac: number }[],
+  lapFrac: number,
+): { lap_frac: number; path_frac: number } | null {
+  if (!samples.length) return null;
   let lo = 0;
   let hi = samples.length - 1;
   while (lo < hi) {
-    const mid = (lo + hi + 1) >> 1;
-    if (samples[mid].lap_frac <= lapFrac) lo = mid;
-    else hi = mid - 1;
+    const mid = (lo + hi) >> 1;
+    if (samples[mid].lap_frac < lapFrac) lo = mid + 1;
+    else hi = mid;
   }
-  const a = samples[lo];
-  const b = samples[Math.min(samples.length - 1, lo + 1)];
-  const span = b.lap_frac - a.lap_frac;
-  const u = span > 1e-9 ? (lapFrac - a.lap_frac) / span : 0;
-  let d = b.path_frac - a.path_frac;
-  if (d > 0.5) d -= 1;
-  if (d < -0.5) d += 1;
-  return ((a.path_frac + u * d) % 1 + 1) % 1;
+  let best = lo;
+  if (lo > 0) {
+    const dPrev = Math.abs(samples[lo - 1].lap_frac - lapFrac);
+    const dCur = Math.abs(samples[lo].lap_frac - lapFrac);
+    if (dPrev <= dCur) best = lo - 1;
+  }
+  return samples[best];
+}
+
+export function pathFracAtLap(
+  samples: { lap_frac: number; path_frac: number }[],
+  lapFrac: number,
+  totalLaps = 0,
+): number {
+  if (!samples.length) return 0;
+  const span = samples[samples.length - 1].lap_frac - samples[0].lap_frac;
+  // Broken R2 builds stored every sample at lap_frac=0. Index by race progress.
+  if (Math.abs(span) < 1e-9 && totalLaps > 0 && samples.length > 1) {
+    const u = Math.max(0, Math.min(1, lapFrac / totalLaps));
+    return samples[Math.round(u * (samples.length - 1))].path_frac;
+  }
+  return nearestPosSample(samples, lapFrac)?.path_frac ?? 0;
+}
+
+function posSamplesFor(field: RaceField, code: string): RaceFieldPosSample[] {
+  const direct = field.pos_samples[code];
+  if (direct?.length) return direct;
+  const drv = field.drivers.find((d) => d.code === code);
+  const nums = [drv?.number, MOCK_DRIVERS_2025.find((d) => d.driver_code === code)?.driver_number];
+  for (const num of nums) {
+    if (num == null) continue;
+    const byNum = field.pos_samples[String(num)];
+    if (byNum?.length) return byNum;
+  }
+  return [];
 }
 
 export function r2FrameAt(
@@ -239,8 +269,8 @@ export function r2FrameAt(
   const timing: LiveTimingRow[] = [];
   const positions: LivePosition[] = [];
   for (const [code, row] of byDriver) {
-    const samples = field.pos_samples[code] || [];
-    const frac = interpPathFrac(samples, lapFrac);
+    const samples = posSamplesFor(field, code);
+    const frac = pathFracAtLap(samples, lapFrac, field.meta.total_laps);
     const xy = pointAtFraction(path, frac);
     timing.push({
       position: row.position ?? 0,

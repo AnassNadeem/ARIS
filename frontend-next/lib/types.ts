@@ -135,6 +135,7 @@ export interface RaceFieldDriver {
   team: string;
   colour: string;
   grid_position: number | null;
+  number?: number | null;
 }
 
 export interface RaceFieldLap {

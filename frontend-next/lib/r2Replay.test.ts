@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { annotateVsActivePlan, shouldFetchRecommend } from "./arisRecommend";
-import { plansMatch, r2Configured, raceDurationS } from "./r2Replay";
-import type { ARISRecommendation, GhostData, RaceField } from "./types";
+import { mapTimingAndPositions } from "./mapCars";
+import { fieldToDrivers, nearestPosSample, plansMatch, r2Configured, r2FrameAt, raceDurationS } from "./r2Replay";
+import type { ARISRecommendation, GhostData, RaceField, RaceFieldLap } from "./types";
 
 function rec(over: Partial<ARISRecommendation> = {}): ARISRecommendation {
   return {
@@ -113,5 +114,61 @@ describe("R2 fallback when NEXT_PUBLIC_R2_BASE_URL is unset", () => {
       pos_samples: {},
     } as RaceField;
     expect(raceDurationS(field)).toBe(149);
+  });
+});
+
+describe("nearestPosSample", () => {
+  it("at lap_frac=20.5 selects the nearest VER pos_sample", () => {
+    const verSamples = [
+      { lap_frac: 20.0, path_frac: 0.1 },
+      { lap_frac: 20.4, path_frac: 0.41 },
+      { lap_frac: 20.8, path_frac: 0.7 },
+    ];
+    const hit = nearestPosSample(verSamples, 20.5);
+    expect(hit?.lap_frac).toBe(20.4);
+    expect(hit?.path_frac).toBe(0.41);
+
+    const lapRow = (n: number): RaceFieldLap => ({
+      lap: n,
+      driver: "VER",
+      position: 1,
+      gap_to_leader_s: 0,
+      gap_ahead_s: 0,
+      compound: "MEDIUM",
+      tyre_life: n,
+      stint_number: 1,
+      pit_this_lap: false,
+      is_dnf: false,
+      is_dsq: false,
+      track_status: "1",
+      lap_time_s: 90,
+    });
+    const field: RaceField = {
+      meta: {
+        year: 2025,
+        round: 15,
+        session_type: "R",
+        circuit_name: "Zandvoort",
+        total_laps: 22,
+        date_race: "2025-08-31",
+        green_flag_s: 0,
+        session_key: 1,
+      },
+      outline: { x: [0, 100], y: [0, 0] },
+      drivers: [{ code: "VER", name: "Max Verstappen", team: "Red Bull Racing", colour: "#3671C6", grid_position: 3, number: 1 }],
+      laps: Array.from({ length: 22 }, (_, i) => lapRow(i + 1)),
+      stints: [],
+      weather: [],
+      race_control: [],
+      pos_samples: { VER: verSamples },
+    };
+    // 90s laps: elapsed 1845s is lap 21, 50% → lapFrac 20.5
+    const frame = r2FrameAt(field, 20 * 90 + 45);
+    const pos = frame.positions.find((p) => p.driver_code === "VER");
+    expect(pos?.path_frac).toBe(0.41);
+    const cars = mapTimingAndPositions(frame.timing, frame.positions, fieldToDrivers(field), 22, frame.lap);
+    expect(cars.VER.path_frac).toBe(0.41);
+    expect(cars.VER.team_colour).toBe("#3671C6");
+    expect(Object.keys(cars)).toEqual(["VER"]);
   });
 });

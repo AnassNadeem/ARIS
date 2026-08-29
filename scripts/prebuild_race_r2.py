@@ -183,6 +183,11 @@ def _drivers(sess: Any) -> list[dict[str, Any]]:
         team = str(getattr(rec, "TeamName", "") or "")
         name = str(getattr(rec, "FullName", "") or getattr(rec, "BroadcastName", "") or code)
         colour = team_colour(team) or "#888888"
+        num = getattr(rec, "DriverNumber", None)
+        try:
+            number = int(float(num)) if num is not None and str(num) != "nan" else None
+        except (TypeError, ValueError):
+            number = None
         out.append(
             {
                 "code": code,
@@ -190,6 +195,7 @@ def _drivers(sess: Any) -> list[dict[str, Any]]:
                 "team": team,
                 "colour": colour,
                 "grid_position": grid_n,
+                "number": number,
             }
         )
     return out
@@ -426,12 +432,19 @@ def _pos_samples(
     raw = load_position_data_only(sess)
     min_dt = 1.0 / max(0.5, hz)
     laps = getattr(sess, "laps", None)
+    code_by_num: dict[int, str] = {}
     lap_starts: dict[str, list[tuple[float, int, float]]] = {}
     if laps is not None and not laps.empty:
         import pandas as pd
 
         for rec in laps.itertuples(index=False):
             code = str(getattr(rec, "Driver", "") or "")
+            num = getattr(rec, "DriverNumber", None)
+            try:
+                if code and num is not None and str(num) != "nan":
+                    code_by_num[int(float(num))] = code
+            except (TypeError, ValueError):
+                pass
             start = getattr(rec, "LapStartDate", None)
             lap_n = int(getattr(rec, "LapNumber", 0) or 0)
             dur = _td_s(getattr(rec, "LapTime", None)) or 90.0
@@ -454,13 +467,8 @@ def _pos_samples(
         if df is None or getattr(df, "empty", True) or "X" not in getattr(df, "columns", []):
             continue
         code = str(drv_key)
-        if str(drv_key).isdigit() and laps is not None:
-            try:
-                hit = laps[laps["DriverNumber"] == int(drv_key)]
-                if not hit.empty:
-                    code = str(hit.iloc[0]["Driver"])
-            except Exception:
-                pass
+        if str(drv_key).isdigit():
+            code = code_by_num.get(int(drv_key), code)
         xs: list[float] = []
         ys: list[float] = []
         times: list[float] = []
