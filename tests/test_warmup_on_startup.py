@@ -96,3 +96,83 @@ def test_cached_sync_uses_disk_without_calling_factory():
         get_disk().pop(key, default=None)
     except Exception:
         pass
+
+
+def test_prewarm_disabled_by_default(monkeypatch):
+    monkeypatch.delenv("ARIS_ENABLE_PREWARM", raising=False)
+    from backend.main import prewarm_enabled
+
+    assert prewarm_enabled() is False
+
+
+def test_prewarm_enabled_when_true(monkeypatch):
+    monkeypatch.setenv("ARIS_ENABLE_PREWARM", "true")
+    from backend.main import prewarm_enabled
+
+    assert prewarm_enabled() is True
+
+
+def test_max_concurrent_loads_defaults_to_one(monkeypatch):
+    monkeypatch.delenv("ARIS_MAX_CONCURRENT_LOADS", raising=False)
+    from backend.fastf1_guard import max_concurrent_loads
+
+    assert max_concurrent_loads() == 1
+
+
+def test_prewarm_asyncio_semaphore_is_one():
+    from backend.main import _PREWARM_CONCURRENCY
+
+    assert getattr(_PREWARM_CONCURRENCY, "_value", 1) == 1
+
+
+def test_prewarm_weekend_packs_excludes_gps_channels():
+    import inspect
+
+    from backend.main import _prewarm_weekend_packs
+
+    src = inspect.getsource(_prewarm_weekend_packs)
+    assert "sessions.circuit_map_quick" not in src
+    assert 'wait_for="full"' not in src
+    assert "telemetry=False" in src
+    assert "car_data" in src or "position_data" in src
+
+
+def test_lifespan_skips_fastf1_when_prewarm_unset(monkeypatch, capsys):
+    monkeypatch.delenv("ARIS_ENABLE_PREWARM", raising=False)
+    started: list[str] = []
+
+    async def fake_poller():
+        started.append("poller")
+        await asyncio.Event().wait()
+
+    def boom_warmup():
+        started.append("warmup")
+        raise AssertionError("warmup_startup must not run when prewarm is off")
+
+    def boom_catalog():
+        started.append("catalog")
+        raise AssertionError("catalog extras must not run when prewarm is off")
+
+    async def boom_weekend():
+        started.append("weekend")
+        raise AssertionError("weekend prewarm must not run when prewarm is off")
+
+    from backend import main as main_mod
+
+    monkeypatch.setattr(main_mod.live, "poll_openf1_forever", fake_poller)
+    monkeypatch.setattr(main_mod, "warmup_startup", boom_warmup)
+    monkeypatch.setattr(main_mod, "_prewarm_catalog_extras", boom_catalog)
+    monkeypatch.setattr(main_mod, "_prewarm_weekend_packs", boom_weekend)
+
+    async def runner():
+        async with main_mod.lifespan(main_mod.app):
+            await asyncio.sleep(0.05)
+            names = {t.get_name() for t in asyncio.all_tasks()}
+            assert "weekend-pack-warm" not in names
+
+    asyncio.run(runner())
+    out = capsys.readouterr().out
+    assert "GPS loaded" not in out
+    assert "Loading data for" not in out
+    assert "Startup prewarm disabled" in out
+    assert started == ["poller"]

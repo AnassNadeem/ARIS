@@ -149,8 +149,11 @@ def _drivers_from_fastf1(year: int) -> list[Driver]:
         if not completed:
             return []
         rnd = completed[-1]
+        from backend.fastf1_guard import FASTF1_LOCK
+
         sess = fastf1.get_session(year, rnd.round_number, "R")
-        sess.load(laps=True, telemetry=False, weather=False, messages=False)
+        with FASTF1_LOCK:
+            sess.load(laps=True, telemetry=False, weather=False, messages=False)
         out: list[Driver] = []
         seen: set[str] = set()
         for _, row in sess.results.iterrows():

@@ -36,6 +36,7 @@ from backend.cache import (
     get_memory_then_disk,
     put_both,
 )
+from backend.fastf1_guard import max_concurrent_loads
 from backend.utils import prewarm_executor, run_light, run_prewarm, run_sync
 
 CACHE_DIR = os.path.join(os.path.dirname(__file__), "..", "cache", "fastf1")
@@ -237,17 +238,26 @@ def _recent_circuit_rounds(limit: int = 5) -> list[tuple[int, int]]:
     return picks
 
 
-# fix-pass item 2: cap prewarm concurrency explicitly so background warming never
-# fans out past the dedicated prewarm pool and starves user-facing requests.
-_PREWARM_CONCURRENCY = asyncio.Semaphore(2)
+def prewarm_enabled() -> bool:
+    """Background FastF1 / ingest pre-warm. Off unless ARIS_ENABLE_PREWARM=true.
+
+    Heroku Basic is 512MB. One GPS session is ~400MB; two concurrent loads
+    trigger R15 (Memory quota vastly exceeded) and SIGKILL.
+    """
+    raw = (os.environ.get("ARIS_ENABLE_PREWARM") or "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
+# Cap concurrent FastF1 session loads. Default 1 (see ARIS_MAX_CONCURRENT_LOADS).
+_PREWARM_CONCURRENCY = asyncio.Semaphore(max_concurrent_loads())
 
 
 async def _prewarm_weekend_packs() -> None:
-    """Load completed weekend packs in the background so replay is already warm.
+    """Laps-only weekend warm. Never loads car_data or position_data (GPS).
 
-    Runs as a background task (never blocks startup) and does all of its blocking
-    work on `prewarm_executor` — a pool dedicated to prewarm — so it can never
-    queue-block a live user's request on the general/light pools (fix-pass item 2).
+    Circuit maps and full replay packs pull those channels (~400MB each).
+    Two concurrent loads OOM a 512MB Heroku Basic dyno (R15).
+    GPS fills lazily on the first user request instead.
     """
     await asyncio.sleep(1.5)
     try:
@@ -260,21 +270,6 @@ async def _prewarm_weekend_packs() -> None:
     except Exception as e:
         print(f"[ARIS] Weekend sessions prewarm failed: {e}", flush=True)
         weekend = None
-    try:
-        cmap = await run_prewarm(sessions.circuit_map_quick, nxt.year, nxt.round_number)
-        put_both(f"circuit_map_v6_{nxt.year}_{nxt.round_number}", cmap, TTL_CIRCUIT)
-        print(f"[ARIS] Circuit map cached: {nxt.year} R{nxt.round_number}", flush=True)
-    except Exception as e:
-        print(f"[ARIS] Circuit map prewarm failed: {e}", flush=True)
-    for year, rnd in _recent_circuit_rounds(5):
-        if year == nxt.year and rnd == nxt.round_number:
-            continue
-        try:
-            cmap = await run_prewarm(sessions.circuit_map_quick, year, rnd)
-            put_both(f"circuit_map_v6_{year}_{rnd}", cmap, TTL_CIRCUIT)
-            print(f"[ARIS] Circuit map cached: {year} R{rnd}", flush=True)
-        except Exception as e:
-            print(f"[ARIS] Circuit map prewarm failed {year} R{rnd}: {e}", flush=True)
     if nxt.circuit_key:
         try:
             from backend.analytics import circuit_history
@@ -295,33 +290,35 @@ async def _prewarm_weekend_packs() -> None:
             continue
         async with _PREWARM_CONCURRENCY:
             try:
-                key = live.synthetic_session_key(nxt.year, nxt.round_number, sess.session_type)
-                await live._ensure_replay_pack(
-                    key,
+                # Laps + timing only: session_info, driver_info, session_status_data,
+                # lap_count, track_status_data, timing_app_data. No car_data / position_data.
+                await run_prewarm(
+                    sessions.load_session,
                     nxt.year,
                     nxt.round_number,
-                    session_type=sess.session_type,
-                    executor=prewarm_executor,
-                    wait_for="full",
+                    sess.session_type,
+                    telemetry=False,
+                    weather=False,
+                    messages=False,
                 )
-                print(f"[ARIS] Replay pack warm: {sess.session_type} {key}", flush=True)
+                print(
+                    f"[ARIS] Laps-only session warm: {nxt.year} R{nxt.round_number} {sess.session_type}",
+                    flush=True,
+                )
             except Exception as e:
-                print(f"[ARIS] Replay pack warm failed {sess.session_type}: {e}", flush=True)
-            if sess.session_type == "R":
-                # fix-pass item 6: warm ARIS-DB ingestion for the race here too, so
-                # a later `recommend()` call doesn't hit a cold ingest check.
-                try:
-                    from backend.ingest_jobs import ensure_session_ingested
+                print(f"[ARIS] Laps-only session warm failed {sess.session_type}: {e}", flush=True)
+            try:
+                from backend.ingest_jobs import ensure_session_ingested
 
-                    status = await run_prewarm(
-                        ensure_session_ingested, nxt.year, nxt.round_number, "R"
-                    )
-                    print(
-                        f"[ARIS] Ingest warm: {nxt.year} R{nxt.round_number} -> {status}",
-                        flush=True,
-                    )
-                except Exception as e:
-                    print(f"[ARIS] Ingest warm failed: {e}", flush=True)
+                status = await run_prewarm(
+                    ensure_session_ingested, nxt.year, nxt.round_number, "R"
+                )
+                print(
+                    f"[ARIS] Ingest warm: {nxt.year} R{nxt.round_number} -> {status}",
+                    flush=True,
+                )
+            except Exception as e:
+                print(f"[ARIS] Ingest warm failed: {e}", flush=True)
 
 
 def _prewarm_circuit_previews() -> None:
@@ -343,16 +340,22 @@ def _prewarm_circuit_previews() -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    loop = asyncio.get_running_loop()
-    # Calendar + drivers + disk-only hot packs before the first HTTP request.
-    try:
-        await run_prewarm(warmup_startup)
-    except Exception as e:
-        print(f"[ARIS] Startup warmup failed: {e}", flush=True)
-    loop.run_in_executor(prewarm_executor, _prewarm_catalog_extras)
-    # Circuit previews load FastF1 telemetry and have crashed uvicorn on Windows.
-    # Serve calendars/live first; previews fill on demand.
-    asyncio.create_task(_prewarm_weekend_packs(), name="weekend-pack-warm")
+    if prewarm_enabled():
+        loop = asyncio.get_running_loop()
+        # Calendar + drivers + disk-only hot packs, then background laps-only warm.
+        # Never loads car_data / position_data at boot.
+        try:
+            await run_prewarm(warmup_startup)
+        except Exception as e:
+            print(f"[ARIS] Startup warmup failed: {e}", flush=True)
+        loop.run_in_executor(prewarm_executor, _prewarm_catalog_extras)
+        asyncio.create_task(_prewarm_weekend_packs(), name="weekend-pack-warm")
+    else:
+        print(
+            "[ARIS] Startup prewarm disabled "
+            "(set ARIS_ENABLE_PREWARM=true to enable). Cache fills on first request.",
+            flush=True,
+        )
     poller = asyncio.create_task(live.poll_openf1_forever(), name="openf1-poller")
     try:
         yield
