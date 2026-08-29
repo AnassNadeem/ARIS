@@ -46,7 +46,7 @@ export async function fetchWithProgress(
       onProgress(loaded, total);
     }
   }
-  const body = new Blob(chunks);
+  const body = new Blob(chunks as BlobPart[]);
   return new Response(body, { headers: res.headers, status: res.status });
 }
 
