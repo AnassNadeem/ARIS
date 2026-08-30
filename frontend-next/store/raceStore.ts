@@ -17,6 +17,7 @@ import type {
   GhostData,
   GhostR2Tick,
 } from "@/lib/types";
+import { deriveGhostLapTimes, pitLossForCircuit, realLapTimesByDriver, DEFAULT_PIT_LOSS_S } from "@/lib/r2Replay";
 
 export type ARISMode = "assisted" | "auto";
 export type ConsolePlayState = "ready" | "starting" | "racing";
@@ -95,6 +96,13 @@ export interface RaceStore {
   r2RaceField: RaceField | null;
   r2Ghost: GhostData | null;
   ghostTicksByLap: Record<number, GhostR2Tick>;
+  /** Derived from ticks + race_field. Rebuilt on every tick load / recompute. */
+  ghostLapS: number[];
+  ghostCumulativeS: number[];
+  ghostImplausibleLaps: { lap: number; ghost_lap_s: number; real_lap_s: number; delta_step_s: number }[];
+  /** Replay clock (seconds since lights-out). Same counter driving real-car animation. */
+  replayElapsedS: number;
+  pitLossS: number;
 
   // Actions
   setSession: (session: SessionMeta | null) => void;
@@ -121,6 +129,7 @@ export interface RaceStore {
   setR2Ghost: (ghost: GhostData | null) => void;
   setGhostTicks: (ticks: Record<number, GhostR2Tick>) => void;
   mergeGhostTicksFrom: (fromLap: number, ticks: GhostR2Tick[]) => void;
+  setReplayElapsedS: (elapsedS: number) => void;
   setFocusDriver: (code: string | null) => void;
   setCopilotDocked: (on: boolean) => void;
   setCars: (cars: Record<string, CarState>) => void;
@@ -211,7 +220,47 @@ const initialState = {
   r2RaceField: null as RaceField | null,
   r2Ghost: null as GhostData | null,
   ghostTicksByLap: {} as Record<number, GhostR2Tick>,
+  ghostLapS: [] as number[],
+  ghostCumulativeS: [0] as number[],
+  ghostImplausibleLaps: [] as { lap: number; ghost_lap_s: number; real_lap_s: number; delta_step_s: number }[],
+  replayElapsedS: 0,
+  pitLossS: DEFAULT_PIT_LOSS_S,
 };
+
+function deriveGhostSlice(s: {
+  r2RaceField: RaceField | null;
+  ghostTicksByLap: Record<number, GhostR2Tick>;
+  arisDriver: string | null;
+  selectedDriver: string | null;
+}): {
+  ghostLapS: number[];
+  ghostCumulativeS: number[];
+  ghostImplausibleLaps: { lap: number; ghost_lap_s: number; real_lap_s: number; delta_step_s: number }[];
+  pitLossS: number;
+} {
+  const pitLossS = s.r2RaceField ? pitLossForCircuit(s.r2RaceField.meta.circuit_name) : DEFAULT_PIT_LOSS_S;
+  const driver = s.arisDriver ?? s.selectedDriver;
+  if (!s.r2RaceField || !driver) {
+    return { ghostLapS: [], ghostCumulativeS: [0], ghostImplausibleLaps: [], pitLossS };
+  }
+  const ticks = Object.values(s.ghostTicksByLap).sort((a, b) => a.lap - b.lap);
+  if (!ticks.length) {
+    return { ghostLapS: [], ghostCumulativeS: [0], ghostImplausibleLaps: [], pitLossS };
+  }
+  const derived = deriveGhostLapTimes(ticks, realLapTimesByDriver(s.r2RaceField, driver));
+  if (derived.implausible_laps.length) {
+    const unclamped = derived.implausible_laps.filter((row) => row.ghost_lap_s <= 0);
+    if (unclamped.length) {
+      console.warn("[ARIS ghost] implausible ghost_lap_s (not clamped)", unclamped);
+    }
+  }
+  return {
+    ghostLapS: derived.ghost_lap_s,
+    ghostCumulativeS: derived.ghost_cumulative_s,
+    ghostImplausibleLaps: derived.implausible_laps,
+    pitLossS,
+  };
+}
 
 export const useRaceStore = create<RaceStore>()(
   subscribeWithSelector((set, get) => ({
@@ -249,6 +298,12 @@ export const useRaceStore = create<RaceStore>()(
         pendingRecommendation: null,
         lastRecommendation: null,
         strategyLoading: false,
+        ghostLapS: [],
+        ghostCumulativeS: [0],
+        ghostImplausibleLaps: [],
+        replayElapsedS: 0,
+        pitLossS: DEFAULT_PIT_LOSS_S,
+        ghostTicksByLap: {},
       }),
     setConsoleMode: (consoleMode) => set({ consoleMode }),
     setConsolePlayState: (consolePlayState) => set({ consolePlayState }),
@@ -309,17 +364,23 @@ export const useRaceStore = create<RaceStore>()(
       set({ selectedStrategy, activeStrategy: selectedStrategy ?? get().activeStrategy }),
     setActiveStrategy: (activeStrategy) => set({ activeStrategy }),
     setReplaySource: (replaySource) => set({ replaySource }),
-    setR2RaceField: (r2RaceField) => set({ r2RaceField }),
+    setR2RaceField: (r2RaceField) =>
+      set((s) => ({ r2RaceField, ...deriveGhostSlice({ ...s, r2RaceField }) })),
     setR2Ghost: (r2Ghost) => set({ r2Ghost }),
-    setGhostTicks: (ghostTicksByLap) => set({ ghostTicksByLap }),
+    setGhostTicks: (ghostTicksByLap) =>
+      set((s) => ({ ghostTicksByLap, ...deriveGhostSlice({ ...s, ghostTicksByLap }) })),
     mergeGhostTicksFrom: (fromLap, ticks) =>
       set((s) => {
-        const next = { ...s.ghostTicksByLap };
+        const ghostTicksByLap = { ...s.ghostTicksByLap };
         for (const t of ticks) {
-          if (t.lap >= fromLap) next[t.lap] = t;
+          if (t.lap >= fromLap) ghostTicksByLap[t.lap] = t;
         }
-        return { ghostTicksByLap: next };
+        return { ghostTicksByLap, ...deriveGhostSlice({ ...s, ghostTicksByLap }) };
       }),
+    setReplayElapsedS: (replayElapsedS) => {
+      if (get().replayElapsedS === replayElapsedS) return;
+      set({ replayElapsedS });
+    },
     setFocusDriver: (focusDriver) => set({ focusDriver }),
     setCopilotDocked: (copilotDocked) => set({ copilotDocked }),
     setCars: (cars) => {

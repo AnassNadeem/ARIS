@@ -1,5 +1,6 @@
 import { MOCK_DRIVERS_2025, zandvoortOvalCoords } from "@/lib/mockData";
 import { mockRecommendation } from "@/lib/api";
+import { ghostPlaybackAt } from "@/lib/ghostCar";
 import { buildPath, headingAtFraction, pointAtFraction } from "@/lib/trackGeometry";
 import type { useRaceStore } from "@/store/raceStore";
 import type { CarState } from "@/lib/types";
@@ -137,16 +138,40 @@ export class MockRaceFeed {
 
     if (isARISOn && cars[focus]) {
       const real = cars[focus];
-      const ghostFrac = rows.find((r) => r.d.code === focus)!.frac + 0.004; // ghost slightly ahead
-      const ghostPoint = pointAtFraction(this.path, ghostFrac);
+      const st = this.store.getState();
+      const playback =
+        st.ghostLapS.length > 1
+          ? ghostPlaybackAt({
+              elapsedS: st.replayElapsedS || this.elapsedRaceS,
+              ghostLapS: st.ghostLapS,
+              ghostCumulativeS: st.ghostCumulativeS,
+              totalLaps,
+              pitLaps: st.activeStrategy?.pit_laps ?? st.r2Ghost?.strategy.pit_laps ?? [],
+              pitLossS: st.pitLossS,
+              pitCompounds: st.activeStrategy?.pit_compounds ?? st.r2Ghost?.strategy.compounds,
+            })
+          : ghostPlaybackAt({
+              elapsedS: this.elapsedRaceS,
+              ghostLapS: Array.from({ length: totalLaps + 1 }, (_, i) => (i === 0 ? NaN : LAP_TIME_S)),
+              ghostCumulativeS: Array.from({ length: totalLaps + 1 }, (_, i) => i * LAP_TIME_S),
+              totalLaps,
+              pitLaps: [],
+              pitLossS: st.pitLossS,
+            });
+      const ghostPoint = pointAtFraction(this.path, playback.path_frac);
       setGhostCar({
         ...real,
         driver_code: `A_${real.driver_code}`,
         position: Math.max(1, (real.position ?? 1) - 1),
         x: ghostPoint.x,
         y: ghostPoint.y,
+        path_frac: playback.path_frac,
         compound: "HARD",
         is_aris_driver: false,
+        ghost_in_pits: playback.inPits,
+        ghost_pit_compound: playback.pitCompound,
+        ghost_skip_seek_jump: playback.skipSeekJump,
+        is_pitted: playback.inPits,
       });
     } else {
       setGhostCar(null);

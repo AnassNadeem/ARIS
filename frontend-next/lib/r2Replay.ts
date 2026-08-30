@@ -118,6 +118,174 @@ export function r2TickToGhostTick(tick: GhostR2Tick, driver: string, ghost: Ghos
   };
 }
 
+/** Fallback when a circuit YAML pit_loss_s is not in the lookup. */
+export const DEFAULT_PIT_LOSS_S = 22;
+
+/**
+ * pit_loss_s copied from data/tracks/*.yaml (name + round_aliases).
+ * Used for the ghost pit-hide window — not re-added into ghost_lap_s
+ * (pit loss is already inside the cumulative_delta_s step on pit laps).
+ */
+const PIT_LOSS_BY_CIRCUIT: Record<string, number> = {
+  bahrain: 21.8,
+  sakhir: 21.8,
+  "saudi arabia": 17.7,
+  jeddah: 17.7,
+  australia: 14.3,
+  melbourne: 14.3,
+  "albert park": 14.3,
+  japan: 21.6,
+  suzuka: 21.6,
+  china: 17.4,
+  shanghai: 17.4,
+  miami: 13.3,
+  "emilia romagna": 21.4,
+  imola: 21.4,
+  monaco: 19.2,
+  "monte carlo": 19.2,
+  canada: 16.1,
+  montreal: 16.1,
+  "circuit gilles villeneuve": 16.1,
+  spain: 19.0,
+  barcelona: 19.0,
+  catalunya: 19.0,
+  austria: 17.5,
+  spielberg: 17.5,
+  "red bull ring": 17.5,
+  britain: 18.7,
+  silverstone: 18.7,
+  hungary: 18.5,
+  hungaroring: 18.5,
+  budapest: 18.5,
+  belgium: 14.6,
+  spa: 14.6,
+  "spa francorchamps": 14.6,
+  netherlands: 18.5,
+  zandvoort: 18.5,
+  "circuit zandvoort": 18.5,
+  italy: 21.3,
+  monza: 21.3,
+  azerbaijan: 17.7,
+  baku: 17.7,
+  singapore: 15.8,
+  marina: 15.8,
+  "marina bay": 15.8,
+  "united states": 20.1,
+  austin: 20.1,
+  cota: 20.1,
+  mexico: 19.1,
+  "mexico city": 19.1,
+  brazil: 18.5,
+  "sao paulo": 18.5,
+  interlagos: 18.5,
+  "las vegas": 15.8,
+  vegas: 15.8,
+  qatar: 23.0,
+  losail: 23.0,
+  "abu dhabi": 21.8,
+  yas: 21.8,
+  france: 13.8,
+  "paul ricard": 13.8,
+  portugal: 22.2,
+  portimao: 22.2,
+  turkey: 20.3,
+  istanbul: 20.3,
+  russia: 20.5,
+  sochi: 20.5,
+  hockenheim: 19.3,
+  mugello: 16.6,
+  nurburgring: 20.8,
+  "nürburgring": 20.8,
+};
+
+function normCircuitKey(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+/** Circuit YAML pit_loss_s, or 22s if the name is unknown. */
+export function pitLossForCircuit(circuitName: string | null | undefined): number {
+  if (!circuitName) return DEFAULT_PIT_LOSS_S;
+  const key = normCircuitKey(circuitName);
+  if (PIT_LOSS_BY_CIRCUIT[key] != null) return PIT_LOSS_BY_CIRCUIT[key];
+  for (const [alias, loss] of Object.entries(PIT_LOSS_BY_CIRCUIT)) {
+    if (key.includes(alias) || alias.includes(key)) return loss;
+  }
+  return DEFAULT_PIT_LOSS_S;
+}
+
+/** real_lap_s[L] from race_field.json for one driver. Index 0 unused. */
+export function realLapTimesByDriver(field: RaceField, driver: string): number[] {
+  const code = driver.toUpperCase();
+  const maxLap = field.meta.total_laps;
+  const out: number[] = new Array(maxLap + 1).fill(NaN);
+  for (const row of field.laps) {
+    if (row.driver.toUpperCase() !== code) continue;
+    if (row.lap < 1 || row.lap > maxLap) continue;
+    if (row.lap_time_s != null && Number.isFinite(row.lap_time_s)) out[row.lap] = row.lap_time_s;
+  }
+  return out;
+}
+
+/** Red-flag / formation laps above this are clamped for path_frac and cumulative. */
+export const GHOST_LAP_CLAMP_S = 300;
+
+export interface GhostLapDerived {
+  /** ghost_lap_s[L] = real_lap_s[L] - (delta[L] - delta[L-1]). Index 0 unused. Capped at GHOST_LAP_CLAMP_S. */
+  ghost_lap_s: number[];
+  /** ghost_cumulative_s[L] = sum of (clamped) ghost_lap_s[1..L]. [0] = 0. */
+  ghost_cumulative_s: number[];
+  implausible_laps: { lap: number; ghost_lap_s: number; real_lap_s: number; delta_step_s: number }[];
+}
+
+/**
+ * Derive per-lap ghost times from R2 ticks + race_field real lap times.
+ * Pit loss is already inside delta steps on pit laps — do not add it again.
+ * Values above GHOST_LAP_CLAMP_S are clamped (red flag / formation) before path_frac
+ * and cumulative use. Negatives are stored as-is and listed in implausible_laps.
+ */
+export function deriveGhostLapTimes(ticks: GhostR2Tick[], realLapS: number[]): GhostLapDerived {
+  const byLap = new Map<number, GhostR2Tick>();
+  let maxTickLap = 0;
+  for (const t of ticks) {
+    if (t.lap < 1) continue;
+    byLap.set(t.lap, t);
+    if (t.lap > maxTickLap) maxTickLap = t.lap;
+  }
+  const maxLap = Math.max(maxTickLap, Math.max(0, realLapS.length - 1));
+  const ghost_lap_s: number[] = new Array(maxLap + 1).fill(NaN);
+  const ghost_cumulative_s: number[] = new Array(maxLap + 1).fill(0);
+  const implausible_laps: GhostLapDerived["implausible_laps"] = [];
+  let prevDelta = 0;
+  let cum = 0;
+  for (let L = 1; L <= maxLap; L++) {
+    const tick = byLap.get(L);
+    const delta = tick != null && Number.isFinite(tick.cumulative_delta_s) ? tick.cumulative_delta_s : prevDelta;
+    const step = delta - prevDelta;
+    const real = realLapS[L];
+    let ghostLap = Number.isFinite(real) ? real - step : NaN;
+    if (Number.isFinite(ghostLap) && ghostLap > GHOST_LAP_CLAMP_S) {
+      console.warn(
+        `[ARIS ghost] clamped ghost_lap_s lap ${L} from ${ghostLap}s to ${GHOST_LAP_CLAMP_S}s (red flag / abnormal lap)`,
+      );
+      implausible_laps.push({ lap: L, ghost_lap_s: ghostLap, real_lap_s: real, delta_step_s: step });
+      ghostLap = GHOST_LAP_CLAMP_S;
+    }
+    ghost_lap_s[L] = ghostLap;
+    if (Number.isFinite(ghostLap) && ghostLap <= 0) {
+      implausible_laps.push({ lap: L, ghost_lap_s: ghostLap, real_lap_s: real, delta_step_s: step });
+    }
+    if (Number.isFinite(ghostLap)) cum += ghostLap;
+    ghost_cumulative_s[L] = cum;
+    prevDelta = delta;
+  }
+  return { ghost_lap_s, ghost_cumulative_s, implausible_laps };
+}
+
 function msFromSec(v: number | null | undefined): number | null {
   return v != null && Number.isFinite(v) ? Math.round(v * 1000) : null;
 }
@@ -401,7 +569,7 @@ function sectorMsFromLap(
   };
 }
 
-function posSamplesFor(field: RaceField, code: string): RaceFieldPosSample[] {
+export function posSamplesFor(field: RaceField, code: string): RaceFieldPosSample[] {
   const direct = field.pos_samples[code];
   if (direct?.length) return direct;
   const drv = field.drivers.find((d) => d.code === code);
