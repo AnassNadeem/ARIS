@@ -27,17 +27,22 @@ const SECTOR_STROKE: Record<string, string> = {
   s3: "#e8002d",
 };
 
-/** Glow radius / extra white-halo stops vs replay speed. */
-const SPEED_GLOW_STOPS: { speed: number; radius: number; white: number }[] = [
-  { speed: 1, radius: 0, white: 0 },
-  { speed: 2, radius: 2, white: 0 },
-  { speed: 5, radius: 4, white: 0 },
-  { speed: 10, radius: 6, white: 0 },
-  { speed: 20, radius: 10, white: 0 },
-  { speed: 50, radius: 16, white: 8 },
+/** Glow radius / hex-alpha stops vs replay speed. Capped at 16x. */
+const SPEED_GLOW_STOPS: { speed: number; radius: number; alpha: number }[] = [
+  { speed: 1, radius: 0, alpha: 0x00 },
+  { speed: 2, radius: 1, alpha: 0x30 },
+  { speed: 5, radius: 2, alpha: 0x50 },
+  { speed: 10, radius: 3, alpha: 0x70 },
+  { speed: 16, radius: 4, alpha: 0x90 },
 ];
 
-/** CSS drop-shadow filter for a car dot. Intensifies with playbackSpeed. */
+function colourWithAlpha(colour: string, alpha: number): string {
+  const hex = (colour.startsWith("#") ? colour.slice(1) : colour).slice(0, 6);
+  const a = Math.round(Math.max(0, Math.min(255, alpha))).toString(16).padStart(2, "0");
+  return `#${hex}${a}`;
+}
+
+/** CSS drop-shadow filter for a car dot. Intensifies with playbackSpeed, capped at 16x. */
 function speedGlowFilter(speed: number, colour: string): string {
   if (!Number.isFinite(speed) || speed <= 1) return "none";
   let i = 0;
@@ -47,11 +52,9 @@ function speedGlowFilter(speed: number, colour: string): string {
   const span = b.speed - a.speed;
   const t = span <= 0 ? 0 : Math.max(0, Math.min(1, (speed - a.speed) / span));
   const radius = a.radius + t * (b.radius - a.radius);
-  const white = a.white + t * (b.white - a.white);
+  const alpha = a.alpha + t * (b.alpha - a.alpha);
   if (radius < 0.05) return "none";
-  let filter = `drop-shadow(0 0 ${radius}px ${colour})`;
-  if (white > 0.05) filter += ` drop-shadow(0 0 ${white}px white)`;
-  return filter;
+  return `drop-shadow(0 0 ${radius}px ${colourWithAlpha(colour, alpha)})`;
 }
 
 function resolveSectors(coords: CircuitCoords): CircuitSectorPath[] {
