@@ -127,6 +127,7 @@ export interface RaceFieldMeta {
   date_race: string;
   green_flag_s: number | null;
   session_key: number | null;
+  outline_source?: "circuit_map_quick" | "gps_fallback";
 }
 
 export interface RaceFieldDriver {

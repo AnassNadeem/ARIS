@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { annotateVsActivePlan, shouldFetchRecommend } from "./arisRecommend";
 import { mapTimingAndPositions } from "./mapCars";
-import { fieldToDrivers, nearestPosSample, plansMatch, r2Configured, r2FrameAt, raceDurationS } from "./r2Replay";
+import { fieldToDrivers, interpolatedPosFrac, nearestPosSample, plansMatch, r2Configured, r2FrameAt, raceDurationS } from "./r2Replay";
 import type { ARISRecommendation, GhostData, RaceField, RaceFieldLap } from "./types";
 
 function rec(over: Partial<ARISRecommendation> = {}): ARISRecommendation {
@@ -165,10 +165,34 @@ describe("nearestPosSample", () => {
     // 90s laps: elapsed 1845s is lap 21, 50% → lapFrac 20.5
     const frame = r2FrameAt(field, 20 * 90 + 45);
     const pos = frame.positions.find((p) => p.driver_code === "VER");
-    expect(pos?.path_frac).toBe(0.41);
+    expect(pos?.path_frac).toBeCloseTo(0.4825, 5);
     const cars = mapTimingAndPositions(frame.timing, frame.positions, fieldToDrivers(field), 22, frame.lap);
-    expect(cars.VER.path_frac).toBe(0.41);
+    expect(cars.VER.path_frac).toBeCloseTo(0.4825, 5);
     expect(cars.VER.team_colour).toBe("#3671C6");
     expect(Object.keys(cars)).toEqual(["VER"]);
+  });
+});
+
+describe("interpolatedPosFrac", () => {
+  const samples = [
+    { lap_frac: 20.0, path_frac: 0.1 },
+    { lap_frac: 20.4, path_frac: 0.41 },
+    { lap_frac: 20.8, path_frac: 0.72 },
+  ];
+
+  it("interpolates the midpoint between bracketing samples", () => {
+    expect(interpolatedPosFrac(samples, 20.2)).toBeCloseTo(0.255, 10);
+  });
+
+  it("returns the exact sample at the first lap_frac", () => {
+    expect(interpolatedPosFrac(samples, 20.0)).toBe(0.1);
+  });
+
+  it("returns the exact sample at the last lap_frac", () => {
+    expect(interpolatedPosFrac(samples, 20.8)).toBe(0.72);
+  });
+
+  it("clamps to the last sample after the range", () => {
+    expect(interpolatedPosFrac(samples, 21.0)).toBe(0.72);
   });
 });

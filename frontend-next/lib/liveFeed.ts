@@ -13,6 +13,7 @@ import {
   ghostTicksMap,
   lapToElapsed,
   plansMatch,
+  elapsedToLap,
   r2Configured,
   r2FrameAt,
   r2TickToGhostTick,
@@ -288,6 +289,8 @@ export class ReplayFrameFeed {
   private sessionType = "R";
   private elapsedS = 0;
   private lastWall = 0;
+  private lastWallClock = 0;
+  private lastTickLapFrac = 0;
   private lastFp = "";
   private inFlight = false;
   private lastLapsAt = 0;
@@ -319,6 +322,8 @@ export class ReplayFrameFeed {
     this.round = round;
     this.sessionType = sessionType;
     this.elapsedS = 0;
+    this.lastWallClock = 0;
+    this.lastTickLapFrac = 0;
     this.lastFp = "";
     this.inFlight = false;
     this.lastLapsAt = 0;
@@ -776,22 +781,40 @@ export class ReplayFrameFeed {
     const store = useRaceStore.getState();
     const field = store.r2RaceField;
     if (!field) return;
+    const playbackSpeed = store.playbackSpeed;
     const seek = store.seekLap;
     if (seek != null) {
       this.elapsedS = lapToElapsed(field, seek);
+      this.lastTickLapFrac = elapsedToLap(field, this.elapsedS).lapFrac;
+      this.lastWallClock = Date.now();
       store.clearSeekLap();
     }
-    const now = performance.now();
-    const dt = this.lastWall ? (now - this.lastWall) / 1000 : 0;
-    this.lastWall = now;
+    const nowMs = Date.now();
+    const elapsedMs = this.lastWallClock ? nowMs - this.lastWallClock : 0;
+    this.lastWallClock = nowMs;
+    this.lastWall = performance.now();
     const playing = store.isPlaying && store.consolePlayState === "racing";
-    if (playing) this.elapsedS += dt * store.playbackSpeed;
+    if (playing && elapsedMs > 0) {
+      this.elapsedS += (elapsedMs / 1000) * playbackSpeed;
+      // Average lap length in ms. Spec wrote total_laps / race_duration_s,
+      // which inverts the unit; race_duration / total_laps keeps lapFrac on
+      // the same scale as pos_samples.
+      const raceDurS = Math.max(1e-6, raceDurationS(field));
+      const totalLaps = Math.max(1, field.meta.total_laps);
+      const lapDurationMs = (raceDurS / totalLaps) * 1000;
+      const raceMsElapsed = elapsedMs * playbackSpeed;
+      this.lastTickLapFrac += raceMsElapsed / lapDurationMs;
+    }
     const endS = raceDurationS(field);
     if (playing && this.elapsedS >= endS) {
       store.setRaceFinished(true);
       store.setIsPlaying(false);
     }
-    const frame = r2FrameAt(field, this.elapsedS);
+    // Snap the accumulator onto the sample clock (leader-lap elapsedToLap)
+    // so interpolatedPosFrac stays aligned with pos_samples. elapsedS is
+    // the ground-truth wall-clock × playbackSpeed integral.
+    this.lastTickLapFrac = elapsedToLap(field, this.elapsedS).lapFrac;
+    const frame = r2FrameAt(field, this.elapsedS, this.lastTickLapFrac);
     this.applyPayload(
       {
         status: {

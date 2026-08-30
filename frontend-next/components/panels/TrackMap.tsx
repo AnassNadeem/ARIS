@@ -27,6 +27,33 @@ const SECTOR_STROKE: Record<string, string> = {
   s3: "#e8002d",
 };
 
+/** Glow radius / extra white-halo stops vs replay speed. */
+const SPEED_GLOW_STOPS: { speed: number; radius: number; white: number }[] = [
+  { speed: 1, radius: 0, white: 0 },
+  { speed: 2, radius: 2, white: 0 },
+  { speed: 5, radius: 4, white: 0 },
+  { speed: 10, radius: 6, white: 0 },
+  { speed: 20, radius: 10, white: 0 },
+  { speed: 50, radius: 16, white: 8 },
+];
+
+/** CSS drop-shadow filter for a car dot. Intensifies with playbackSpeed. */
+function speedGlowFilter(speed: number, colour: string): string {
+  if (!Number.isFinite(speed) || speed <= 1) return "none";
+  let i = 0;
+  while (i < SPEED_GLOW_STOPS.length - 1 && speed > SPEED_GLOW_STOPS[i + 1].speed) i++;
+  const a = SPEED_GLOW_STOPS[i];
+  const b = SPEED_GLOW_STOPS[Math.min(i + 1, SPEED_GLOW_STOPS.length - 1)];
+  const span = b.speed - a.speed;
+  const t = span <= 0 ? 0 : Math.max(0, Math.min(1, (speed - a.speed) / span));
+  const radius = a.radius + t * (b.radius - a.radius);
+  const white = a.white + t * (b.white - a.white);
+  if (radius < 0.05) return "none";
+  let filter = `drop-shadow(0 0 ${radius}px ${colour})`;
+  if (white > 0.05) filter += ` drop-shadow(0 0 ${white}px white)`;
+  return filter;
+}
+
 function resolveSectors(coords: CircuitCoords): CircuitSectorPath[] {
   if (sectorsAreUsable(coords.sectorPaths)) return coords.sectorPaths as CircuitSectorPath[];
   const { paths, usedFallback } = sectorPathsFromOutline(coords.x, coords.y, coords.markers);
@@ -52,6 +79,9 @@ export function TrackMap() {
   const carCodesKey = useRaceStore((s) =>
     onTrackCarCodes(s.cars, s.isARISOn && s.ghostCar ? s.ghostCar.driver_code : null),
   );
+  const playbackSpeed = useRaceStore((s) => s.playbackSpeed);
+  const speedRef = useRef(playbackSpeed);
+  speedRef.current = playbackSpeed;
 
   const feedLoading = usePanelFeedLoading();
   const [coords, setCoords] = useState<CircuitCoords | null>(null);
@@ -139,7 +169,12 @@ export function TrackMap() {
           }
           const pos = animator.currentPosition(now, playing);
           const g = groupRefs.current.get(code);
-          if (g) g.setAttribute("transform", `translate(${pos.x}, ${pos.y})`);
+          if (g) {
+            g.setAttribute("transform", `translate(${pos.x}, ${pos.y})`);
+            if (!code.startsWith(GHOST_PREFIX)) {
+              g.style.filter = speedGlowFilter(speedRef.current, car.team_colour || "#ffffff");
+            }
+          }
         }
       }
       const live = new Set(codesRef.current);

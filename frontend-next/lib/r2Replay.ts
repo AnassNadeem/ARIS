@@ -1,4 +1,4 @@
-import { buildPath, pointAtFraction } from "@/lib/trackGeometry";
+import { buildPath, pointAtFraction, wrap01 } from "@/lib/trackGeometry";
 import type {
   ApiLapRow,
   ApiStintRow,
@@ -216,6 +216,37 @@ export function nearestPosSample(
   return samples[best];
 }
 
+/**
+ * Linear interpolation of path_frac between the two pos_samples that
+ * bracket `lapFrac`. Clamps to first/last sample outside the range.
+ * path_frac is wrapped so cars take the short way around start/finish.
+ */
+export function interpolatedPosFrac(
+  samples: { lap_frac: number; path_frac: number }[],
+  lapFrac: number,
+): number {
+  if (!samples.length) return 0;
+  if (lapFrac <= samples[0].lap_frac) return samples[0].path_frac;
+  const last = samples[samples.length - 1];
+  if (lapFrac >= last.lap_frac) return last.path_frac;
+  let lo = 0;
+  let hi = samples.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (samples[mid].lap_frac <= lapFrac) lo = mid + 1;
+    else hi = mid;
+  }
+  const next = samples[lo];
+  const prev = samples[lo - 1];
+  const span = next.lap_frac - prev.lap_frac;
+  if (span <= 0) return prev.path_frac;
+  const t = (lapFrac - prev.lap_frac) / span;
+  let dp = next.path_frac - prev.path_frac;
+  if (dp > 0.5) dp -= 1;
+  if (dp < -0.5) dp += 1;
+  return wrap01(prev.path_frac + t * dp);
+}
+
 export function pathFracAtLap(
   samples: { lap_frac: number; path_frac: number }[],
   lapFrac: number,
@@ -228,7 +259,7 @@ export function pathFracAtLap(
     const u = Math.max(0, Math.min(1, lapFrac / totalLaps));
     return samples[Math.round(u * (samples.length - 1))].path_frac;
   }
-  return nearestPosSample(samples, lapFrac)?.path_frac ?? 0;
+  return interpolatedPosFrac(samples, lapFrac);
 }
 
 function posSamplesFor(field: RaceField, code: string): RaceFieldPosSample[] {
@@ -247,6 +278,7 @@ function posSamplesFor(field: RaceField, code: string): RaceFieldPosSample[] {
 export function r2FrameAt(
   field: RaceField,
   elapsedS: number,
+  lapFracOverride?: number,
 ): {
   lap: number;
   rainfall: boolean;
@@ -254,7 +286,8 @@ export function r2FrameAt(
   timing: LiveTimingRow[];
   positions: LivePosition[];
 } {
-  const { lap, lapFrac } = elapsedToLap(field, elapsedS);
+  const { lap, lapFrac: fromElapsed } = elapsedToLap(field, elapsedS);
+  const lapFrac = lapFracOverride ?? fromElapsed;
   const wx = field.weather.find((w) => w.lap === lap);
   const path = buildPath(field.outline.x || [], field.outline.y || []);
   const byDriver = new Map<string, (typeof field.laps)[0]>();

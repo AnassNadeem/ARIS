@@ -326,7 +326,9 @@ def _outline_is_map_space(outline: dict[str, list[float]]) -> bool:
     return (max(xs) - min(xs)) < 800.0
 
 
-def _outline(sess: Any, year: int, round_number: int) -> dict[str, list[float]]:
+def _outline_with_source(
+    sess: Any, year: int, round_number: int
+) -> tuple[dict[str, list[float]], str]:
     """Single-lap circuit path. Prefer FastF1 circuit_map_quick; else leader lap 3 GPS."""
     try:
         from backend.sessions import circuit_map_quick
@@ -337,10 +339,15 @@ def _outline(sess: Any, year: int, round_number: int) -> dict[str, list[float]]:
             ys = list(getattr(cmap, "y", None) or [])
             if getattr(cmap, "available", False) and len(xs) >= 2 and len(ys) >= 2:
                 n = min(len(xs), len(ys))
-                return {"x": xs[:n], "y": ys[:n]}
+                return {"x": xs[:n], "y": ys[:n]}, "circuit_map_quick"
     except Exception as extra:
         _log.warning("circuit_map_quick failed for %s R%s: %s", year, round_number, extra)
-    return _one_lap_gps(sess, lap_n=3)
+    return _one_lap_gps(sess, lap_n=3), "gps_fallback"
+
+
+def _outline(sess: Any, year: int, round_number: int) -> dict[str, list[float]]:
+    outline, _source = _outline_with_source(sess, year, round_number)
+    return outline
 
 
 def _drivers(sess: Any) -> list[dict[str, Any]]:
@@ -722,7 +729,7 @@ def build_race_field(year: int, round_number: int, sess: Any) -> dict[str, Any]:
     from backend.calendar import get_round
 
     rnd = get_round(int(year), int(round_number))
-    outline = _outline(sess, year, round_number)
+    outline, outline_source = _outline_with_source(sess, year, round_number)
     drivers = _drivers(sess)
     laps, stints = _laps_stints(sess)
     weather = _weather(sess, laps)
@@ -748,6 +755,7 @@ def build_race_field(year: int, round_number: int, sess: Any) -> dict[str, Any]:
             ),
             "green_flag_s": _green_flag_s(sess, rc),
             "session_key": _session_key(sess),
+            "outline_source": outline_source,
         },
         "outline": outline,
         "drivers": drivers,

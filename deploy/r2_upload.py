@@ -4,6 +4,7 @@
 Env: R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME
 
     python deploy/r2_upload.py --path replay/2025/15/
+    python deploy/r2_upload.py --path replay/ --reupload-all
     python deploy/r2_upload.py --file data/replay_r2/replay/2025/15/race_field.json \\
         --key replay/2025/15/race_field.json
 """
@@ -23,6 +24,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_LOCAL = ROOT / "data" / "replay_r2"
 PUBLIC_BASE = (os.environ.get("NEXT_PUBLIC_R2_BASE_URL") or "https://pub-9429cde26be84c4c8034f0b5873b9a7d.r2.dev").rstrip("/")
+# Replay JSON is rebuilt in place at a stable URL. Immutable long-cache would
+# hide every subsequent upload from browsers and Cloudflare's edge.
+CACHE_CONTROL = "public, max-age=3600, must-revalidate"
 CORS_ORIGINS = [
     "https://aris-frontend-590.pages.dev",
     "https://*.aris-frontend-590.pages.dev",
@@ -181,7 +185,7 @@ def _upload_wrangler(bucket: str, local: Path, key: str) -> None:
             "--content-type",
             "application/json",
             "--cache-control",
-            "public, max-age=31536000, immutable",
+            CACHE_CONTROL,
             "--remote",
             "--force",
         ]
@@ -193,7 +197,7 @@ def _upload_wrangler(bucket: str, local: Path, key: str) -> None:
 def upload_file(client, bucket: str, local: Path, key: str) -> None:
     extra = {
         "ContentType": "application/json",
-        "CacheControl": "public, max-age=31536000, immutable",
+        "CacheControl": CACHE_CONTROL,
     }
     uploaded = False
     try:
@@ -222,6 +226,14 @@ def upload_prefix(client, bucket: str, prefix: str, local_root: Path) -> int:
     return count
 
 
+def _load_env() -> None:
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
+    load_dotenv(ROOT / ".env")
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     parser = argparse.ArgumentParser(description="Upload replay JSON to Cloudflare R2")
@@ -234,12 +246,27 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--key", default="", help="R2 object key (with --file)")
     parser.add_argument("--local-root", default=str(DEFAULT_LOCAL))
     parser.add_argument("--skip-cors", action="store_true")
+    parser.add_argument(
+        "--reupload-all",
+        action="store_true",
+        help=(
+            "Walk local replay JSON and upload every file found. Does not skip "
+            "objects already on R2. Use after a cache-header change or in-place rebuild."
+        ),
+    )
     args = parser.parse_args(argv)
+    _load_env()
 
     client = r2_client()
     bucket = _env("R2_BUCKET_NAME")
     if not args.skip_cors:
         ensure_cors(client, bucket)
+
+    if args.reupload_all:
+        prefix = args.path or "replay/"
+        n = upload_prefix(client, bucket, prefix, Path(args.local_root))
+        _log.info("re-uploaded %s objects under %s", n, prefix)
+        return 0 if n else 1
 
     if args.file:
         local = Path(args.file)
