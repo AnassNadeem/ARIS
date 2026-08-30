@@ -443,6 +443,9 @@ def _laps_stints(sess: Any) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]
                 "is_dsq": "DSQ" in result_status.upper() or "DISQUAL" in result_status.upper(),
                 "track_status": track,
                 "lap_time_s": _td_s(getattr(rec, "LapTime", None)),
+                "sector_1_s": _td_s(getattr(rec, "Sector1Time", None)),
+                "sector_2_s": _td_s(getattr(rec, "Sector2Time", None)),
+                "sector_3_s": _td_s(getattr(rec, "Sector3Time", None)),
             }
         )
         key = (code, stint_i)

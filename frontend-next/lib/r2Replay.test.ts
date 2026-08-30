@@ -142,6 +142,9 @@ describe("nearestPosSample", () => {
       is_dsq: false,
       track_status: "1",
       lap_time_s: 90,
+      sector_1_s: null,
+      sector_2_s: null,
+      sector_3_s: null,
     });
     const field: RaceField = {
       meta: {

@@ -119,9 +119,9 @@ export function fieldToLapRows(field: RaceField): ApiLapRow[] {
     driver_code: r.driver,
     lap_number: r.lap,
     lap_time_ms: r.lap_time_s != null ? Math.round(r.lap_time_s * 1000) : null,
-    sector1_ms: null,
-    sector2_ms: null,
-    sector3_ms: null,
+    sector1_ms: r.sector_1_s != null ? Math.round(r.sector_1_s * 1000) : null,
+    sector2_ms: r.sector_2_s != null ? Math.round(r.sector_2_s * 1000) : null,
+    sector3_ms: r.sector_3_s != null ? Math.round(r.sector_3_s * 1000) : null,
     compound: r.compound,
     tyre_life: r.tyre_life,
     pit_in_lap: r.pit_this_lap,
@@ -296,8 +296,11 @@ export function r2FrameAt(
   }
   const colour = new Map(field.drivers.map((d) => [d.code, d.colour]));
   const pitCount = new Map<string, number>();
+  const prevByDriver = new Map<string, (typeof field.laps)[0]>();
+  const prevLap = lap - 1;
   for (const row of field.laps) {
     if (row.lap <= lap && row.pit_this_lap) pitCount.set(row.driver, (pitCount.get(row.driver) || 0) + 1);
+    if (prevLap >= 1 && row.lap === prevLap) prevByDriver.set(row.driver, row);
   }
   const timing: LiveTimingRow[] = [];
   const positions: LivePosition[] = [];
@@ -305,6 +308,7 @@ export function r2FrameAt(
     const samples = posSamplesFor(field, code);
     const frac = pathFracAtLap(samples, lapFrac, field.meta.total_laps);
     const xy = pointAtFraction(path, frac);
+    const prev = prevByDriver.get(code);
     timing.push({
       position: row.position ?? 0,
       driver_code: code,
@@ -319,6 +323,9 @@ export function r2FrameAt(
       lap_number: row.lap,
       speed_kph: null,
       status: row.is_dnf ? "DNF" : "RUNNING",
+      sector1_ms: prev?.sector_1_s != null ? Math.round(prev.sector_1_s * 1000) : null,
+      sector2_ms: prev?.sector_2_s != null ? Math.round(prev.sector_2_s * 1000) : null,
+      sector3_ms: prev?.sector_3_s != null ? Math.round(prev.sector_3_s * 1000) : null,
     });
     positions.push({
       driver_code: code,

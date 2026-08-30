@@ -27,19 +27,20 @@ const SECTOR_STROKE: Record<string, string> = {
   s3: "#e8002d",
 };
 
-/** Glow radius / hex-alpha stops vs replay speed. Capped at 16x. */
-const SPEED_GLOW_STOPS: { speed: number; radius: number; alpha: number }[] = [
-  { speed: 1, radius: 0, alpha: 0x00 },
-  { speed: 2, radius: 1, alpha: 0x30 },
-  { speed: 5, radius: 2, alpha: 0x50 },
-  { speed: 10, radius: 3, alpha: 0x70 },
-  { speed: 16, radius: 4, alpha: 0x90 },
+/** Glow radius / opacity stops vs replay speed. Capped at 16x. */
+const SPEED_GLOW_STOPS: { speed: number; radius: number; opacity: number }[] = [
+  { speed: 1, radius: 0, opacity: 0 },
+  { speed: 2, radius: 1, opacity: 0.19 },
+  { speed: 5, radius: 2, opacity: 0.31 },
+  { speed: 10, radius: 3, opacity: 0.44 },
+  { speed: 16, radius: 4, opacity: 0.56 },
 ];
 
-function colourWithAlpha(colour: string, alpha: number): string {
-  const hex = (colour.startsWith("#") ? colour.slice(1) : colour).slice(0, 6);
-  const a = Math.round(Math.max(0, Math.min(255, alpha))).toString(16).padStart(2, "0");
-  return `#${hex}${a}`;
+function parseRgb(colour: string): [number, number, number] {
+  const hex = (colour.startsWith("#") ? colour.slice(1) : colour).replace(/[^0-9a-fA-F]/g, "").slice(0, 6).padEnd(6, "0");
+  const n = Number.parseInt(hex, 16);
+  if (!Number.isFinite(n)) return [255, 255, 255];
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
 
 /** CSS drop-shadow filter for a car dot. Intensifies with playbackSpeed, capped at 16x. */
@@ -52,9 +53,10 @@ function speedGlowFilter(speed: number, colour: string): string {
   const span = b.speed - a.speed;
   const t = span <= 0 ? 0 : Math.max(0, Math.min(1, (speed - a.speed) / span));
   const radius = a.radius + t * (b.radius - a.radius);
-  const alpha = a.alpha + t * (b.alpha - a.alpha);
+  const opacity = Math.round((a.opacity + t * (b.opacity - a.opacity)) * 100) / 100;
   if (radius < 0.05) return "none";
-  return `drop-shadow(0 0 ${radius}px ${colourWithAlpha(colour, alpha)})`;
+  const [r, g, bch] = parseRgb(colour);
+  return `drop-shadow(0 0 ${radius}px rgba(${r},${g},${bch},${opacity}))`;
 }
 
 function resolveSectors(coords: CircuitCoords): CircuitSectorPath[] {
@@ -175,7 +177,13 @@ export function TrackMap() {
           if (g) {
             g.setAttribute("transform", `translate(${pos.x}, ${pos.y})`);
             if (!code.startsWith(GHOST_PREFIX)) {
-              g.style.filter = speedGlowFilter(speedRef.current, car.team_colour || "#ffffff");
+              const circle = g.querySelector("circle");
+              if (circle) {
+                (circle as SVGCircleElement).style.filter = speedGlowFilter(
+                  speedRef.current,
+                  car.team_colour || "#ffffff",
+                );
+              }
             }
           }
         }

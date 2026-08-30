@@ -153,6 +153,9 @@ export interface RaceFieldLap {
   is_dsq: boolean;
   track_status: string | null;
   lap_time_s: number | null;
+  sector_1_s: number | null;
+  sector_2_s: number | null;
+  sector_3_s: number | null;
 }
 
 export interface RaceFieldStint {
