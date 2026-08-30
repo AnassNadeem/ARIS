@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { annotateVsActivePlan, shouldFetchRecommend } from "./arisRecommend";
 import { mapTimingAndPositions } from "./mapCars";
-import { fieldToDrivers, fieldToLapRows, interpolatedPosFrac, nearestPosSample, plansMatch, r2Configured, r2FrameAt, raceDurationS, sectorSecondsForLap, speedKphFromPath } from "./r2Replay";
+import { fieldToDrivers, fieldToLapRows, interpolatedPosFrac, nearestPosSample, plansMatch, r2Configured, r2FrameAt, raceDurationS, sectorSecondsForLap, speedKphFromPath, deriveGhostLapTimes, pitLossForCircuit, realLapTimesByDriver } from "./r2Replay";
 import type { ARISRecommendation, GhostData, RaceField, RaceFieldLap } from "./types";
 
 function rec(over: Partial<ARISRecommendation> = {}): ARISRecommendation {
@@ -287,5 +287,117 @@ describe("interpolatedPosFrac", () => {
 
   it("clamps to the last sample after the range", () => {
     expect(interpolatedPosFrac(samples, 21.0)).toBe(0.72);
+  });
+});
+
+describe("deriveGhostLapTimes", () => {
+  it("uses ghost_lap_s[L] = real[L] - (delta[L] - delta[L-1]) with delta[0]=0", () => {
+    const ticks = [
+      { lap: 1, position: 1, gap_to_leader_s: 0, compound: "SOFT", tyre_life: 1, stint: 1, cumulative_delta_s: 0, aris_action: "STAY_OUT", aris_confidence: 1 },
+      { lap: 2, position: 1, gap_to_leader_s: 0, compound: "SOFT", tyre_life: 2, stint: 1, cumulative_delta_s: 2, aris_action: "STAY_OUT", aris_confidence: 1 },
+    ];
+    const derived = deriveGhostLapTimes(ticks, [NaN, 90, 90]);
+    expect(derived.ghost_lap_s[1]).toBe(90);
+    expect(derived.ghost_lap_s[2]).toBe(88);
+    expect(derived.ghost_cumulative_s[0]).toBe(0);
+    expect(derived.ghost_cumulative_s[1]).toBe(90);
+    expect(derived.ghost_cumulative_s[2]).toBe(178);
+    expect(derived.implausible_laps).toEqual([]);
+  });
+
+  it("does not add pit loss again — it is already in the delta step", () => {
+    const ticks = [
+      { lap: 8, position: 3, gap_to_leader_s: 0, compound: "SOFT", tyre_life: 9, stint: 1, cumulative_delta_s: 0.848, aris_action: "STAY_OUT", aris_confidence: 1 },
+      { lap: 9, position: 3, gap_to_leader_s: 0, compound: "HARD", tyre_life: 1, stint: 2, cumulative_delta_s: -20.633, aris_action: "PIT", aris_confidence: 1 },
+    ];
+    const real = new Array(10).fill(90);
+    real[0] = NaN;
+    const derived = deriveGhostLapTimes(ticks, real);
+    expect(derived.ghost_lap_s[9]).toBeCloseTo(90 - (-20.633 - 0.848), 5);
+    expect(derived.ghost_lap_s[9]).toBeGreaterThan(100);
+  });
+
+  it("flags negative ghost_lap_s without clamping", () => {
+    const ticks = [
+      { lap: 1, position: 1, gap_to_leader_s: 0, compound: "SOFT", tyre_life: 1, stint: 1, cumulative_delta_s: 100, aris_action: "STAY_OUT", aris_confidence: 1 },
+    ];
+    const derived = deriveGhostLapTimes(ticks, [NaN, 90]);
+    expect(derived.ghost_lap_s[1]).toBe(-10);
+    expect(derived.implausible_laps).toEqual([
+      { lap: 1, ghost_lap_s: -10, real_lap_s: 90, delta_step_s: 100 },
+    ]);
+
+    const long = deriveGhostLapTimes(
+      [{ lap: 1, position: 1, gap_to_leader_s: 0, compound: "SOFT", tyre_life: 1, stint: 1, cumulative_delta_s: 6.72, aris_action: "STAY_OUT", aris_confidence: 1 }],
+      [NaN, 900],
+    );
+    expect(long.ghost_lap_s[1]).toBe(300);
+    expect(long.ghost_cumulative_s[1]).toBe(300);
+    expect(long.implausible_laps[0]?.ghost_lap_s).toBe(900 - 6.72);
+  });
+
+  it("re-deriving from current_lap forward keeps early laps when early ticks are unchanged", () => {
+    const early = [
+      { lap: 1, position: 1, gap_to_leader_s: 0, compound: "SOFT", tyre_life: 1, stint: 1, cumulative_delta_s: 1, aris_action: "STAY_OUT", aris_confidence: 1 },
+      { lap: 2, position: 1, gap_to_leader_s: 0, compound: "SOFT", tyre_life: 2, stint: 1, cumulative_delta_s: 2, aris_action: "STAY_OUT", aris_confidence: 1 },
+    ];
+    const merged = [
+      ...early,
+      { lap: 3, position: 2, gap_to_leader_s: 0, compound: "HARD", tyre_life: 1, stint: 2, cumulative_delta_s: -18, aris_action: "PIT", aris_confidence: 1 },
+    ];
+    const real = [NaN, 90, 91, 92];
+    const before = deriveGhostLapTimes(early, real);
+    const after = deriveGhostLapTimes(merged, real);
+    expect(after.ghost_lap_s[1]).toBe(before.ghost_lap_s[1]);
+    expect(after.ghost_lap_s[2]).toBe(before.ghost_lap_s[2]);
+    expect(after.ghost_lap_s[3]).not.toBe(before.ghost_lap_s[3]);
+  });
+
+  it("reads real lap times from laps[].lap_time_s (no real_lap_s key on race_field)", () => {
+    const field = {
+      meta: {
+        year: 2025,
+        round: 1,
+        session_type: "R",
+        circuit_name: "Melbourne",
+        total_laps: 2,
+        date_race: "2025-03-16",
+        green_flag_s: 0,
+        session_key: 1,
+      },
+      outline: { x: [], y: [] },
+      drivers: [],
+      laps: [
+        { lap: 1, driver: "NOR", position: 1, gap_to_leader_s: 0, gap_ahead_s: 0, compound: "MEDIUM", tyre_life: 1, stint_number: 1, pit_this_lap: false, is_dnf: false, is_dsq: false, track_status: "1", lap_time_s: 90, sector_1_s: null, sector_2_s: null, sector_3_s: null },
+        { lap: 2, driver: "NOR", position: 1, gap_to_leader_s: 0, gap_ahead_s: 0, compound: "MEDIUM", tyre_life: 2, stint_number: 1, pit_this_lap: false, is_dnf: false, is_dsq: false, track_status: "1", lap_time_s: 88, sector_1_s: null, sector_2_s: null, sector_3_s: null },
+      ],
+      stints: [],
+      weather: [],
+      race_control: [],
+      pos_samples: {},
+    } as RaceField;
+    const real = realLapTimesByDriver(field, "NOR");
+    expect(real[1]).toBe(90);
+    expect(real[2]).toBe(88);
+    const ticks = [
+      { lap: 1, position: 1, gap_to_leader_s: 0, compound: "SOFT", tyre_life: 1, stint: 1, cumulative_delta_s: 0, aris_action: "STAY_OUT", aris_confidence: 1 },
+      { lap: 2, position: 1, gap_to_leader_s: 0, compound: "SOFT", tyre_life: 2, stint: 1, cumulative_delta_s: 1, aris_action: "STAY_OUT", aris_confidence: 1 },
+    ];
+    const derived = deriveGhostLapTimes(ticks, real);
+    expect(derived.ghost_lap_s.length).toBeGreaterThan(1);
+    expect(derived.ghost_lap_s[1]).toBe(90);
+    expect(derived.ghost_cumulative_s[1]).toBe(90);
+    expect(derived.ghost_cumulative_s[2]).toBe(177);
+  });
+});
+
+describe("pitLossForCircuit", () => {
+  it("maps Sakhir to Bahrain YAML pit_loss_s", () => {
+    expect(pitLossForCircuit("Sakhir")).toBe(21.8);
+    expect(pitLossForCircuit("Bahrain")).toBe(21.8);
+  });
+
+  it("falls back to 22s when unknown", () => {
+    expect(pitLossForCircuit("Unknown GP")).toBe(22);
   });
 });

@@ -232,6 +232,8 @@ function deriveGhostSlice(s: {
   ghostTicksByLap: Record<number, GhostR2Tick>;
   arisDriver: string | null;
   selectedDriver: string | null;
+  focusDriver?: string | null;
+  session?: SessionMeta | null;
 }): {
   ghostLapS: number[];
   ghostCumulativeS: number[];
@@ -239,7 +241,7 @@ function deriveGhostSlice(s: {
   pitLossS: number;
 } {
   const pitLossS = s.r2RaceField ? pitLossForCircuit(s.r2RaceField.meta.circuit_name) : DEFAULT_PIT_LOSS_S;
-  const driver = s.arisDriver ?? s.selectedDriver;
+  const driver = s.arisDriver ?? s.selectedDriver ?? s.session?.driverCode ?? s.focusDriver ?? null;
   if (!s.r2RaceField || !driver) {
     return { ghostLapS: [], ghostCumulativeS: [0], ghostImplausibleLaps: [], pitLossS };
   }

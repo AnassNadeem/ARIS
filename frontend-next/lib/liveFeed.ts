@@ -3,7 +3,8 @@ import { circuitCoordsFromReplayOutline } from "@/lib/api";
 import { postGhostRecompute } from "@/lib/api";
 import { isFullCircuitOutline, shouldApplyFallbackOutline } from "@/lib/circuitCache";
 import { mapTimingAndPositions, mergeByDriverCode, mergeCars, sessionFlagToPhase, timingFingerprint } from "@/lib/mapCars";
-import { asGhostTick, ghostCarFromTick, syntheticGhostCar, syntheticGhostTick } from "@/lib/ghostCar";
+import { asGhostTick, ghostCarFromTick, ghostLastLapS, ghostPlaybackAt, syntheticGhostCar, syntheticGhostTick } from "@/lib/ghostCar";
+import { normalizeCompound } from "@/lib/compounds";
 import {
   fetchGhost,
   fetchRaceField,
@@ -14,10 +15,13 @@ import {
   lapToElapsed,
   plansMatch,
   elapsedToLap,
+  posSamplesFor,
   r2Configured,
   r2FrameAt,
   r2TickToGhostTick,
   raceDurationS,
+  deriveGhostLapTimes,
+  realLapTimesByDriver,
 } from "@/lib/r2Replay";
 import type { ApiLapRow, ApiStintRow, CircuitCoords, LivePosition, LiveTimingRow } from "@/lib/types";
 
@@ -107,11 +111,60 @@ function applyGhost(payload: SsePayload) {
   }
   const driver = store.arisDriver ?? store.session?.driverCode ?? store.focusDriver ?? null;
   const real = driver ? store.cars[driver] ?? null : null;
-  const localTick = driver ? store.ghostTicksByLap[store.currentLap] : undefined;
+  const pitLaps = store.activeStrategy?.pit_laps?.length
+    ? store.activeStrategy.pit_laps
+    : store.r2Ghost?.strategy.pit_laps ?? [];
+  const pitCompounds = store.activeStrategy?.pit_compounds?.length
+    ? store.activeStrategy.pit_compounds
+    : store.r2Ghost?.strategy.compounds ?? [];
+  let ghostLapS = store.ghostLapS;
+  let ghostCumulativeS = store.ghostCumulativeS;
+  if (ghostLapS.length <= 1 && store.r2RaceField && driver && Object.keys(store.ghostTicksByLap).length) {
+    const derived = deriveGhostLapTimes(
+      Object.values(store.ghostTicksByLap),
+      realLapTimesByDriver(store.r2RaceField, driver),
+    );
+    ghostLapS = derived.ghost_lap_s;
+    ghostCumulativeS = derived.ghost_cumulative_s;
+  }
+  const playback =
+    ghostLapS.length > 1
+      ? ghostPlaybackAt({
+          elapsedS: store.replayElapsedS,
+          ghostLapS,
+          ghostCumulativeS,
+          totalLaps: store.totalLaps || store.r2RaceField?.meta.total_laps || 1,
+          pitLaps,
+          pitLossS: store.pitLossS,
+          posSamples: store.r2RaceField && driver ? posSamplesFor(store.r2RaceField, driver) : undefined,
+          pitCompounds,
+        })
+      : null;
+  const ghostLap = playback?.lap ?? store.currentLap;
+  const towerLap = playback?.towerLap ?? ghostLap;
+  const rankTick = driver ? store.ghostTicksByLap[ghostLap] : undefined;
+  const compoundTick = driver ? store.ghostTicksByLap[towerLap] ?? rankTick : undefined;
+  const localTick = compoundTick ?? rankTick;
   if (localTick && driver) {
     const mapped = r2TickToGhostTick(localTick, driver, store.r2Ghost);
+    if (rankTick) {
+      mapped.ghost_position = rankTick.position;
+      mapped.ghost_cumulative_delta = rankTick.cumulative_delta_s;
+      mapped.gap_to_leader_s = rankTick.gap_to_leader_s;
+    }
+    mapped.plan_pit_laps = pitLaps;
+    mapped.plan_pit_compounds = pitCompounds as typeof mapped.plan_pit_compounds;
     store.setGhostData(mapped);
-    store.setGhostCar(ghostCarFromTick(mapped, real, store.currentLap, store.totalLaps));
+    const car = ghostCarFromTick(mapped, real, ghostLap, store.totalLaps, playback);
+    car.last_lap_s = playback ? ghostLastLapS(ghostLapS, playback.lastCompletedLap) : null;
+    if (car.ghost_in_pits && !car.ghost_pit_compound) {
+      const pitLap = pitLaps.find((p) => p === ghostLap) ?? ghostLap;
+      const pitTick = store.ghostTicksByLap[pitLap];
+      if (pitTick?.compound) {
+        car.ghost_pit_compound = normalizeCompound(pitTick.compound);
+      }
+    }
+    store.setGhostCar(car);
     store.setGhostReason(null);
     return;
   }
@@ -123,16 +176,13 @@ function applyGhost(payload: SsePayload) {
   const tick = asGhostTick(patched);
   if (tick) {
     store.setGhostData(tick);
-    store.setGhostCar(ghostCarFromTick(tick, real, store.currentLap, store.totalLaps));
+    store.setGhostCar(ghostCarFromTick(tick, real, ghostLap, store.totalLaps, playback));
     store.setGhostReason(null);
     return;
   }
   const rec = store.pendingRecommendation ?? store.lastRecommendation;
   if (rec && real && driver) {
-    // fix-pass item 8: synthetic map-dot AND GhostDelta must agree. Derive a
-    // one-point delta history from the recommendation so the panel isn't empty
-    // while a ghost car is visible on the map.
-    store.setGhostCar(syntheticGhostCar(rec, real, store.currentLap, store.totalLaps));
+    store.setGhostCar(syntheticGhostCar(rec, real, store.currentLap, store.totalLaps, playback));
     store.setGhostData(syntheticGhostTick(rec, driver, store.currentLap));
     store.setGhostReason(null);
     return;
@@ -324,6 +374,7 @@ export class ReplayFrameFeed {
     this.elapsedS = 0;
     this.lastWallClock = 0;
     this.lastTickLapFrac = 0;
+    store.setReplayElapsedS(0);
     this.lastFp = "";
     this.inFlight = false;
     this.lastLapsAt = 0;
@@ -406,10 +457,11 @@ export class ReplayFrameFeed {
       if (driver) {
         let ghost = store.r2Ghost;
         if (!ghost) ghost = await fetchGhost(year, round, driver);
-        if (ghost && (!plan || plansMatch(plan, ghost))) {
+        if (ghost) {
           store.setR2Ghost(ghost);
           store.setGhostTicks(ghostTicksMap(ghost));
-        } else if (plan) {
+        }
+        if (plan && ghost && !plansMatch(plan, ghost)) {
           const recomputed = await postGhostRecompute({
             year,
             round,
@@ -684,6 +736,7 @@ export class ReplayFrameFeed {
     this.lastWall = now;
     const playing = store.isPlaying && store.consolePlayState === "racing";
     if (playing) this.elapsedS += dt * store.playbackSpeed;
+    store.setReplayElapsedS(this.elapsedS);
     const origin = this.dateStart.getTime() + this.greenFlagS * 1000;
     let asOf = new Date(origin + this.elapsedS * 1000);
     if (this.dateEnd && asOf > this.dateEnd) {
@@ -814,6 +867,7 @@ export class ReplayFrameFeed {
     // so interpolatedPosFrac stays aligned with pos_samples. elapsedS is
     // the ground-truth wall-clock × playbackSpeed integral.
     this.lastTickLapFrac = elapsedToLap(field, this.elapsedS).lapFrac;
+    store.setReplayElapsedS(this.elapsedS);
     const frame = r2FrameAt(field, this.elapsedS, this.lastTickLapFrac);
     this.applyPayload(
       {

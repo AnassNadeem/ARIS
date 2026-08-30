@@ -15,7 +15,7 @@ import {
   circuitCoordsFromReplayOutline,
   prewarmSession,
 } from "@/lib/api";
-import { fetchGhost, fetchRaceField, fieldToDrivers, fieldToLapRows, fieldToStintRows, ghostTicksMap, plansMatch, r2Configured } from "@/lib/r2Replay";
+import { fetchGhost, fetchRaceField, fieldToDrivers, fieldToLapRows, fieldToStintRows, ghostTicksMap, r2Configured } from "@/lib/r2Replay";
 import { MOCK_DRIVERS_2025 } from "@/lib/mockData";
 import { isFullCircuitOutline, shouldApplyFallbackOutline } from "@/lib/circuitCache";
 import {
@@ -158,7 +158,7 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
           store.setARISModeLocked(withARIS);
           if (driver && withARIS) {
             const ghost = await fetchGhost(year, round.round, driver);
-            if (ghost && (!plan || plansMatch(plan, ghost))) {
+            if (ghost) {
               store.setR2Ghost(ghost);
               store.setGhostTicks(ghostTicksMap(ghost));
             }

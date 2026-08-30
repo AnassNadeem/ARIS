@@ -41,20 +41,35 @@ const TimingRow = memo(function TimingRow({
             }`
           : undefined
       }
-      className={`grid h-8 cursor-pointer ${TOWER_COLS} items-center gap-x-2 border-b border-border/60 px-2 ${
+      className={`grid h-8 ${TOWER_COLS} items-center gap-x-2 px-2 ${
         isGhost
-          ? "border-l-[3px] border-l-red"
-          : isFocus
-            ? "border-l-2 border-l-red bg-surface"
-            : ""
+          ? "cursor-default border-y border-white/35"
+          : `cursor-pointer border-b border-border/60 ${
+              isFocus ? "border-l-2 border-l-red bg-surface" : ""
+            }`
       } ${out ? "opacity-45" : ""}`}
-      style={isGhost ? { background: "rgba(232, 0, 45, 0.08)" } : undefined}
+      style={
+        isGhost
+          ? {
+              background: "rgba(232, 236, 242, 0.16)",
+              boxShadow: "inset 0 0 10px rgba(255,255,255,0.22)",
+            }
+          : undefined
+      }
     >
       <span className="text-white">{car.position ?? "—"}</span>
       <span className="flex items-center gap-1 text-white">
-        <span className="h-2 w-1 rounded-sm" style={{ background: car.team_colour }} />
-        {isGhost ? <span className="italic text-amber">[A]</span> : null}
-        <span className={isGhost ? "italic" : ""}>{code}</span>
+        {isGhost ? (
+          <>
+            <span className="h-2 w-1 rounded-sm bg-white/80" />
+            <span className="font-semibold tracking-wide text-white">ARIS</span>
+          </>
+        ) : (
+          <>
+            <span className="h-2 w-1 rounded-sm" style={{ background: car.team_colour }} />
+            <span>{code}</span>
+          </>
+        )}
       </span>
       {isGhost ? (
         <span
@@ -67,7 +82,7 @@ const TimingRow = memo(function TimingRow({
       ) : (
         <span className="text-right text-muted">{fmtGap(car.gap_to_leader_s, car.laps_down)}</span>
       )}
-      <span className="text-right text-white">{isGhost ? "ARIS" : fmtLapTime(car.last_lap_s)}</span>
+      <span className="text-right text-white">{isGhost ? "—" : fmtLapTime(car.last_lap_s)}</span>
       <span className="flex items-center justify-end gap-0.5 text-right text-white">
         {car.fastest_lap ? <span className="text-[9px] text-[#c44dff]">FL</span> : null}
         {isGhost ? "—" : fmtLapTime(car.best_lap_s)}
@@ -80,7 +95,7 @@ const TimingRow = memo(function TimingRow({
       </span>
       <span className="text-right text-muted">{car.tyre_life}</span>
       <span className="text-right text-muted">
-        {out ? car.status : isGhost ? "ARIS" : (car.laps_completed ?? car.lap_number)}
+        {out ? car.status : (car.laps_completed ?? car.lap_number)}
       </span>
     </div>
   );
