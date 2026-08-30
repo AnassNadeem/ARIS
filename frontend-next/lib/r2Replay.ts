@@ -16,7 +16,7 @@ import { MOCK_DRIVERS_2025 } from "@/lib/mockData";
 
 const R2_BASE = (process.env.NEXT_PUBLIC_R2_BASE_URL || "").replace(/\/$/, "");
 /** Bump when race_field.json shape changes so CDN/browser caches cannot serve stale packs. */
-const R2_ASSET_V = "3";
+const R2_ASSET_V = "4";
 const DEFAULT_TRACK_M = 5000;
 const SPEED_DT_LAP = 0.04;
 
