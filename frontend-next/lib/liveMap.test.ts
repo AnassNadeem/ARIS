@@ -368,8 +368,8 @@ describe("SSE car merge", () => {
 });
 
 describe("ghostCarFromTick", () => {
-  it("uses A_ prefix and offsets path_frac by delta", async () => {
-    const { ghostCarFromTick, asGhostTick } = await import("./ghostCar");
+  it("uses A_ prefix and independent path_frac from playback, not the real car", async () => {
+    const { ghostCarFromTick, asGhostTick, ghostPlaybackAt } = await import("./ghostCar");
     const tick = asGhostTick({
       driver_code: "HAM",
       divergence_lap: 18,
@@ -408,16 +408,27 @@ describe("ghostCarFromTick", () => {
       heading_rad: 0,
       laps_remaining: 52,
       total_laps: 72,
-      path_frac: 0.1,
+      path_frac: 0.9,
     };
-    const car = ghostCarFromTick(tick!, real, 20, 72);
+    const playback = ghostPlaybackAt({
+      elapsedS: 45,
+      ghostLapS: [NaN, 90],
+      ghostCumulativeS: [0, 90],
+      totalLaps: 72,
+      pitLaps: [],
+      pitLossS: 22,
+    });
+    const car = ghostCarFromTick(tick!, real, 20, 72, playback);
     expect(car.driver_code).toBe("A_HAM");
-    expect(car.path_frac).toBeGreaterThan(0.1);
+    expect(car.full_name).toBe("ARIS");
+    expect(car.driver_number).toBe(0);
+    expect(car.path_frac).toBeCloseTo(0.5, 5);
+    expect(car.path_frac).not.toBeCloseTo(0.9, 2);
     expect(car.ghost_cumulative_delta).toBe(9);
   });
 
-  it("uses ghost_position_on_track from the frame when present", async () => {
-    const { ghostCarFromTick, asGhostTick } = await import("./ghostCar");
+  it("does not follow ghost_position_on_track or typical_lap_s when playback is supplied", async () => {
+    const { ghostCarFromTick, asGhostTick, ghostPlaybackAt } = await import("./ghostCar");
     const tick = asGhostTick({
       driver_code: "VER",
       divergence_lap: 1,
@@ -436,9 +447,17 @@ describe("ghostCarFromTick", () => {
     });
     expect(tick?.from_lap_one).toBe(true);
     expect(tick?.ghost_position_on_track).toBeCloseTo(0.42);
-    const car = ghostCarFromTick(tick!, null, 1, 72);
+    const playback = ghostPlaybackAt({
+      elapsedS: 0,
+      ghostLapS: [NaN, 90],
+      ghostCumulativeS: [0, 90],
+      totalLaps: 72,
+      pitLaps: [],
+      pitLossS: 22,
+    });
+    const car = ghostCarFromTick(tick!, null, 1, 72, playback);
     expect(car.driver_code).toBe("A_VER");
-    expect(car.path_frac).toBeCloseTo(0.42);
+    expect(car.path_frac).toBeCloseTo(0, 5);
     expect(car.last_lap_s).toBeNull();
   });
 
@@ -496,6 +515,7 @@ describe("ghostCarFromTick", () => {
     const car = syntheticGhostCar(rec, real, 20, 72);
     expect(car.driver_code).toBe("A_HAM");
     expect(tick.ghost_cumulative_delta).toBe(car.ghost_cumulative_delta);
+    expect(car.path_frac).toBe(0);
   });
 });
 
