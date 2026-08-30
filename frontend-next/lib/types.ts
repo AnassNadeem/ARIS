@@ -87,6 +87,9 @@ export interface CarState {
   divergence_lap?: number;
   aris_action?: string;
   real_action?: string;
+  ghost_in_pits?: boolean;
+  ghost_pit_compound?: Compound | null;
+  ghost_skip_seek_jump?: boolean;
 }
 
 export interface GhostDeltaPoint {
@@ -214,6 +217,9 @@ export interface GhostData {
   strategy: { pit_laps: number[]; compounds: string[]; label: string };
   ticks: GhostR2Tick[];
   outcome: { aris_action: string; real_action: string; verdict: string | null };
+  /** Derived in the frontend from ticks + race_field. Not in the R2 file. */
+  ghost_lap_s?: number[];
+  ghost_cumulative_s?: number[];
 }
 
 export interface CommsEntry {
