@@ -183,6 +183,7 @@ export interface RaceFieldRaceControl {
 export interface RaceFieldPosSample {
   lap_frac: number;
   path_frac: number;
+  speed_kph?: number | null;
 }
 
 export interface RaceField {

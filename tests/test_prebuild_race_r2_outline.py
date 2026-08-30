@@ -96,3 +96,14 @@ def test_build_race_field_records_outline_source(monkeypatch):
     field = mod.build_race_field(2025, 15, SimpleNamespace())
     assert field["meta"]["outline_source"] == "circuit_map_quick"
     assert field["outline"]["x"] == [20.0, 120.0]
+
+
+def test_lap_fracs_shift_when_position_clock_does_not_overlap_laps():
+    mod = _load()
+    # Position Date in unix seconds, lap starts as session-relative seconds.
+    times = [1_700_000_000.0 + i for i in range(0, 200, 10)]
+    starts = [(0.0, 1, 90.0), (90.0, 2, 90.0)]
+    fracs = mod._lap_fracs_for_times(times, starts)
+    assert max(fracs) > 1.0
+    assert fracs[0] < 0.2
+    assert fracs[-1] > 1.0

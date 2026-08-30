@@ -1,25 +1,31 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { DraggableHud } from "@/components/ui/DraggableHud";
+import { fmtSectorTime } from "@/lib/timingDisplay";
 import { useRaceStore } from "@/store/raceStore";
 
-/** Car speed for the ARIS / focus driver — snaps to sides and corners. */
+/** Car speed and last sectors for the ARIS / focus driver — snaps to sides and corners. */
 export function SpeedWidget() {
   const driver = useRaceStore((s) => s.arisDriver ?? s.focusDriver);
-  const [kph, setKph] = useState(0);
+  const kph = useRaceStore((s) => {
+    const code = s.arisDriver ?? s.focusDriver;
+    const v = code ? s.cars[code]?.speed_kph : 0;
+    return v && v > 0.5 ? Math.round(v) : 0;
+  });
+  const s1 = useRaceStore((s) => {
+    const code = s.arisDriver ?? s.focusDriver;
+    return code ? (s.cars[code]?.sector1_s ?? null) : null;
+  });
+  const s2 = useRaceStore((s) => {
+    const code = s.arisDriver ?? s.focusDriver;
+    return code ? (s.cars[code]?.sector2_s ?? null) : null;
+  });
+  const s3 = useRaceStore((s) => {
+    const code = s.arisDriver ?? s.focusDriver;
+    return code ? (s.cars[code]?.sector3_s ?? null) : null;
+  });
   const [mph, setMph] = useState(false);
-
-  useEffect(() => {
-    const tick = () => {
-      const code = useRaceStore.getState().arisDriver ?? useRaceStore.getState().focusDriver;
-      const car = code ? useRaceStore.getState().cars[code] : null;
-      setKph(car?.speed_kph ? Math.round(car.speed_kph) : 0);
-    };
-    tick();
-    const id = window.setInterval(tick, 1000);
-    return () => window.clearInterval(id);
-  }, [driver]);
 
   const value = mph ? Math.round(kph * 0.621371) : kph;
   const unit = mph ? "mph" : "km/h";
@@ -39,6 +45,11 @@ export function SpeedWidget() {
             {value || "—"} <span className="text-[9px] text-muted">{unit}</span>
           </span>
         </button>
+        <div className="mt-1 grid grid-cols-3 gap-1 font-mono-data text-[8px] uppercase tracking-wide text-muted">
+          <span>S1 {fmtSectorTime(s1)}</span>
+          <span>S2 {fmtSectorTime(s2)}</span>
+          <span>S3 {fmtSectorTime(s3)}</span>
+        </div>
       </div>
     </DraggableHud>
   );

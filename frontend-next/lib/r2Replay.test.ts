@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { annotateVsActivePlan, shouldFetchRecommend } from "./arisRecommend";
 import { mapTimingAndPositions } from "./mapCars";
-import { fieldToDrivers, interpolatedPosFrac, nearestPosSample, plansMatch, r2Configured, r2FrameAt, raceDurationS } from "./r2Replay";
+import { fieldToDrivers, fieldToLapRows, interpolatedPosFrac, nearestPosSample, plansMatch, r2Configured, r2FrameAt, raceDurationS, sectorSecondsForLap, speedKphFromPath } from "./r2Replay";
 import type { ARISRecommendation, GhostData, RaceField, RaceFieldLap } from "./types";
 
 function rec(over: Partial<ARISRecommendation> = {}): ARISRecommendation {
@@ -172,7 +172,97 @@ describe("nearestPosSample", () => {
     const cars = mapTimingAndPositions(frame.timing, frame.positions, fieldToDrivers(field), 22, frame.lap);
     expect(cars.VER.path_frac).toBeCloseTo(0.4825, 5);
     expect(cars.VER.team_colour).toBe("#3671C6");
+    expect(cars.VER.speed_kph).toBeGreaterThan(50);
     expect(Object.keys(cars)).toEqual(["VER"]);
+  });
+
+  it("copies FastF1 sector times from the previous completed lap", () => {
+    const lapRow = (n: number, sectors: [number | null, number | null, number | null]): RaceFieldLap => ({
+      lap: n,
+      driver: "VER",
+      position: 1,
+      gap_to_leader_s: 0,
+      gap_ahead_s: 0,
+      compound: "MEDIUM",
+      tyre_life: n,
+      stint_number: 1,
+      pit_this_lap: false,
+      is_dnf: false,
+      is_dsq: false,
+      track_status: "1",
+      lap_time_s: 90,
+      sector_1_s: sectors[0],
+      sector_2_s: sectors[1],
+      sector_3_s: sectors[2],
+    });
+    const field: RaceField = {
+      meta: {
+        year: 2025,
+        round: 15,
+        session_type: "R",
+        circuit_name: "Zandvoort",
+        total_laps: 3,
+        date_race: "2025-08-31",
+        green_flag_s: 0,
+        session_key: 1,
+      },
+      outline: { x: [0, 100], y: [0, 0] },
+      drivers: [{ code: "VER", name: "Max Verstappen", team: "Red Bull Racing", colour: "#3671C6", grid_position: 3, number: 1 }],
+      laps: [
+        lapRow(1, [25.78, 27.305, 22.861]),
+        lapRow(2, [26.1, 27.0, 23.0]),
+        lapRow(3, [null, null, null]),
+      ],
+      stints: [],
+      weather: [],
+      race_control: [],
+      pos_samples: { VER: [{ lap_frac: 0, path_frac: 0 }, { lap_frac: 2.5, path_frac: 0.5 }] },
+    };
+    const frame = r2FrameAt(field, 90 + 45);
+    const row = frame.timing.find((r) => r.driver_code === "VER");
+    expect(row?.sector1_ms).toBe(25780);
+    expect(row?.sector2_ms).toBe(27305);
+    expect(row?.sector3_ms).toBe(22861);
+    const mapped = fieldToLapRows(field);
+    expect(mapped[0].sector1_ms).toBe(25780);
+  });
+});
+
+describe("speedKphFromPath", () => {
+  const samples = [
+    { lap_frac: 20.0, path_frac: 0.1 },
+    { lap_frac: 20.4, path_frac: 0.41 },
+    { lap_frac: 20.8, path_frac: 0.72 },
+  ];
+
+  it("is positive while path_frac advances through a 90s lap", () => {
+    expect(speedKphFromPath(samples, 20.2, 90)).toBeGreaterThan(80);
+  });
+
+  it("prefers telemetry speed_kph on the nearest sample", () => {
+    const withSpeed = [
+      { lap_frac: 20.0, path_frac: 0.1, speed_kph: 274 },
+      { lap_frac: 20.4, path_frac: 0.41, speed_kph: 281 },
+      { lap_frac: 20.8, path_frac: 0.72, speed_kph: 190 },
+    ];
+    expect(speedKphFromPath(withSpeed, 20.2, 90)).toBe(274);
+  });
+});
+
+describe("sectorSecondsForLap", () => {
+  it("splits a 90s lap at the 1/3 and 2/3 path crossings", () => {
+    const samples = [
+      { lap_frac: 4.0, path_frac: 0.0 },
+      { lap_frac: 4.33, path_frac: 0.33 },
+      { lap_frac: 4.66, path_frac: 0.66 },
+      { lap_frac: 4.99, path_frac: 0.99 },
+    ];
+    const secs = sectorSecondsForLap(samples, 5, 90, 22);
+    expect(secs.s1).toBeGreaterThan(25);
+    expect(secs.s1).toBeLessThan(35);
+    expect(secs.s2).toBeGreaterThan(25);
+    expect(secs.s3).toBeGreaterThan(20);
+    expect((secs.s1 ?? 0) + (secs.s2 ?? 0) + (secs.s3 ?? 0)).toBeCloseTo(90, 0);
   });
 });
 

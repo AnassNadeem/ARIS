@@ -608,6 +608,46 @@ def _green_flag_s(sess: Any, rc: list[dict[str, Any]]) -> float | None:
     return 0.0
 
 
+def _clock_s(v: Any) -> float | None:
+    """SessionTime timedelta or Date timestamp → seconds on that clock."""
+    s = _td_s(v)
+    if s is not None:
+        return s
+    try:
+        if hasattr(v, "timestamp"):
+            return float(v.timestamp())
+    except Exception:
+        return None
+    return None
+
+
+def _lap_fracs_for_times(
+    times: list[float], starts: list[tuple[float, int, float]]
+) -> list[float]:
+    """Map sample clocks onto (t0, lap_n, dur). Shift if the clocks do not overlap."""
+    if not times:
+        return []
+    if not starts:
+        n = max(1, len(times) - 1)
+        return [round(0.999 * i / n, 4) for i in range(len(times))]
+    tmin, tmax = times[0], times[-1]
+    smin = starts[0][0]
+    smax = starts[-1][0] + max(1.0, starts[-1][2])
+    offset = 0.0
+    if tmax < smin or tmin > smax:
+        offset = smin - tmin
+    out: list[float] = []
+    si = 0
+    for t in times:
+        tt = t + offset
+        while si + 1 < len(starts) and starts[si + 1][0] <= tt:
+            si += 1
+        t0, lap_n, dur = starts[min(si, len(starts) - 1)]
+        into = max(0.0, tt - t0)
+        out.append((lap_n - 1) + min(0.999, into / max(1.0, dur)))
+    return out
+
+
 def _pos_samples(
     sess: Any, outline: dict[str, list[float]], hz: float
 ) -> dict[str, list[dict[str, float]]]:
@@ -623,7 +663,9 @@ def _pos_samples(
     min_dt = 1.0 / max(0.5, hz)
     laps = getattr(sess, "laps", None)
     code_by_num: dict[int, str] = {}
-    lap_starts: dict[str, list[tuple[float, int, float]]] = {}
+    abs_starts: dict[str, list[tuple[float, int, float]]] = {}
+    rel_starts: dict[str, list[tuple[float, int, float]]] = {}
+    acc_by: dict[str, float] = {}
     if laps is not None and not laps.empty:
         import pandas as pd
 
@@ -635,22 +677,27 @@ def _pos_samples(
                     code_by_num[int(float(num))] = code
             except (TypeError, ValueError):
                 pass
-            start = getattr(rec, "LapStartDate", None)
             lap_n = int(getattr(rec, "LapNumber", 0) or 0)
             dur = _td_s(getattr(rec, "LapTime", None)) or 90.0
             if not code or lap_n < 1:
                 continue
-            try:
-                if start is None or pd.isna(start):
-                    continue
-                ts = start.timestamp() if hasattr(start, "timestamp") else None
-            except Exception:
-                ts = None
-            if ts is None:
-                continue
-            lap_starts.setdefault(code, []).append((float(ts), lap_n, float(dur)))
-        for code in lap_starts:
-            lap_starts[code].sort()
+            t_abs = _clock_s(getattr(rec, "LapStartTime", None))
+            if t_abs is None:
+                t_abs = _clock_s(getattr(rec, "LapStartDate", None))
+            if t_abs is not None:
+                try:
+                    if pd.isna(t_abs):
+                        t_abs = None
+                except Exception:
+                    pass
+            if t_abs is not None:
+                abs_starts.setdefault(code, []).append((float(t_abs), lap_n, float(dur)))
+            acc = acc_by.get(code, 0.0)
+            rel_starts.setdefault(code, []).append((acc, lap_n, float(dur)))
+            acc_by[code] = acc + float(dur)
+        for bucket in (abs_starts, rel_starts):
+            for code in bucket:
+                bucket[code].sort()
 
     out: dict[str, list[dict[str, float]]] = {}
     for drv_key, df in raw.items():
@@ -664,13 +711,16 @@ def _pos_samples(
         times: list[float] = []
         last_t: float | None = None
         n = len(df)
+        cols = getattr(df, "columns", [])
         for i in range(n):
             rec = df.iloc[i]
-            ts = rec["Date"] if "Date" in df.columns else None
-            try:
-                t = ts.timestamp() if hasattr(ts, "timestamp") else None
-            except Exception:
-                t = None
+            t = None
+            for col in ("SessionTime", "Time", "Date"):
+                if col not in cols:
+                    continue
+                t = _clock_s(rec[col])
+                if t is not None:
+                    break
             if t is None:
                 continue
             if last_t is not None and (t - last_t) < min_dt:
@@ -686,25 +736,36 @@ def _pos_samples(
             ys.append(y)
         if len(times) < 2:
             continue
+        speeds: list[float] = [0.0] * len(times)
+        for i in range(1, len(times)):
+            dt = times[i] - times[i - 1]
+            if dt <= 0:
+                speeds[i] = speeds[i - 1]
+                continue
+            # FastF1 position X/Y are 1/10 metre.
+            dist_m = math.hypot(xs[i] - xs[i - 1], ys[i] - ys[i - 1]) / 10.0
+            kph = dist_m / dt * 3.6
+            if not math.isfinite(kph) or kph < 0:
+                kph = 0.0
+            speeds[i] = min(360.0, kph)
+        for i in range(1, len(speeds)):
+            speeds[i] = 0.35 * speeds[i] + 0.65 * speeds[i - 1]
         if path_x and path_y:
             fracs = stabilize_path_fracs(project_points_along_path(xs, ys, path_x, path_y))
         else:
             fracs = [i / max(1, len(times) - 1) for i in range(len(times))]
-        starts = lap_starts.get(code) or []
-        samples: list[dict[str, float]] = []
-        si = 0
-        for t, frac in zip(times, fracs, strict=False):
-            while si + 1 < len(starts) and starts[si + 1][0] <= t:
-                si += 1
-            if starts:
-                t0, lap_n, dur = starts[min(si, len(starts) - 1)]
-                into = max(0.0, t - t0)
-                lap_frac = (lap_n - 1) + min(0.999, into / max(1.0, dur))
-            else:
-                lap_frac = 0.0
-            samples.append(
-                {"lap_frac": round(float(lap_frac), 4), "path_frac": round(float(frac), 5)}
-            )
+        starts = abs_starts.get(code) or rel_starts.get(code) or []
+        lap_fracs = _lap_fracs_for_times(times, starts)
+        if lap_fracs and max(lap_fracs) < 1.0 and rel_starts.get(code):
+            lap_fracs = _lap_fracs_for_times(times, rel_starts[code])
+        samples = [
+            {
+                "lap_frac": round(float(lf), 4),
+                "path_frac": round(float(frac), 5),
+                "speed_kph": int(round(float(spd))),
+            }
+            for lf, frac, spd in zip(lap_fracs, fracs, speeds, strict=False)
+        ]
         if samples:
             out[code] = samples
     return out

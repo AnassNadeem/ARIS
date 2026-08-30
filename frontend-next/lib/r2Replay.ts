@@ -15,6 +15,10 @@ import type {
 import { MOCK_DRIVERS_2025 } from "@/lib/mockData";
 
 const R2_BASE = (process.env.NEXT_PUBLIC_R2_BASE_URL || "").replace(/\/$/, "");
+/** Bump when race_field.json shape changes so CDN/browser caches cannot serve stale packs. */
+const R2_ASSET_V = "3";
+const DEFAULT_TRACK_M = 5000;
+const SPEED_DT_LAP = 0.04;
 
 export function r2BaseUrl(): string {
   return R2_BASE;
@@ -25,7 +29,7 @@ export function r2Configured(): boolean {
 }
 
 function r2Url(year: number, round: number, file: string): string {
-  return `${R2_BASE}/replay/${year}/${round}/${file}`;
+  return `${R2_BASE}/replay/${year}/${round}/${file}?v=${R2_ASSET_V}`;
 }
 
 export async function fetchWithProgress(
@@ -114,21 +118,41 @@ export function r2TickToGhostTick(tick: GhostR2Tick, driver: string, ghost: Ghos
   };
 }
 
+function msFromSec(v: number | null | undefined): number | null {
+  return v != null && Number.isFinite(v) ? Math.round(v * 1000) : null;
+}
+
 export function fieldToLapRows(field: RaceField): ApiLapRow[] {
-  return field.laps.map((r) => ({
-    driver_code: r.driver,
-    lap_number: r.lap,
-    lap_time_ms: r.lap_time_s != null ? Math.round(r.lap_time_s * 1000) : null,
-    sector1_ms: r.sector_1_s != null ? Math.round(r.sector_1_s * 1000) : null,
-    sector2_ms: r.sector_2_s != null ? Math.round(r.sector_2_s * 1000) : null,
-    sector3_ms: r.sector_3_s != null ? Math.round(r.sector_3_s * 1000) : null,
-    compound: r.compound,
-    tyre_life: r.tyre_life,
-    pit_in_lap: r.pit_this_lap,
-    pit_out_lap: false,
-    position: r.position,
-    track_status: r.track_status,
-  }));
+  return field.laps.map((r) => {
+    let s1 = r.sector_1_s;
+    let s2 = r.sector_2_s;
+    let s3 = r.sector_3_s;
+    if (s1 == null || s2 == null || s3 == null) {
+      const derived = sectorSecondsForLap(
+        posSamplesFor(field, r.driver),
+        r.lap,
+        r.lap_time_s ?? 0,
+        field.meta.total_laps,
+      );
+      s1 = s1 ?? derived.s1;
+      s2 = s2 ?? derived.s2;
+      s3 = s3 ?? derived.s3;
+    }
+    return {
+      driver_code: r.driver,
+      lap_number: r.lap,
+      lap_time_ms: r.lap_time_s != null ? Math.round(r.lap_time_s * 1000) : null,
+      sector1_ms: msFromSec(s1),
+      sector2_ms: msFromSec(s2),
+      sector3_ms: msFromSec(s3),
+      compound: r.compound,
+      tyre_life: r.tyre_life,
+      pit_in_lap: r.pit_this_lap,
+      pit_out_lap: false,
+      position: r.position,
+      track_status: r.track_status,
+    };
+  });
 }
 
 export function fieldToStintRows(field: RaceField): ApiStintRow[] {
@@ -195,10 +219,10 @@ export function elapsedToLap(field: RaceField, elapsedS: number): { lap: number;
 }
 
 /** Nearest-neighbour pos_sample by lap_frac. Tie → earlier sample. */
-export function nearestPosSample(
-  samples: { lap_frac: number; path_frac: number }[],
+export function nearestPosSample<T extends { lap_frac: number; path_frac: number }>(
+  samples: T[],
   lapFrac: number,
-): { lap_frac: number; path_frac: number } | null {
+): T | null {
   if (!samples.length) return null;
   let lo = 0;
   let hi = samples.length - 1;
@@ -262,6 +286,121 @@ export function pathFracAtLap(
   return interpolatedPosFrac(samples, lapFrac);
 }
 
+function wrappedPathDelta(from: number, to: number): number {
+  let d = to - from;
+  if (d > 0.5) d -= 1;
+  if (d < -0.5) d += 1;
+  return d;
+}
+
+export function speedKphFromPath(
+  samples: { lap_frac: number; path_frac: number; speed_kph?: number | null }[],
+  lapFrac: number,
+  lapDurS: number,
+  totalLaps = 0,
+  trackLengthM = DEFAULT_TRACK_M,
+): number {
+  const hit = nearestPosSample(samples, lapFrac);
+  if (hit && hit.speed_kph != null && hit.speed_kph > 1) {
+    return Math.min(360, hit.speed_kph);
+  }
+  if (samples.length < 2 || !(lapDurS > 0) || !(trackLengthM > 0)) return 0;
+  const a = pathFracAtLap(samples, lapFrac, totalLaps);
+  let dtLap = SPEED_DT_LAP;
+  let b = pathFracAtLap(samples, lapFrac + dtLap, totalLaps);
+  if (a === b) {
+    dtLap = 0.12;
+    b = pathFracAtLap(samples, lapFrac + dtLap, totalLaps);
+  }
+  const dp = wrappedPathDelta(a, b);
+  const dtS = dtLap * lapDurS;
+  if (dtS < 1e-4 || dp <= 0) return 0;
+  const kph = ((dp * trackLengthM) / dtS) * 3.6;
+  if (!Number.isFinite(kph) || kph < 1) return 0;
+  return Math.min(360, kph);
+}
+
+function firstPathCrossing(
+  samples: { lap_frac: number; path_frac: number }[],
+  fromLapFrac: number,
+  toLapFrac: number,
+  target: number,
+  totalLaps: number,
+): number | null {
+  const span = toLapFrac - fromLapFrac;
+  if (span <= 1e-6 || samples.length < 2) return null;
+  const steps = 48;
+  let prevU = fromLapFrac;
+  let prevP = pathFracAtLap(samples, fromLapFrac, totalLaps);
+  for (let i = 1; i <= steps; i++) {
+    const u = fromLapFrac + (span * i) / steps;
+    const p = pathFracAtLap(samples, u, totalLaps);
+    const d = wrappedPathDelta(prevP, p);
+    if (d > 1e-6) {
+      const toT = (target - prevP + 1) % 1;
+      if (toT > 1e-6 && toT <= d + 1e-6) {
+        return prevU + (toT / d) * (u - prevU);
+      }
+    }
+    prevU = u;
+    prevP = p;
+  }
+  return null;
+}
+
+export function sectorSecondsForLap(
+  samples: { lap_frac: number; path_frac: number }[],
+  lap: number,
+  lapTimeS: number,
+  totalLaps: number,
+): { s1: number | null; s2: number | null; s3: number | null } {
+  if (!(lapTimeS > 0) || lap < 1 || samples.length < 2) {
+    return { s1: null, s2: null, s3: null };
+  }
+  const start = lap - 1;
+  const end = start + 0.999;
+  const s1u = firstPathCrossing(samples, start, end, 1 / 3, totalLaps);
+  const s2u = firstPathCrossing(samples, start, end, 2 / 3, totalLaps);
+  const s1 = s1u != null ? (s1u - start) * lapTimeS : null;
+  const s2 = s1 != null && s2u != null ? (s2u - start) * lapTimeS - s1 : null;
+  let s3: number | null = null;
+  if (s1 != null && s2 != null) {
+    s3 = lapTimeS - s1 - s2;
+    if (!(s3 > 0.2)) s3 = null;
+  }
+  return { s1, s2, s3 };
+}
+
+function sectorMsFromLap(
+  row:
+    | {
+        sector_1_s?: number | null;
+        sector_2_s?: number | null;
+        sector_3_s?: number | null;
+        lap_time_s?: number | null;
+        lap?: number;
+      }
+    | undefined,
+  samples: RaceFieldPosSample[],
+  fallbackLap: number,
+  totalLaps: number,
+): { sector1_ms: number | null; sector2_ms: number | null; sector3_ms: number | null } {
+  if (row?.sector_1_s != null || row?.sector_2_s != null || row?.sector_3_s != null) {
+    return {
+      sector1_ms: msFromSec(row.sector_1_s),
+      sector2_ms: msFromSec(row.sector_2_s),
+      sector3_ms: msFromSec(row.sector_3_s),
+    };
+  }
+  const which = row?.lap ?? fallbackLap;
+  const derived = sectorSecondsForLap(samples, which, row?.lap_time_s ?? 0, totalLaps);
+  return {
+    sector1_ms: msFromSec(derived.s1),
+    sector2_ms: msFromSec(derived.s2),
+    sector3_ms: msFromSec(derived.s3),
+  };
+}
+
 function posSamplesFor(field: RaceField, code: string): RaceFieldPosSample[] {
   const direct = field.pos_samples[code];
   if (direct?.length) return direct;
@@ -290,6 +429,8 @@ export function r2FrameAt(
   const lapFrac = lapFracOverride ?? fromElapsed;
   const wx = field.weather.find((w) => w.lap === lap);
   const path = buildPath(field.outline.x || [], field.outline.y || []);
+  const cum = leaderCum(field);
+  const lapDurS = Math.max(1, (cum[lap] ?? 90) - (cum[lap - 1] ?? 0));
   const byDriver = new Map<string, (typeof field.laps)[0]>();
   for (const row of field.laps) {
     if (row.lap <= lap) byDriver.set(row.driver, row);
@@ -309,6 +450,11 @@ export function r2FrameAt(
     const frac = pathFracAtLap(samples, lapFrac, field.meta.total_laps);
     const xy = pointAtFraction(path, frac);
     const prev = prevByDriver.get(code);
+    const kph = speedKphFromPath(samples, lapFrac, lapDurS, field.meta.total_laps);
+    let sectors = sectorMsFromLap(prev, samples, prevLap, field.meta.total_laps);
+    if (sectors.sector1_ms == null && sectors.sector2_ms == null && sectors.sector3_ms == null) {
+      sectors = sectorMsFromLap(row, samples, row.lap, field.meta.total_laps);
+    }
     timing.push({
       position: row.position ?? 0,
       driver_code: code,
@@ -321,11 +467,11 @@ export function r2FrameAt(
       team_colour: colour.get(code) ?? null,
       in_pit: row.pit_this_lap && row.lap === lap,
       lap_number: row.lap,
-      speed_kph: null,
+      speed_kph: kph > 1 ? Math.round(kph) : null,
       status: row.is_dnf ? "DNF" : "RUNNING",
-      sector1_ms: prev?.sector_1_s != null ? Math.round(prev.sector_1_s * 1000) : null,
-      sector2_ms: prev?.sector_2_s != null ? Math.round(prev.sector_2_s * 1000) : null,
-      sector3_ms: prev?.sector_3_s != null ? Math.round(prev.sector_3_s * 1000) : null,
+      sector1_ms: sectors.sector1_ms,
+      sector2_ms: sectors.sector2_ms,
+      sector3_ms: sectors.sector3_ms,
     });
     positions.push({
       driver_code: code,
@@ -335,7 +481,7 @@ export function r2FrameAt(
       is_pitted: Boolean(row.pit_this_lap && row.lap === lap),
       is_dnf: row.is_dnf,
       path_frac: frac,
-      speed_ms: null,
+      speed_ms: kph > 1 ? kph / 3.6 : null,
     });
   }
   timing.sort((a, b) => (a.position || 99) - (b.position || 99));
