@@ -3,7 +3,7 @@ import { circuitCoordsFromReplayOutline } from "@/lib/api";
 import { postGhostRecompute } from "@/lib/api";
 import { isFullCircuitOutline, shouldApplyFallbackOutline } from "@/lib/circuitCache";
 import { mapTimingAndPositions, mergeByDriverCode, mergeCars, sessionFlagToPhase, timingFingerprint } from "@/lib/mapCars";
-import { asGhostTick, ghostCarFromTick, ghostLastLapS, ghostPlaybackAt, syntheticGhostCar, syntheticGhostTick } from "@/lib/ghostCar";
+import { asGhostTick, ghostCarFromTick, ghostLastLapS, ghostPlaybackAt, ghostStartFracFromSamples, syntheticGhostCar, syntheticGhostTick } from "@/lib/ghostCar";
 import { normalizeCompound } from "@/lib/compounds";
 import {
   fetchGhost,
@@ -127,19 +127,21 @@ function applyGhost(payload: SsePayload) {
     ghostLapS = derived.ghost_lap_s;
     ghostCumulativeS = derived.ghost_cumulative_s;
   }
-  const playback =
-    ghostLapS.length > 1
-      ? ghostPlaybackAt({
-          elapsedS: store.replayElapsedS,
-          ghostLapS,
-          ghostCumulativeS,
-          totalLaps: store.totalLaps || store.r2RaceField?.meta.total_laps || 1,
-          pitLaps,
-          pitLossS: store.pitLossS,
-          posSamples: store.r2RaceField && driver ? posSamplesFor(store.r2RaceField, driver) : undefined,
-          pitCompounds,
-        })
-      : null;
+  const posSamples = store.r2RaceField && driver ? posSamplesFor(store.r2RaceField, driver) : undefined;
+  const ghostStartFrac = ghostStartFracFromSamples(posSamples);
+  // Always produce playback so the ghost is on frame 1 at the grid slot,
+  // even before ghost_lap_s is derived (dummy 90s lap until ticks land).
+  const playback = ghostPlaybackAt({
+    elapsedS: store.replayElapsedS,
+    ghostLapS: ghostLapS.length > 1 ? ghostLapS : [NaN, 90],
+    ghostCumulativeS: ghostCumulativeS.length > 1 ? ghostCumulativeS : [0, 90],
+    totalLaps: store.totalLaps || store.r2RaceField?.meta.total_laps || 1,
+    pitLaps,
+    pitLossS: store.pitLossS,
+    posSamples,
+    pitCompounds,
+    ghostStartFrac,
+  });
   const ghostLap = playback?.lap ?? store.currentLap;
   const towerLap = playback?.towerLap ?? ghostLap;
   const rankTick = driver ? store.ghostTicksByLap[ghostLap] : undefined;

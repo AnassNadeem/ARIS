@@ -418,9 +418,9 @@ export function interpolatedPosFrac(
   lapFrac: number,
 ): number {
   if (!samples.length) return 0;
-  if (lapFrac <= samples[0].lap_frac) return samples[0].path_frac;
   const last = samples[samples.length - 1];
-  if (lapFrac >= last.lap_frac) return last.path_frac;
+  if (!Number.isFinite(lapFrac) || lapFrac >= last.lap_frac) return last.path_frac;
+  if (lapFrac <= samples[0].lap_frac) return samples[0].path_frac;
   let lo = 0;
   let hi = samples.length - 1;
   while (lo < hi) {
@@ -430,13 +430,15 @@ export function interpolatedPosFrac(
   }
   const next = samples[lo];
   const prev = samples[lo - 1];
+  if (!prev || !next) return last.path_frac;
   const span = next.lap_frac - prev.lap_frac;
   if (span <= 0) return prev.path_frac;
   const t = (lapFrac - prev.lap_frac) / span;
   let dp = next.path_frac - prev.path_frac;
   if (dp > 0.5) dp -= 1;
   if (dp < -0.5) dp += 1;
-  return wrap01(prev.path_frac + t * dp);
+  const mixed = wrap01(prev.path_frac + t * dp);
+  return Number.isFinite(mixed) ? mixed : last.path_frac;
 }
 
 export function pathFracAtLap(
@@ -615,7 +617,8 @@ export function r2FrameAt(
   const positions: LivePosition[] = [];
   for (const [code, row] of byDriver) {
     const samples = posSamplesFor(field, code);
-    const frac = pathFracAtLap(samples, lapFrac, field.meta.total_laps);
+    const fracRaw = pathFracAtLap(samples, lapFrac, field.meta.total_laps);
+    const frac = Number.isFinite(fracRaw) ? fracRaw : samples.length ? samples[samples.length - 1].path_frac : 0;
     const xy = pointAtFraction(path, frac);
     const prev = prevByDriver.get(code);
     const kph = speedKphFromPath(samples, lapFrac, lapDurS, field.meta.total_laps);

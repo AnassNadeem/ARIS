@@ -98,6 +98,7 @@ export function PlaybackControls() {
           value={currentLap}
           disabled={isLive}
           onChange={(e) => seekToLap(Number(e.target.value))}
+          data-testid="lap-scrubber"
           className="absolute inset-0 h-2 w-full cursor-pointer opacity-0 disabled:cursor-default"
         />
         <div

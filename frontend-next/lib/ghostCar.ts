@@ -63,6 +63,15 @@ function wrapFrac(frac: number): number {
   return ((frac % 1) + 1) % 1;
 }
 
+/** Grid slot from the chosen driver's first pos_sample (Bahrain 2024 VER = 0.97487). */
+export function ghostStartFracFromSamples(
+  samples?: { path_frac: number }[] | null,
+): number {
+  if (!samples?.length) return 0;
+  const v = Number(samples[0].path_frac);
+  return Number.isFinite(v) ? wrapFrac(v) : 0;
+}
+
 export interface GhostPlaybackInput {
   elapsedS: number;
   ghostLapS: number[];
@@ -72,6 +81,8 @@ export interface GhostPlaybackInput {
   pitLossS: number;
   posSamples?: { lap_frac: number; path_frac: number }[];
   pitCompounds?: string[];
+  /** Real car's t=0 path_frac (grid slot). Applied as a lap-1 offset. */
+  ghostStartFrac?: number;
 }
 
 export interface GhostPlayback {
@@ -137,6 +148,18 @@ export function ghostPlaybackAt(input: GhostPlaybackInput): GhostPlayback {
   let pathFrac = wrapFrac(ghostLapFrac);
   if (input.posSamples && input.posSamples.length) {
     pathFrac = pathFracAtLap(input.posSamples, ghostLapFrac, totalLaps);
+  }
+  const startFrac = input.ghostStartFrac ?? ghostStartFracFromSamples(input.posSamples);
+  // Independent clock maps progress 0 → S/F (0). The real car's first sample is
+  // the grid slot, which is often non-zero. Offset lap 1 only so both cars
+  // share the same lights-out spot; do not add again when pos_samples already
+  // returned that slot (typical at progress=0).
+  if (L === 1 && progress < 1 && startFrac) {
+    if (!(input.posSamples && input.posSamples.length)) {
+      pathFrac = wrapFrac(progress + startFrac);
+    } else if (progress <= 1e-9) {
+      pathFrac = startFrac;
+    }
   }
 
   let inPits = false;

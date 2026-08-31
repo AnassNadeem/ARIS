@@ -7,11 +7,13 @@ import { PathCarAnimator } from "@/lib/deadReckoning";
 import {
   buildPath,
   fractionAtPoint,
+  pointAtFraction,
   polylinePoints,
   sectorPathsFromOutline,
   sectorsAreUsable,
   viewBoxFor,
 } from "@/lib/trackGeometry";
+import { PIT_ENTRY_FRAC } from "@/lib/ghostCar";
 import { onTrackCarCodes } from "@/lib/mapCars";
 import { chequeredSfFlag, startFinishMarker } from "@/lib/replayFilter";
 import { PlaybackControls } from "@/components/ui/PlaybackControls";
@@ -59,6 +61,26 @@ function speedGlowFilter(speed: number, colour: string): string {
   return `drop-shadow(0 0 ${radius}px rgba(${r},${g},${bch},${opacity}))`;
 }
 
+function pitBoardAnchor(coords: CircuitCoords): { x: number; y: number } {
+  const path = buildPath(coords.x, coords.y);
+  const p = pointAtFraction(path, PIT_ENTRY_FRAC);
+  const n = coords.x.length;
+  if (n < 1) return p;
+  let cx = 0;
+  let cy = 0;
+  for (let i = 0; i < n; i++) {
+    cx += coords.x[i];
+    cy += coords.y[i];
+  }
+  cx /= n;
+  cy /= n;
+  let dx = cx - p.x;
+  let dy = cy - p.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const offset = Math.max(12, (path.totalLength || 400) * 0.012);
+  return { x: p.x + (dx / len) * offset, y: p.y + (dy / len) * offset };
+}
+
 function resolveSectors(coords: CircuitCoords): CircuitSectorPath[] {
   if (sectorsAreUsable(coords.sectorPaths)) return coords.sectorPaths as CircuitSectorPath[];
   const { paths, usedFallback } = sectorPathsFromOutline(coords.x, coords.y, coords.markers);
@@ -85,6 +107,13 @@ export function TrackMap() {
     onTrackCarCodes(s.cars, s.isARISOn && s.ghostCar ? s.ghostCar.driver_code : null),
   );
   const playbackSpeed = useRaceStore((s) => s.playbackSpeed);
+  const ghostInPits = useRaceStore((s) => Boolean(s.ghostCar?.ghost_in_pits));
+  const ghostPitLabel = useRaceStore((s) => {
+    const g = s.ghostCar;
+    if (!g) return null;
+    return g.ghost_pit_compound ?? g.compound;
+  });
+  const showGhostLegend = useRaceStore((s) => Boolean(s.isARISOn && s.ghostCar));
   const speedRef = useRef(playbackSpeed);
   speedRef.current = playbackSpeed;
 
@@ -127,6 +156,7 @@ export function TrackMap() {
   const path = useMemo(() => (coords ? buildPath(coords.x, coords.y) : null), [coords]);
   const viewBox = useMemo(() => (coords ? viewBoxFor(coords.x, coords.y) : "0 0 800 500"), [coords]);
   const sectors = useMemo(() => (coords ? resolveSectors(coords) : []), [coords]);
+  const pitAnchor = useMemo(() => (coords && coords.x.length ? pitBoardAnchor(coords) : null), [coords]);
   pathRef.current = path;
 
   const carCodes = useMemo(() => (carCodesKey ? carCodesKey.split(",") : []), [carCodesKey]);
@@ -152,10 +182,14 @@ export function TrackMap() {
         for (const code of codesRef.current) {
           const car = readCar(code);
           if (!car) continue;
+          if (car.is_pitted) continue;
+          const prevKnown = lastFrac.current.get(code);
           const frac =
             car.path_frac != null && Number.isFinite(car.path_frac)
               ? car.path_frac
-              : fractionAtPoint(line, car.x, car.y);
+              : prevKnown != null && Number.isFinite(prevKnown)
+                ? prevKnown
+                : fractionAtPoint(line, car.x, car.y);
           let animator = animators.current.get(code);
           if (!animator) {
             animator = new PathCarAnimator(line, frac, 140);
@@ -168,7 +202,11 @@ export function TrackMap() {
             if (d > 0.5) d -= 1;
             if (d < -0.5) d += 1;
             if (prev == null || Math.abs(d) > 1e-5) {
-              animator.onTick(frac, now, { speedKph: car.speed_kph, headingRad: car.heading_rad });
+              animator.onTick(frac, now, {
+                speedKph: car.speed_kph,
+                headingRad: car.heading_rad,
+                skipSeekJump: Boolean(car.ghost_skip_seek_jump),
+              });
               lastFrac.current.set(code, frac);
             }
           }
@@ -176,6 +214,8 @@ export function TrackMap() {
           const g = groupRefs.current.get(code);
           if (g) {
             g.setAttribute("transform", `translate(${pos.x}, ${pos.y})`);
+            g.setAttribute("cx", String(pos.x));
+            g.setAttribute("cy", String(pos.y));
             if (!code.startsWith(GHOST_PREFIX)) {
               const circle = g.querySelector("circle");
               if (circle) {
@@ -254,10 +294,11 @@ export function TrackMap() {
             const isGhost = code.startsWith(GHOST_PREFIX);
             const isFocus = !isGhost && focusCode !== "" && code === focusCode;
             const r = isFocus ? 9 : isGhost ? 8 : 6;
-            const displayCode = isGhost ? code.replace(GHOST_PREFIX, "") : code;
+            const hideDot = Boolean(car.is_pitted) || (isGhost && (ghostInPits || Boolean(car.ghost_in_pits)));
             return (
               <g
                 key={code}
+                data-testid={isGhost ? "ghost-dot" : `car-dot-${code}`}
                 ref={(el) => {
                   if (el) groupRefs.current.set(code, el);
                   else groupRefs.current.delete(code);
@@ -266,30 +307,70 @@ export function TrackMap() {
                   if (!isGhost) setFocusDriver(code);
                 }}
                 style={{ cursor: isGhost ? "default" : "pointer" }}
+                opacity={hideDot ? 0 : 1}
+                pointerEvents={hideDot ? "none" : undefined}
               >
-                <title>{car.full_name || displayCode}</title>
+                <title>{isGhost ? "ARIS Ghost" : car.full_name || code}</title>
                 <circle
                   r={r}
-                  fill={car.team_colour}
+                  fill={isGhost ? "#e8eef4" : car.team_colour}
                   fillOpacity={isGhost ? 0.42 : 1}
                   stroke={isGhost ? "#ffffff" : isFocus ? "#e8002d" : "#0a0a0a"}
                   strokeWidth={isGhost ? 2 : isFocus ? 2.5 : 1}
                   strokeDasharray={isGhost ? "3 3" : undefined}
                   filter={isFocus ? "url(#focus-glow)" : undefined}
                 />
-                <text
-                  y={-14}
-                  textAnchor="middle"
-                  fontSize={isFocus || isGhost ? 10 : 8}
-                  fontFamily="var(--font-jbmono)"
-                  fontWeight={700}
-                  fill={isGhost ? "#ffffff" : isFocus ? "#e8002d" : "#ffffff"}
-                >
-                  {isGhost ? `[A] ${displayCode}` : displayCode}
-                </text>
+                {isGhost ? (
+                  <text
+                    x={12}
+                    y={-10}
+                    textAnchor="start"
+                    fontSize={9}
+                    fontFamily="var(--font-jbmono)"
+                    fontWeight={700}
+                    fill="#ffffff"
+                  >
+                    ARIS
+                  </text>
+                ) : (
+                  <text
+                    y={-14}
+                    textAnchor="middle"
+                    fontSize={isFocus ? 10 : 8}
+                    fontFamily="var(--font-jbmono)"
+                    fontWeight={700}
+                    fill={isFocus ? "#e8002d" : "#ffffff"}
+                  >
+                    {code}
+                  </text>
+                )}
               </g>
             );
           })}
+          {ghostInPits && pitAnchor && (
+            <g transform={`translate(${pitAnchor.x}, ${pitAnchor.y})`}>
+              <rect
+                x={-52}
+                y={-11}
+                width={104}
+                height={22}
+                rx={3}
+                fill="#1a1a1a"
+                stroke="#e8eef4"
+                strokeWidth={1.2}
+              />
+              <text
+                textAnchor="middle"
+                y={4}
+                fontSize={8}
+                fontFamily="var(--font-jbmono)"
+                fontWeight={700}
+                fill="#ffffff"
+              >
+                {`ARIS PIT — ${ghostPitLabel ?? ""}`}
+              </text>
+            </g>
+          )}
           <defs>
             <filter id="focus-glow" x="-50%" y="-50%" width="200%" height="200%">
               <feDropShadow dx="0" dy="0" stdDeviation="2.4" floodColor="#e8002d" floodOpacity="0.9" />
@@ -304,12 +385,6 @@ export function TrackMap() {
                 {k.toUpperCase()}
               </span>
             ))}
-            {carCodes.some((c) => c.startsWith(GHOST_PREFIX)) && (
-              <span className="flex items-center gap-1 text-amber">
-                <span className="inline-block h-2 w-2 rounded-full border border-dashed border-white bg-red/50" />
-                Ghost
-              </span>
-            )}
           </div>
         )}
         {!coords && (feedLoading || !outlineSettled) && (
@@ -323,6 +398,13 @@ export function TrackMap() {
               title="Track map"
               detail="Live circuit outline with car positions, dead-reckoned between ticks. Empty until this session's GPS pack loads the circuit path."
             />
+          </div>
+        )}
+        {showGhostLegend && (
+          <div className="absolute bottom-2 left-2 z-10 rounded border border-white/30 bg-carbon/85 px-2 py-1 font-sans text-[10px] uppercase tracking-wide text-white">
+            {ghostInPits
+              ? `⬛ ARIS — IN PITS (${ghostPitLabel ?? ""})`
+              : "● ARIS Ghost — independent simulated strategy"}
           </div>
         )}
         <TrackLightsOut />

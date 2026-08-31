@@ -1,5 +1,6 @@
 import { useRaceStore } from "@/store/raceStore";
-import { ghostCarFromTick } from "@/lib/ghostCar";
+import { ghostCarFromTick, ghostPlaybackAt, ghostStartFracFromSamples } from "@/lib/ghostCar";
+import { posSamplesFor } from "@/lib/r2Replay";
 import type { ARISRecommendation, CarState, CommsEntry, GhostTickData, RacePhase } from "@/lib/types";
 
 type WireMessage =
@@ -84,7 +85,19 @@ export class RaceSocket {
         if (msg.ghost) {
           store.setGhostData(msg.ghost);
           const real = store.cars[msg.ghost.driver_code] ?? null;
-          store.setGhostCar(ghostCarFromTick(msg.ghost, real, msg.lap, msg.total_laps));
+          const playback = ghostPlaybackAt({
+            elapsedS: store.replayElapsedS,
+            ghostLapS: store.ghostLapS.length > 1 ? store.ghostLapS : [NaN, 90],
+            ghostCumulativeS: store.ghostCumulativeS.length > 1 ? store.ghostCumulativeS : [0, 90],
+            totalLaps: msg.total_laps,
+            pitLaps: msg.ghost.plan_pit_laps ?? [],
+            pitLossS: store.pitLossS,
+            pitCompounds: msg.ghost.plan_pit_compounds,
+            ghostStartFrac: ghostStartFracFromSamples(
+              store.r2RaceField ? posSamplesFor(store.r2RaceField, msg.ghost.driver_code) : undefined,
+            ),
+          });
+          store.setGhostCar(ghostCarFromTick(msg.ghost, real, msg.lap, msg.total_laps, playback));
         } else if (msg.ghost === null) {
           store.setGhostCar(null);
           store.setGhostData(null);

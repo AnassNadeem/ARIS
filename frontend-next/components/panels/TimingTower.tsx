@@ -5,7 +5,7 @@ import { useRaceStore } from "@/store/raceStore";
 import { TyreIcon } from "@/components/ui/TyreIcon";
 import { PanelEmpty, PanelSkeleton, usePanelFeedLoading } from "@/components/ui/PanelStates";
 import { useFocusDriver } from "@/lib/useFocusDriver";
-import { timingEqual } from "@/lib/mapCars";
+import { orderTimingTower, timingEqual } from "@/lib/mapCars";
 import { driverOutOfRace, fmtGap, fmtLapTime, fmtSectorTime, sectorClass } from "@/lib/timingDisplay";
 import type { CarState } from "@/lib/types";
 
@@ -31,6 +31,9 @@ const TimingRow = memo(function TimingRow({
   const out = driverOutOfRace(car.status, car.is_dnf);
   return (
     <div
+      data-testid={isGhost ? "ghost-tower-row" : `tower-row-${car.driver_code}`}
+      data-dnf={car.is_dnf ? "true" : "false"}
+      data-position={car.position ?? ""}
       onClick={() => {
         if (!isGhost) onFocus(car.driver_code);
       }}
@@ -112,12 +115,8 @@ export function TimingTower() {
   const loading = usePanelFeedLoading();
 
   const rows = useMemo(() => {
-    const list = Object.values(cars).sort((a, b) => (a.position ?? 99) - (b.position ?? 99));
-    if (isARISOn && ghostCar) {
-      const insertAt = Math.max(0, (ghostCar.position ?? 1) - 1);
-      list.splice(insertAt, 0, ghostCar);
-    }
-    return list;
+    const list = Object.values(cars);
+    return orderTimingTower(list, isARISOn && ghostCar ? ghostCar : null);
   }, [cars, ghostCar, isARISOn]);
 
   const banner =

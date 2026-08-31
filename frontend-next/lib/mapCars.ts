@@ -98,7 +98,9 @@ export function timingFingerprint(rows: LiveTimingRow[], positions: LivePosition
         `${r.driver_code}:${r.position}:${r.last_lap_ms}:${r.sector1_ms}:${r.sector2_ms}:${r.sector3_ms}:${r.lap_number}:${r.status}:${r.fastest_lap}:${r.speed_kph}`,
     )
     .join("|");
-  const p = positions.map((x) => `${x.driver_code}:${x.x.toFixed(1)}:${x.y.toFixed(1)}:${x.path_frac.toFixed(4)}`).join("|");
+  const p = positions
+    .map((x) => `${x.driver_code}:${(x.x ?? 0).toFixed(1)}:${(x.y ?? 0).toFixed(1)}:${(x.path_frac ?? 0).toFixed(4)}`)
+    .join("|");
   return `${t}#${p}`;
 }
 
@@ -140,7 +142,15 @@ export function mergeCars(
   const out: Record<string, CarState> = {};
   for (const k of nextKeys) {
     const a = prev[k];
-    const b = next[k];
+    let b = next[k];
+    if (
+      a &&
+      (b.path_frac == null || !Number.isFinite(b.path_frac)) &&
+      a.path_frac != null &&
+      Number.isFinite(a.path_frac)
+    ) {
+      b = { ...b, path_frac: a.path_frac, x: a.x, y: a.y };
+    }
     if (a && carSig(a) === carSig(b)) {
       out[k] = a;
     } else {
@@ -182,14 +192,40 @@ export function timingEqual(a: CarState, b: CarState): boolean {
     a.is_dnf === b.is_dnf &&
     a.team_colour === b.team_colour &&
     a.ghost_cumulative_delta === b.ghost_cumulative_delta &&
-    a.laps_completed === b.laps_completed
+    a.laps_completed === b.laps_completed &&
+    a.ghost_in_pits === b.ghost_in_pits
   );
 }
 
 export function onTrackCarCodes(cars: Record<string, CarState>, ghostCode?: string | null): string {
   const ids = Object.values(cars)
-    .filter((c) => !c.is_pitted && c.status !== "DNF" && c.status !== "DNS" && !c.is_dnf)
+    .filter((c) => !c.is_pitted)
     .map((c) => c.driver_code);
   if (ghostCode) ids.push(ghostCode);
   return ids.sort().join(",");
+}
+
+function towerPosition(car: CarState): number {
+  const p = car.position;
+  return p != null && p > 0 ? p : 99;
+}
+
+function towerLastLap(car: CarState): number {
+  return car.laps_completed ?? car.lap_number ?? 0;
+}
+
+/**
+ * Timing tower order: classified (by position) with ghost spliced in, then
+ * DNF/retired (by last classified lap descending). Split uses only is_dnf.
+ */
+export function orderTimingTower(cars: CarState[], ghost: CarState | null): CarState[] {
+  const classified = cars.filter((c) => !c.is_dnf);
+  const dnf = cars.filter((c) => c.is_dnf);
+  classified.sort((a, b) => towerPosition(a) - towerPosition(b));
+  dnf.sort((a, b) => towerLastLap(b) - towerLastLap(a));
+  if (ghost) {
+    const insertAt = Math.max(0, Math.min(classified.length, (ghost.position ?? 1) - 1));
+    classified.splice(insertAt, 0, ghost);
+  }
+  return classified.concat(dnf);
 }
