@@ -411,6 +411,40 @@ describe("deriveGhostLapTimes", () => {
     expect(derived.ghost_cumulative_s[1]).toBe(90);
     expect(derived.ghost_cumulative_s[2]).toBe(177);
   });
+
+  it("fills NaN ghost_lap_s with the median of finite positive laps", () => {
+    const tick = (lap: number) => ({
+      lap,
+      position: 1,
+      gap_to_leader_s: 0,
+      compound: "SOFT",
+      tyre_life: lap,
+      stint: 1,
+      cumulative_delta_s: 0,
+      aris_action: "STAY_OUT",
+      aris_confidence: 1,
+    });
+    const derived = deriveGhostLapTimes([tick(1), tick(2), tick(3), tick(4)], [NaN, 90, 92, NaN, 94]);
+    expect(derived.ghost_lap_s[1]).toBe(90);
+    expect(derived.ghost_lap_s[2]).toBe(92);
+    expect(derived.ghost_lap_s[3]).toBe(92);
+    expect(derived.ghost_lap_s[4]).toBe(94);
+    expect(derived.ghost_lap_s.slice(1).every((v) => Number.isFinite(v))).toBe(true);
+    expect(derived.ghost_cumulative_s[3]).toBe(90 + 92 + 92);
+    expect(derived.ghost_cumulative_s[4]).toBe(90 + 92 + 92 + 94);
+    for (let i = 1; i < derived.ghost_cumulative_s.length; i++) {
+      expect(derived.ghost_cumulative_s[i]).toBeGreaterThan(derived.ghost_cumulative_s[i - 1]);
+    }
+  });
+
+  it("clamps non-monotonic cumulative when ghost_lap_s is negative", () => {
+    const derived = deriveGhostLapTimes(
+      [{ lap: 1, position: 1, gap_to_leader_s: 0, compound: "SOFT", tyre_life: 1, stint: 1, cumulative_delta_s: 100, aris_action: "STAY_OUT", aris_confidence: 1 }],
+      [NaN, 90],
+    );
+    expect(derived.ghost_lap_s[1]).toBe(-10);
+    expect(derived.ghost_cumulative_s[1]).toBeGreaterThan(0);
+  });
 });
 
 describe("pitLossForCircuit", () => {

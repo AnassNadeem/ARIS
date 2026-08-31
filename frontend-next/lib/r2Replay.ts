@@ -276,11 +276,21 @@ export interface GhostLapDerived {
   implausible_laps: { lap: number; ghost_lap_s: number; real_lap_s: number; delta_step_s: number }[];
 }
 
+/** Median of finite numbers. Empty → NaN. */
+export function medianFinite(values: number[]): number {
+  const xs = values.filter((v) => Number.isFinite(v)).sort((a, b) => a - b);
+  if (!xs.length) return NaN;
+  const mid = Math.floor(xs.length / 2);
+  return xs.length % 2 ? xs[mid] : (xs[mid - 1] + xs[mid]) / 2;
+}
+
 /**
  * Derive per-lap ghost times from R2 ticks + race_field real lap times.
  * Pit loss is already inside delta steps on pit laps — do not add it again.
  * Values above GHOST_LAP_CLAMP_S are clamped (red flag / formation) before path_frac
  * and cumulative use. Negatives are stored as-is and listed in implausible_laps.
+ * NaN laps (null real lap_time_s) are filled with the median of finite ghost_lap_s
+ * so cumulative time stays monotonic and playback never freezes.
  */
 export function deriveGhostLapTimes(ticks: GhostR2Tick[], realLapS: number[]): GhostLapDerived {
   const byLap = new Map<number, GhostR2Tick>();
@@ -295,7 +305,6 @@ export function deriveGhostLapTimes(ticks: GhostR2Tick[], realLapS: number[]): G
   const ghost_cumulative_s: number[] = new Array(maxLap + 1).fill(0);
   const implausible_laps: GhostLapDerived["implausible_laps"] = [];
   let prevDelta = 0;
-  let cum = 0;
   for (let L = 1; L <= maxLap; L++) {
     const tick = byLap.get(L);
     const delta = tick != null && Number.isFinite(tick.cumulative_delta_s) ? tick.cumulative_delta_s : prevDelta;
@@ -313,9 +322,35 @@ export function deriveGhostLapTimes(ticks: GhostR2Tick[], realLapS: number[]): G
     if (Number.isFinite(ghostLap) && ghostLap <= 0) {
       implausible_laps.push({ lap: L, ghost_lap_s: ghostLap, real_lap_s: real, delta_step_s: step });
     }
-    if (Number.isFinite(ghostLap)) cum += ghostLap;
-    ghost_cumulative_s[L] = cum;
     prevDelta = delta;
+  }
+
+  const finitePositive = ghost_lap_s.filter((v, i) => i > 0 && Number.isFinite(v) && v > 0);
+  let fill = medianFinite(finitePositive);
+  if (!(fill > 0)) {
+    fill = medianFinite(realLapS.filter((v) => Number.isFinite(v) && v > 0));
+  }
+  if (!(fill > 0)) fill = 90;
+  for (let L = 1; L <= maxLap; L++) {
+    if (!Number.isFinite(ghost_lap_s[L])) {
+      ghost_lap_s[L] = fill;
+    }
+  }
+
+  let cum = 0;
+  for (let L = 1; L <= maxLap; L++) {
+    const g = ghost_lap_s[L];
+    const step = Number.isFinite(g) ? g : fill;
+    const next = cum + step;
+    if (!(next > cum)) {
+      console.warn(
+        `[ARIS ghost] non-monotonic ghost_cumulative_s at lap ${L}: ${next} ≰ ${cum}; clamping`,
+      );
+      cum += fill > 0 ? fill : 1e-3;
+    } else {
+      cum = next;
+    }
+    ghost_cumulative_s[L] = cum;
   }
   return { ghost_lap_s, ghost_cumulative_s, implausible_laps };
 }

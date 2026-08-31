@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import importlib.util
+import math
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+
+import pandas as pd
 
 _SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "prebuild_race_r2.py"
 
@@ -107,3 +110,103 @@ def test_lap_fracs_shift_when_position_clock_does_not_overlap_laps():
     assert max(fracs) > 1.0
     assert fracs[0] < 0.2
     assert fracs[-1] > 1.0
+
+
+def test_classified_is_integer_rejects_non_numeric():
+    mod = _load()
+    assert mod._classified_is_integer(18) is True
+    assert mod._classified_is_integer("7") is True
+    assert mod._classified_is_integer(18.0) is True
+    assert mod._classified_is_integer(None) is False
+    assert mod._classified_is_integer(float("nan")) is False
+    assert mod._classified_is_integer("R") is False
+    assert mod._classified_is_integer("D") is False
+    assert mod._classified_is_integer("E") is False
+    assert mod._classified_is_integer("N") is False
+    assert mod._classified_is_integer("W") is False
+    assert mod._classified_is_integer("NC") is False
+
+
+def test_mark_dnf_skips_classified_finisher_with_retired_status():
+    mod = _load()
+    results = pd.DataFrame(
+        {
+            "Abbreviation": ["RUS", "MAG", "VER", "ALO"],
+            "Status": ["Retired", "Retired", "Finished", "Accident"],
+            "ClassifiedPosition": [18, "R", 1, "R"],
+        }
+    )
+    laps = [
+        {"driver": "RUS", "lap": 56, "is_dnf": False},
+        {"driver": "RUS", "lap": 57, "is_dnf": False},
+        {"driver": "MAG", "lap": 10, "is_dnf": False},
+        {"driver": "VER", "lap": 57, "is_dnf": False},
+        {"driver": "ALO", "lap": 22, "is_dnf": False},
+    ]
+    mod._mark_dnf(laps, SimpleNamespace(results=results))
+    by = {(r["driver"], r["lap"]): r["is_dnf"] for r in laps}
+    assert by[("RUS", 56)] is False
+    assert by[("RUS", 57)] is False
+    assert by[("MAG", 10)] is True
+    assert by[("VER", 57)] is False
+    assert by[("ALO", 22)] is True
+
+
+def test_weather_joins_on_lap_start_not_row_index():
+    mod = _load()
+    # Two weather samples, five laps. Index interpolation would paint later
+    # laps wet from the far-future rain row; nearest-in-time keeps them dry.
+    weather = pd.DataFrame(
+        {
+            "Time": [pd.Timedelta(seconds=0), pd.Timedelta(seconds=10_000)],
+            "Rainfall": [False, True],
+            "TrackTemp": [40.0, 20.0],
+            "AirTemp": [25.0, 15.0],
+        }
+    )
+    ff1_laps = pd.DataFrame(
+        {
+            "Driver": ["VER"] * 5,
+            "LapNumber": [1, 2, 3, 4, 5],
+            "LapStartTime": [pd.Timedelta(seconds=90 * i) for i in range(5)],
+        }
+    )
+    built = [{"lap": i, "driver": "VER"} for i in range(1, 6)]
+    out = mod._weather(SimpleNamespace(weather_data=weather, laps=ff1_laps), built)
+    assert [r["rainfall"] for r in out] == [False, False, False, False, False]
+    assert out[0]["track_temp_c"] == 40.0
+
+
+def test_weather_uses_nearest_sample_preferring_not_after_on_tie():
+    mod = _load()
+    weather = pd.DataFrame(
+        {
+            "Time": [
+                pd.Timedelta(seconds=0),
+                pd.Timedelta(seconds=200),
+                pd.Timedelta(seconds=400),
+            ],
+            "Rainfall": [False, True, False],
+            "TrackTemp": [45.0, 30.0, 28.0],
+            "AirTemp": [22.0, 18.0, 17.0],
+        }
+    )
+    ff1_laps = pd.DataFrame(
+        {
+            "Driver": ["NOR"] * 5,
+            "LapNumber": [1, 2, 3, 4, 5],
+            "LapStartTime": [
+                pd.Timedelta(seconds=0),
+                pd.Timedelta(seconds=90),
+                pd.Timedelta(seconds=199),
+                pd.Timedelta(seconds=270),
+                pd.Timedelta(seconds=450),
+            ],
+        }
+    )
+    built = [{"lap": i, "driver": "NOR"} for i in range(1, 6)]
+    out = mod._weather(SimpleNamespace(weather_data=weather, laps=ff1_laps), built)
+    # t=199 is 1s from rain@200 and 199s from dry@0 → nearest is rain.
+    # t=270 is nearer rain@200 than dry@400. t=450 is nearest dry@400.
+    assert [r["rainfall"] for r in out] == [False, False, True, True, False]
+    assert math.isclose(out[3]["track_temp_c"], 30.0)

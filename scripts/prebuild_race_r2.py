@@ -493,6 +493,27 @@ def _fill_gaps(laps: list[dict[str, Any]]) -> None:
         row.pop("_cum", None)
 
 
+def _classified_is_integer(classified: Any) -> bool:
+    """True when FastF1 ClassifiedPosition is a real finishing place."""
+    if classified is None:
+        return False
+    try:
+        import pandas as pd
+
+        if pd.isna(classified):
+            return False
+    except (TypeError, ValueError):
+        pass
+    text = str(classified).strip().upper()
+    if not text or text in {"R", "D", "E", "N", "W", "NC", "NAN", "NONE"}:
+        return False
+    try:
+        int(float(classified))
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
 def _mark_dnf(laps: list[dict[str, Any]], sess: Any) -> None:
     results = getattr(sess, "results", None)
     if results is None or getattr(results, "empty", True):
@@ -501,8 +522,12 @@ def _mark_dnf(laps: list[dict[str, Any]], sess: Any) -> None:
     for rec in results.itertuples(index=False):
         code = str(getattr(rec, "Abbreviation", "") or "")
         status = str(getattr(rec, "Status", "") or "").upper()
+        classified = getattr(rec, "ClassifiedPosition", None)
         finished = status in {"FINISHED", "FINISHED LAP", ""} or "+" in status
         if not code or not status or finished:
+            continue
+        # Cool-down-lap "Retired" with a numeric classified place is a finisher.
+        if _classified_is_integer(classified):
             continue
         tokens = ("DNF", "RETIRE", "ACCIDENT", "ENGINE", "COLLISION", "WITHDREW")
         named = any(tok in status for tok in tokens)
@@ -520,35 +545,97 @@ def _mark_dnf(laps: list[dict[str, Any]], sess: Any) -> None:
             row["is_dnf"] = True
 
 
+def _lap_start_times(sess: Any, total: int) -> dict[int, Any]:
+    """First LapStartTime for each lap number, matching the audit's FastF1 side."""
+    out: dict[int, Any] = {}
+    laps = getattr(sess, "laps", None)
+    if laps is None or getattr(laps, "empty", True):
+        return out
+    if "LapNumber" not in laps.columns or "LapStartTime" not in laps.columns:
+        return out
+    ordered = laps.dropna(subset=["LapStartTime"]).sort_values("LapNumber")
+    for lap_n in range(1, total + 1):
+        hit = ordered[ordered["LapNumber"] == lap_n]
+        if hit.empty:
+            continue
+        out[lap_n] = hit["LapStartTime"].iloc[0]
+    return out
+
+
+def _weather_row_at(wd: Any, lap_start_time: Any) -> Any:
+    """Weather row whose Time is nearest to lap start (session-elapsed).
+
+    FastF1 weather rows fire on change and are not evenly spaced, so joining
+    by row index maps the wrong state onto a lap. On a distance tie, prefer
+    the sample that is not after lap start (the most recent reading at the
+    start of the lap). Empty / missing Time falls back to the last sample.
+    """
+    if wd is None or getattr(wd, "empty", True):
+        return None
+    n = len(wd)
+    if n < 1:
+        return None
+    target = _td_s(lap_start_time)
+    if target is None or "Time" not in wd.columns:
+        return wd.iloc[-1]
+    best_i: int | None = None
+    best_dist: float | None = None
+    best_not_after = False
+    for i in range(n):
+        t = _td_s(wd["Time"].iloc[i])
+        if t is None:
+            continue
+        dist = abs(t - target)
+        not_after = t <= target
+        closer = best_i is None or dist < best_dist
+        tie_prefer_asof = (
+            best_i is not None
+            and dist == best_dist
+            and not_after
+            and not best_not_after
+        )
+        if closer or tie_prefer_asof:
+            best_i = i
+            best_dist = dist
+            best_not_after = not_after
+    if best_i is not None:
+        return wd.iloc[best_i]
+    return wd.iloc[-1]
+
+
+def _weather_cell(row: Any, column: str) -> Any:
+    if row is None:
+        return None
+    try:
+        if column not in getattr(row, "index", []):
+            return None
+        return row[column]
+    except (TypeError, ValueError, KeyError):
+        return None
+
+
 def _weather(sess: Any, laps: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    import pandas as pd
+    from aris.physics.wet import nearest_rainfall
 
     wd = getattr(sess, "weather_data", None)
     total = max((int(r["lap"]) for r in laps), default=0)
+    dry = [
+        {"lap": i, "rainfall": False, "track_temp_c": None, "air_temp_c": None}
+        for i in range(1, total + 1)
+    ]
     if wd is None or getattr(wd, "empty", True) or total < 1:
-        return [
-            {"lap": i, "rainfall": False, "track_temp_c": None, "air_temp_c": None}
-            for i in range(1, total + 1)
-        ]
-    rain = wd["Rainfall"] if "Rainfall" in wd.columns else None
-    track = wd["TrackTemp"] if "TrackTemp" in wd.columns else None
-    air = wd["AirTemp"] if "AirTemp" in wd.columns else None
-    n = len(wd)
-    out = []
+        return dry
+    starts = _lap_start_times(sess, total)
+    out: list[dict[str, Any]] = []
     for lap in range(1, total + 1):
-        idx = min(n - 1, int(round((lap - 1) / max(1, total) * (n - 1))))
-        rflag = False
-        if rain is not None:
-            try:
-                rflag = bool(rain.iloc[idx]) if not pd.isna(rain.iloc[idx]) else False
-            except Exception:
-                rflag = False
+        start = starts.get(lap)
+        row = _weather_row_at(wd, start)
         out.append(
             {
                 "lap": lap,
-                "rainfall": rflag,
-                "track_temp_c": _num(track.iloc[idx]) if track is not None else None,
-                "air_temp_c": _num(air.iloc[idx]) if air is not None else None,
+                "rainfall": bool(nearest_rainfall(wd, start)),
+                "track_temp_c": _num(_weather_cell(row, "TrackTemp")),
+                "air_temp_c": _num(_weather_cell(row, "AirTemp")),
             }
         )
     return out

@@ -1,5 +1,5 @@
 import { normalizeCompound } from "@/lib/compounds";
-import { DEFAULT_PIT_LOSS_S, pathFracAtLap } from "@/lib/r2Replay";
+import { DEFAULT_PIT_LOSS_S } from "@/lib/r2Replay";
 import type { ARISRecommendation, CarState, Compound, GhostDeltaPoint, GhostTickData } from "@/lib/types";
 
 const GHOST_PREFIX = "A_";
@@ -99,22 +99,31 @@ export interface GhostPlayback {
   lastCompletedLap: number;
 }
 
-function lastFiniteLap(arr: number[]): number {
-  for (let i = arr.length - 1; i >= 1; i--) {
-    if (Number.isFinite(arr[i])) return i;
+/** Last lap whose cumulative time actually advanced. Flat 0s (NaN holes) do not count. */
+function lastPlayableLap(laps: number[], cum: number[]): number {
+  let last = 0;
+  const n = Math.max(laps.length, cum.length);
+  for (let i = 1; i < n; i++) {
+    const end = cum[i];
+    const prev = i > 1 ? cum[i - 1] : 0;
+    const lapS = laps[i];
+    const cumAdvanced = Number.isFinite(end) && end > prev;
+    const lapOk = Number.isFinite(lapS) && lapS > 0;
+    if (cumAdvanced || lapOk) last = i;
+    else break;
   }
-  return 0;
+  return Math.max(1, last);
 }
 
 /**
  * Absolute ghost map state from the replay clock and derived ghost_lap_s.
- * Independent of the real car's path_frac / position.
+ * Independent of the real car's GPS: path_frac is circuit progress 0→1 once per lap.
  */
 export function ghostPlaybackAt(input: GhostPlaybackInput): GhostPlayback {
   const totalLaps = Math.max(1, input.totalLaps);
   const cum = input.ghostCumulativeS;
   const laps = input.ghostLapS;
-  const maxLap = Math.max(lastFiniteLap(cum), lastFiniteLap(laps), 1);
+  const maxLap = Math.min(totalLaps, lastPlayableLap(laps, cum));
   const elapsed = Number.isFinite(input.elapsedS) ? Math.max(0, input.elapsedS) : 0;
   const pitLoss = input.pitLossS > 0 ? input.pitLossS : DEFAULT_PIT_LOSS_S;
   const pitLaps = input.pitLaps.filter((n) => n > 0);
@@ -137,29 +146,24 @@ export function ghostPlaybackAt(input: GhostPlaybackInput): GhostPlayback {
   const prevCum = L > 1 && Number.isFinite(cum[L - 1]) ? cum[L - 1] : 0;
   const T = elapsed - prevCum;
   const lapS = laps[L];
+  const span =
+    Number.isFinite(cum[L]) && cum[L] > prevCum
+      ? cum[L] - prevCum
+      : Number.isFinite(lapS) && lapS > 0
+        ? lapS
+        : NaN;
   let progress = 0;
-  if (Number.isFinite(lapS) && lapS > 0) {
-    progress = Math.max(0, Math.min(1, T / lapS));
+  if (Number.isFinite(span) && span > 0) {
+    progress = Math.max(0, Math.min(1, T / span));
   } else if (Number.isFinite(lapS) && lapS <= 0) {
     progress = 1;
   }
 
-  const ghostLapFrac = L - 1 + progress;
-  let pathFrac = wrapFrac(ghostLapFrac);
-  if (input.posSamples && input.posSamples.length) {
-    pathFrac = pathFracAtLap(input.posSamples, ghostLapFrac, totalLaps);
-  }
+  // Circuit progress within the current lap — never race progress, never real-car GPS.
   const startFrac = input.ghostStartFrac ?? ghostStartFracFromSamples(input.posSamples);
-  // Independent clock maps progress 0 → S/F (0). The real car's first sample is
-  // the grid slot, which is often non-zero. Offset lap 1 only so both cars
-  // share the same lights-out spot; do not add again when pos_samples already
-  // returned that slot (typical at progress=0).
+  let pathFrac = wrapFrac(progress);
   if (L === 1 && progress < 1 && startFrac) {
-    if (!(input.posSamples && input.posSamples.length)) {
-      pathFrac = wrapFrac(progress + startFrac);
-    } else if (progress <= 1e-9) {
-      pathFrac = startFrac;
-    }
+    pathFrac = wrapFrac(progress + startFrac);
   }
 
   let inPits = false;
@@ -348,4 +352,54 @@ export function syntheticGhostTick(
 export function ghostLastLapS(ghostLapS: number[], lastCompletedLap: number): number | null {
   const v = ghostLapS[lastCompletedLap];
   return Number.isFinite(v) && v > 0 ? v : null;
+}
+
+const DIAG_LAPS = [1, 3, 5, 10, 15] as const;
+let ghostDiagKey = "";
+
+/** One-shot console dump of ghost_lap_s / cumulative / path_frac vs the real car. */
+export function maybeLogGhostDiagnostics(opts: {
+  key: string;
+  ghostLapS: number[];
+  ghostCumulativeS: number[];
+  totalLaps: number;
+  pitLaps: number[];
+  pitLossS: number;
+  posSamples?: { lap_frac: number; path_frac: number }[];
+  ghostStartFrac?: number;
+  realPathFracAtElapsed?: (elapsedS: number) => number | undefined;
+}): void {
+  if (ghostDiagKey === opts.key) return;
+  ghostDiagKey = opts.key;
+  const rows: Record<string, unknown>[] = [];
+  for (const L of DIAG_LAPS) {
+    const lapS = opts.ghostLapS[L];
+    const cum = opts.ghostCumulativeS[L];
+    rows.push({
+      lap: L,
+      ghost_lap_s: lapS,
+      ghost_cumulative_s: cum,
+      finite: Number.isFinite(lapS),
+    });
+  }
+  const atElapsed = [30, 60, 120, 300].map((elapsedS) => {
+    const pb = ghostPlaybackAt({
+      elapsedS,
+      ghostLapS: opts.ghostLapS,
+      ghostCumulativeS: opts.ghostCumulativeS,
+      totalLaps: opts.totalLaps,
+      pitLaps: opts.pitLaps,
+      pitLossS: opts.pitLossS,
+      posSamples: opts.posSamples,
+      ghostStartFrac: opts.ghostStartFrac,
+    });
+    return {
+      elapsedS,
+      ghost_lap: pb.lap,
+      ghost_path_frac: pb.path_frac,
+      ghost_progress: pb.progress_within_lap,
+      real_path_frac: opts.realPathFracAtElapsed?.(elapsedS),
+    };
+  });
+  console.info("[ARIS ghost diag]", opts.key, { laps: rows, atElapsed });
 }

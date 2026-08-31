@@ -3,7 +3,7 @@ import { circuitCoordsFromReplayOutline } from "@/lib/api";
 import { postGhostRecompute } from "@/lib/api";
 import { isFullCircuitOutline, shouldApplyFallbackOutline } from "@/lib/circuitCache";
 import { mapTimingAndPositions, mergeByDriverCode, mergeCars, sessionFlagToPhase, timingFingerprint } from "@/lib/mapCars";
-import { asGhostTick, ghostCarFromTick, ghostLastLapS, ghostPlaybackAt, ghostStartFracFromSamples, syntheticGhostCar, syntheticGhostTick } from "@/lib/ghostCar";
+import { asGhostTick, ghostCarFromTick, ghostLastLapS, ghostPlaybackAt, ghostStartFracFromSamples, maybeLogGhostDiagnostics, syntheticGhostCar, syntheticGhostTick } from "@/lib/ghostCar";
 import { normalizeCompound } from "@/lib/compounds";
 import {
   fetchGhost,
@@ -15,6 +15,7 @@ import {
   lapToElapsed,
   plansMatch,
   elapsedToLap,
+  pathFracAtLap,
   posSamplesFor,
   r2Configured,
   r2FrameAt,
@@ -143,6 +144,23 @@ function applyGhost(payload: SsePayload) {
     pitCompounds,
     ghostStartFrac,
   });
+  if (ghostLapS.length > 1 && store.r2RaceField) {
+    const field = store.r2RaceField;
+    maybeLogGhostDiagnostics({
+      key: `${field.meta.year}-${field.meta.round}-${driver}`,
+      ghostLapS,
+      ghostCumulativeS,
+      totalLaps: store.totalLaps || field.meta.total_laps || 1,
+      pitLaps,
+      pitLossS: store.pitLossS,
+      posSamples,
+      ghostStartFrac,
+      realPathFracAtElapsed: (elapsedS) => {
+        const { lapFrac } = elapsedToLap(field, elapsedS);
+        return pathFracAtLap(posSamples ?? [], lapFrac, field.meta.total_laps);
+      },
+    });
+  }
   const ghostLap = playback?.lap ?? store.currentLap;
   const towerLap = playback?.towerLap ?? ghostLap;
   const rankTick = driver ? store.ghostTicksByLap[ghostLap] : undefined;

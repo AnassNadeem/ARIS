@@ -141,7 +141,7 @@ describe("ghostPlaybackAt", () => {
     expect(pb.path_frac).toBeCloseTo(0.97487, 5);
   });
 
-  it("maps through pos_samples the same way real cars do", () => {
+  it("maps circuit progress 0→1 per lap even when pos_samples exist", () => {
     const samples = [
       { lap_frac: 0, path_frac: 0.1 },
       { lap_frac: 0.5, path_frac: 0.6 },
@@ -156,7 +156,80 @@ describe("ghostPlaybackAt", () => {
       pitLossS: 22,
       posSamples: samples,
     });
+    // startFrac 0.1 + progress 0.5 — independent clock, not GPS at lap_frac 0.5
     expect(pb.path_frac).toBeCloseTo(0.6, 5);
+  });
+
+  it("does not use real-car GPS when it would disagree with the ghost clock", () => {
+    const samples = [
+      { lap_frac: 0, path_frac: 0.97487 },
+      { lap_frac: 0.5, path_frac: 0.05 },
+      { lap_frac: 56.9, path_frac: 0.9 },
+    ];
+    const pb = ghostPlaybackAt({
+      elapsedS: 45,
+      ghostLapS: laps,
+      ghostCumulativeS: cum,
+      totalLaps: 57,
+      pitLaps: [],
+      pitLossS: 22,
+      posSamples: samples,
+      ghostStartFrac: 0.97487,
+    });
+    expect(pb.lap).toBe(1);
+    expect(pb.progress_within_lap).toBeCloseTo(0.5, 5);
+    expect(pb.path_frac).toBeCloseTo(0.47487, 5);
+    expect(pb.path_frac).not.toBeCloseTo(0.05, 2);
+    expect(pb.path_frac).not.toBeCloseTo(0.9, 2);
+  });
+
+  it("at elapsedS=30 with a Bahrain-like lap, path_frac is mid-first-sector", () => {
+    const bahrainLaps = [NaN, 98.665, 95.978, 96.434];
+    const bahrainCum = [0, 98.665, 194.643, 291.077];
+    const pb = ghostPlaybackAt({
+      elapsedS: 30,
+      ghostLapS: bahrainLaps,
+      ghostCumulativeS: bahrainCum,
+      totalLaps: 57,
+      pitLaps: [9],
+      pitLossS: 21.8,
+      ghostStartFrac: 0.97487,
+    });
+    expect(pb.lap).toBe(1);
+    expect(pb.path_frac).toBeGreaterThanOrEqual(0.2);
+    expect(pb.path_frac).toBeLessThanOrEqual(0.5);
+  });
+
+  it("does not jump to the last classified lap when early cumulative is flat", () => {
+    const holeLaps = [NaN, 90, 90, 90, NaN, NaN];
+    const holeCum = [0, 90, 180, 270, 270, 270];
+    const pb = ghostPlaybackAt({
+      elapsedS: 400,
+      ghostLapS: holeLaps,
+      ghostCumulativeS: holeCum,
+      totalLaps: 57,
+      pitLaps: [],
+      pitLossS: 22,
+    });
+    expect(pb.lap).toBe(3);
+    expect(pb.progress_within_lap).toBe(1);
+    expect(pb.path_frac).toBeCloseTo(0, 5);
+  });
+
+  it("keeps moving on lap 5 after a filled NaN hole", () => {
+    const filled = [NaN, 90, 90, 90, 90, 90];
+    const filledCum = [0, 90, 180, 270, 360, 450];
+    const pb = ghostPlaybackAt({
+      elapsedS: 400,
+      ghostLapS: filled,
+      ghostCumulativeS: filledCum,
+      totalLaps: 57,
+      pitLaps: [],
+      pitLossS: 22,
+    });
+    expect(pb.lap).toBe(5);
+    expect(pb.progress_within_lap).toBeCloseTo(40 / 90, 5);
+    expect(pb.path_frac).toBeCloseTo(40 / 90, 5);
   });
 });
 
