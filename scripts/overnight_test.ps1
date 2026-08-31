@@ -18,6 +18,9 @@ if (-not (Test-Path $ReportDir)) {
   New-Item -ItemType Directory -Path $ReportDir | Out-Null
 }
 
+# Same-origin path. next.config rewrites /r2replay → the public R2 bucket when
+# frontend-next/public/r2replay is not present. Do not use http://127.0.0.1:3000
+# (CORS-fails when the tab is opened at http://localhost:3000).
 $env:NEXT_PUBLIC_R2_BASE_URL = "/r2replay"
 $envLocal = Join-Path $Frontend ".env.local"
 $r2Line = "NEXT_PUBLIC_R2_BASE_URL=/r2replay"

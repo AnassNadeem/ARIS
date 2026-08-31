@@ -12,6 +12,14 @@ function backendOrigin(): string | null {
   return null;
 }
 
+/** Public R2 bucket. Used to proxy `/r2replay/*` in `next dev` when public/r2replay is absent. */
+function r2PublicOrigin(): string {
+  return (
+    process.env.R2_PUBLIC_ORIGIN ||
+    "https://pub-9429cde26be84c4c8034f0b5873b9a7d.r2.dev"
+  ).replace(/\/$/, "");
+}
+
 const staticExport = Boolean(process.env.CF_PAGES);
 
 const nextConfig: NextConfig = {
@@ -23,14 +31,21 @@ const nextConfig: NextConfig = {
     ? {
         async rewrites() {
           const backend = backendOrigin();
-          if (!backend) return [];
-          return [
-            { source: "/api/:path*", destination: `${backend}/api/:path*` },
-            {
-              source: "/static_replays/:path*",
-              destination: `${backend}/static_replays/:path*`,
-            },
+          const r2 = r2PublicOrigin();
+          const rules: { source: string; destination: string }[] = [
+            // afterFiles: public/r2replay wins when present; this covers machines without a local copy
+            { source: "/r2replay/:path*", destination: `${r2}/:path*` },
           ];
+          if (backend) {
+            rules.push(
+              { source: "/api/:path*", destination: `${backend}/api/:path*` },
+              {
+                source: "/static_replays/:path*",
+                destination: `${backend}/static_replays/:path*`,
+              },
+            );
+          }
+          return rules;
         },
       }
     : {}),

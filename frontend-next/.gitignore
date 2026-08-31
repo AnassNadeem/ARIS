@@ -39,3 +39,13 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/e2e/reports/
+
+# Local R2 replay cache served at /r2replay. Production uses the public bucket URL.
+/public/r2replay/

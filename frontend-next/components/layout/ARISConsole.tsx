@@ -21,6 +21,7 @@ import { catalogueEntry, renderPanel } from "@/lib/panelRegistry";
 import { explainFeatureEnabled, getCircuitCoords } from "@/lib/api";
 import { MockRaceFeed } from "@/lib/mockRaceFeed";
 import { LiveSseFeed, ReplayFrameFeed } from "@/lib/liveFeed";
+import { R2_LOAD_ERROR } from "@/lib/r2Replay";
 import { broadcastRaceState } from "@/lib/broadcastChannel";
 import { SpeedWidget } from "@/components/ui/SpeedWidget";
 import { RaceFinishedDebrief } from "@/components/aris/RaceFinishedDebrief";
@@ -359,7 +360,8 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
         mock.start();
         setConnectionStatus("connected", 340);
       } else {
-        store.getState().setWaiting(true, "Replay pack is still loading — waiting for FastF1.");
+        const cur = store.getState().waitingMessage;
+        store.getState().setWaiting(true, cur || R2_LOAD_ERROR);
       }
     };
     if (session) void replay.connect(session.year, session.round, session.sessionType);
@@ -516,9 +518,10 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
       <SpeedWidget />
       {mode === "replay" && !packReady && (
         <div className="shrink-0 bg-amber/10 px-4 py-2 font-sans text-xs text-amber">
-          {packStage === "metadata" || packStage === "empty"
-            ? "Loading session metadata…"
-            : "Preparing race data (laps, map)…"}
+          {waitingMessage ??
+            (packStage === "metadata" || packStage === "empty"
+              ? "Loading session metadata…"
+              : "Preparing race data (laps, map)…")}
         </div>
       )}
       {packToast && (

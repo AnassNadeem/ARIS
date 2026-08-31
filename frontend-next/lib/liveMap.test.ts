@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { filterReplayRounds, replayYears, defaultReplayYear, startFinishMarker, isReplayableRound, chequeredSfFlag } from "./replayFilter";
-import { mapTimingAndPositions, sessionFlagToPhase, timingFingerprint } from "./mapCars";
+import { mapTimingAndPositions, mergeByDriverCode, mergeCars, onTrackCarCodes, orderTimingTower, sessionFlagToPhase, timingEqual, timingFingerprint } from "./mapCars";
 import { normalizeCompound, msToSeconds } from "./compounds";
 import { countryFlag } from "./flags";
 import { commsTabs, nextSelectorStep } from "./sessionFlow";
@@ -9,7 +9,6 @@ import { buildPath, fractionAtPoint, lerpFrac, pointAtFraction } from "./trackGe
 import { PathCarAnimator } from "./deadReckoning";
 import { isFullCircuitOutline, shouldApplyFallbackOutline } from "./circuitCache";
 import { lapRecordsFromApi, stintsFromLapRecords } from "./panelData";
-import { mergeByDriverCode, mergeCars, timingEqual } from "./mapCars";
 import { sectorPathsFromOutline } from "./trackGeometry";
 import { withCache, clearHttpCache, dedupe } from "./httpCache";
 import { mapRecommendResponse, recommendNarration, shouldFetchRecommend } from "./arisRecommend";
@@ -364,6 +363,97 @@ describe("SSE car merge", () => {
     expect(merged.VER).not.toBe(prev.VER);
     expect(merged.VER.path_frac).toBe(0.3);
     expect(timingEqual(prev.VER, { ...base, path_frac: 0.9 })).toBe(true);
+  });
+
+  it("keeps last path_frac when the next frame omits it", () => {
+    const prev = { VER: { ...base, path_frac: 0.42, x: 9, y: 8 } };
+    const next = { VER: { ...base, path_frac: undefined as unknown as number, x: 0, y: 0 } };
+    const merged = mergeCars(prev, next);
+    expect(merged.VER.path_frac).toBe(0.42);
+    expect(merged.VER.x).toBe(9);
+    expect(merged.VER.y).toBe(8);
+  });
+});
+
+describe("orderTimingTower", () => {
+  const base = {
+    driver_code: "VER",
+    driver_number: 1,
+    full_name: "Max",
+    team: "RBR",
+    team_colour: "#00f",
+    position: 1,
+    lap_number: 2,
+    compound: "MEDIUM" as const,
+    tyre_life: 2,
+    gap_to_leader_s: 0,
+    gap_ahead_s: 0,
+    gap_ahead_history: [] as number[],
+    last_lap_s: 71,
+    pit_stops: 0,
+    is_pitted: false,
+    is_dnf: false,
+    x: 10,
+    y: 10,
+    speed_kph: 200,
+    heading_rad: 0,
+    laps_remaining: 70,
+    total_laps: 72,
+    path_frac: 0.2,
+  } satisfies CarState;
+
+  function car(over: Partial<CarState>): CarState {
+    return { ...base, ...over };
+  }
+
+  it("puts is_dnf drivers below classified and inserts the ghost among classified", () => {
+    const rows = orderTimingTower(
+      [
+        car({ driver_code: "HAM", position: null, is_dnf: true, laps_completed: 16, lap_number: 16 }),
+        car({ driver_code: "VER", position: 1, is_dnf: false, laps_completed: 57 }),
+        car({ driver_code: "LEC", position: 2, is_dnf: false, laps_completed: 57 }),
+        car({ driver_code: "GAS", position: 19, is_dnf: true, laps_completed: 4, lap_number: 4 }),
+      ],
+      car({ driver_code: "A_VER", position: 2, is_dnf: false }),
+    );
+    expect(rows.map((r) => r.driver_code)).toEqual(["VER", "A_VER", "LEC", "HAM", "GAS"]);
+  });
+});
+
+describe("onTrackCarCodes", () => {
+  const base = {
+    driver_code: "VER",
+    driver_number: 1,
+    full_name: "Max",
+    team: "RBR",
+    team_colour: "#00f",
+    position: 1,
+    lap_number: 2,
+    compound: "MEDIUM" as const,
+    tyre_life: 2,
+    gap_to_leader_s: 0,
+    gap_ahead_s: 0,
+    gap_ahead_history: [] as number[],
+    last_lap_s: 71,
+    pit_stops: 0,
+    is_pitted: false,
+    is_dnf: false,
+    x: 10,
+    y: 10,
+    speed_kph: 200,
+    heading_rad: 0,
+    laps_remaining: 70,
+    total_laps: 72,
+    path_frac: 0.2,
+  } satisfies CarState;
+
+  it("hides only pitted cars, not DNF", () => {
+    const cars = {
+      VER: { ...base, is_pitted: false, is_dnf: false },
+      HAM: { ...base, driver_code: "HAM", is_pitted: true, is_dnf: false },
+      GAS: { ...base, driver_code: "GAS", is_pitted: false, is_dnf: true, status: "DNF" as const },
+    };
+    expect(onTrackCarCodes(cars, "A_VER")).toBe("A_VER,GAS,VER");
   });
 });
 

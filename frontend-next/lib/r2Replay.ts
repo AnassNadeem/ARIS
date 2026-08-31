@@ -14,7 +14,30 @@ import type {
 } from "@/lib/types";
 import { MOCK_DRIVERS_2025 } from "@/lib/mockData";
 
-const R2_BASE = (process.env.NEXT_PUBLIC_R2_BASE_URL || "").replace(/\/$/, "");
+export const R2_LOAD_ERROR = "Failed to load race data — check R2 connection";
+const FETCH_TIMEOUT_MS = 30_000;
+
+/**
+ * Keep same-origin relative paths as-is. Turbopack may inline
+ * NEXT_PUBLIC_R2_BASE_URL=/r2replay as http://127.0.0.1:3000/r2replay, which
+ * CORS-fails when the tab is on http://localhost:3000.
+ */
+export function normalizeR2Base(raw: string | undefined | null): string {
+  const trimmed = (raw || "").trim().replace(/\/$/, "");
+  if (!trimmed) return "";
+  if (trimmed.startsWith("/")) return trimmed;
+  try {
+    const u = new URL(trimmed);
+    if (u.hostname === "localhost" || u.hostname === "127.0.0.1") {
+      return u.pathname.replace(/\/$/, "") || "/r2replay";
+    }
+    return `${u.origin}${u.pathname === "/" ? "" : u.pathname}`.replace(/\/$/, "");
+  } catch {
+    return trimmed;
+  }
+}
+
+const R2_BASE = normalizeR2Base(process.env.NEXT_PUBLIC_R2_BASE_URL);
 /** Bump when race_field.json shape changes so CDN/browser caches cannot serve stale packs. */
 const R2_ASSET_V = "4";
 const DEFAULT_TRACK_M = 5000;
@@ -36,24 +59,35 @@ export async function fetchWithProgress(
   url: string,
   onProgress?: (loaded: number, total: number | null) => void,
 ): Promise<Response> {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  if (!onProgress || !res.body) return res;
-  const total = Number(res.headers.get("content-length") || 0) || null;
-  const reader = res.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let loaded = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (value) {
-      chunks.push(value);
-      loaded += value.byteLength;
-      onProgress(loaded, total);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!onProgress || !res.body) return res;
+    const total = Number(res.headers.get("content-length") || 0) || null;
+    const reader = res.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let loaded = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
+        chunks.push(value);
+        loaded += value.byteLength;
+        onProgress(loaded, total);
+      }
     }
+    const body = new Blob(chunks as BlobPart[]);
+    return new Response(body, { headers: res.headers, status: res.status });
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error(`Timed out after ${FETCH_TIMEOUT_MS / 1000}s`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-  const body = new Blob(chunks as BlobPart[]);
-  return new Response(body, { headers: res.headers, status: res.status });
 }
 
 export async function fetchRaceField(

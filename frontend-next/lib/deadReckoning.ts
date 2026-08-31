@@ -102,6 +102,8 @@ export interface PathTickKinematics {
   /** Speed in km/h; used only to cap / sign along-track velocity. */
   speedKph?: number | null;
   headingRad?: number | null;
+  /** Skip SEEK_JUMP snap (ghost grace after lights-out or a pit). */
+  skipSeekJump?: boolean;
 }
 
 const MAX_FRAC_PER_MS = 0.00012; // ~0.12 lap/s — well above race pace, below teleport
@@ -136,7 +138,7 @@ export class PathCarAnimator {
     if (Math.abs(d) < 1e-5) return;
 
     const jump = Math.abs(d);
-    if (jump > SEEK_JUMP) {
+    if (jump > SEEK_JUMP && !kinematics?.skipSeekJump) {
       // Seek / new session — snap onto the line instead of interpolating the long way.
       this.lastFrac = target;
       this.prevFrac = target;

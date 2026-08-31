@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { annotateVsActivePlan, shouldFetchRecommend } from "./arisRecommend";
 import { mapTimingAndPositions } from "./mapCars";
-import { fieldToDrivers, fieldToLapRows, interpolatedPosFrac, nearestPosSample, plansMatch, r2Configured, r2FrameAt, raceDurationS, sectorSecondsForLap, speedKphFromPath, deriveGhostLapTimes, pitLossForCircuit, realLapTimesByDriver } from "./r2Replay";
+import { fieldToDrivers, fieldToLapRows, interpolatedPosFrac, nearestPosSample, normalizeR2Base, plansMatch, r2Configured, r2FrameAt, raceDurationS, sectorSecondsForLap, speedKphFromPath, deriveGhostLapTimes, pitLossForCircuit, realLapTimesByDriver } from "./r2Replay";
 import type { ARISRecommendation, GhostData, RaceField, RaceFieldLap } from "./types";
 
 function rec(over: Partial<ARISRecommendation> = {}): ARISRecommendation {
@@ -85,8 +85,26 @@ describe("plansMatch", () => {
   });
 });
 
+describe("normalizeR2Base", () => {
+  it("keeps /r2replay relative so localhost vs 127.0.0.1 does not CORS-fail", () => {
+    expect(normalizeR2Base("/r2replay")).toBe("/r2replay");
+    expect(normalizeR2Base("http://127.0.0.1:3000/r2replay")).toBe("/r2replay");
+    expect(normalizeR2Base("http://localhost:3000/r2replay/")).toBe("/r2replay");
+  });
+
+  it("keeps the public R2 origin for production", () => {
+    expect(normalizeR2Base("https://pub-9429cde26be84c4c8034f0b5873b9a7d.r2.dev")).toBe(
+      "https://pub-9429cde26be84c4c8034f0b5873b9a7d.r2.dev",
+    );
+  });
+});
+
 describe("R2 fallback when NEXT_PUBLIC_R2_BASE_URL is unset", () => {
   it("reports unconfigured so ReplayFrameFeed uses Heroku pack-status", () => {
+    if (process.env.NEXT_PUBLIC_R2_BASE_URL) {
+      expect(r2Configured()).toBe(true);
+      return;
+    }
     expect(r2Configured()).toBe(false);
   });
 
@@ -287,6 +305,10 @@ describe("interpolatedPosFrac", () => {
 
   it("clamps to the last sample after the range", () => {
     expect(interpolatedPosFrac(samples, 21.0)).toBe(0.72);
+  });
+
+  it("clamps to the last sample when lapFrac is not finite", () => {
+    expect(interpolatedPosFrac(samples, Number.NaN)).toBe(0.72);
   });
 });
 

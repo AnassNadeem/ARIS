@@ -15,7 +15,7 @@ import {
   circuitCoordsFromReplayOutline,
   prewarmSession,
 } from "@/lib/api";
-import { fetchGhost, fetchRaceField, fieldToDrivers, fieldToLapRows, fieldToStintRows, ghostTicksMap, r2Configured } from "@/lib/r2Replay";
+import { fetchGhost, fetchRaceField, fieldToDrivers, fieldToLapRows, fieldToStintRows, ghostTicksMap, r2Configured, R2_LOAD_ERROR } from "@/lib/r2Replay";
 import { MOCK_DRIVERS_2025 } from "@/lib/mockData";
 import { isFullCircuitOutline, shouldApplyFallbackOutline } from "@/lib/circuitCache";
 import {
@@ -63,6 +63,7 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
   const [drivers, setDrivers] = useState(MOCK_DRIVERS_2025);
   const [analysisPending, setAnalysisPending] = useState(false);
   const [loadReady, setLoadReady] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const navigated = useRef(false);
 
   function storeReplayOutline(src: Parameters<typeof circuitCoordsFromReplayOutline>[0]) {
@@ -118,6 +119,7 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
       if (!round) return;
       navigated.current = false;
       setLoadReady(false);
+      setLoadError(null);
       setStep("loading");
       setARISOn(withARIS);
       setMode(withARIS ? "aris" : "data");
@@ -167,8 +169,13 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
           return;
         }
       } catch (err) {
-        console.warn("[ReplaySetupFlow] R2 fetch failed, falling back to Heroku", err);
+        console.warn("[ReplaySetupFlow] R2 fetch failed", err);
         useRaceStore.getState().setReplaySource("heroku");
+        if (r2Configured()) {
+          setLoadError(R2_LOAD_ERROR);
+          useRaceStore.getState().setWaiting(true, R2_LOAD_ERROR);
+          return;
+        }
       }
 
       void prewarmSession({
@@ -212,7 +219,7 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
 
         const key = init?.session_key;
         if (key) {
-          const deadline = Date.now() + 5 * 60 * 1000;
+          const deadline = Date.now() + 20_000;
           while (!navigated.current && Date.now() < deadline) {
             const needOutline = !useRaceStore.getState().circuitOutline?.x?.length;
             const st = await getReplayPackStatus({
@@ -231,14 +238,18 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
             storeReplayOutline(st);
             if (stage === "minimal" || stage === "full" || st?.ready) {
               setLoadReady(true);
-              break;
+              return;
             }
             if (st?.status === "error") break;
             await new Promise((r) => window.setTimeout(r, 800));
           }
         }
-      } finally {
-        setLoadReady(true);
+        setLoadError(R2_LOAD_ERROR);
+        useRaceStore.getState().setWaiting(true, R2_LOAD_ERROR);
+      } catch (err) {
+        console.warn("[ReplaySetupFlow] pack-status failed", err);
+        setLoadError(R2_LOAD_ERROR);
+        useRaceStore.getState().setWaiting(true, R2_LOAD_ERROR);
       }
     },
     [
@@ -443,8 +454,10 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
       {step === "loading" && (
         <LoadingTransition
           ready={loadReady}
+          error={loadError}
           circuitName={round?.circuitName ?? "Race"}
           sessionLabel={sessionLabel(RACE_SESSION)}
+          onRetry={() => void commitSession(mode === "aris")}
           onComplete={finish}
         />
       )}

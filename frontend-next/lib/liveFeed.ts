@@ -22,6 +22,7 @@ import {
   raceDurationS,
   deriveGhostLapTimes,
   realLapTimesByDriver,
+  R2_LOAD_ERROR,
 } from "@/lib/r2Replay";
 import type { ApiLapRow, ApiStintRow, CircuitCoords, LivePosition, LiveTimingRow } from "@/lib/types";
 
@@ -393,6 +394,12 @@ export class ReplayFrameFeed {
     if (this.refreshOnce) console.info("[ARIS] replay force refresh=1 — bypassing FastF1 caches");
     try {
       if (await this.tryR2(year, round, sessionType)) return;
+      if (r2Configured()) {
+        store.setWaiting(true, R2_LOAD_ERROR);
+        setFeedStatus("disconnected");
+        this.onFailure?.();
+        return;
+      }
       const meta = await fetchJson(
         `${API_BASE}/api/live/session-key?year=${year}&round_number=${round}&session_type=${sessionType}${this.refreshOnce ? "&refresh=1" : ""}`,
         15000,
@@ -425,6 +432,7 @@ export class ReplayFrameFeed {
       this.timer = setInterval(() => void this.tick(), 250);
       await this.tick();
     } catch {
+      if (r2Configured()) store.setWaiting(true, R2_LOAD_ERROR);
       setFeedStatus("disconnected");
       this.onFailure?.();
     }
@@ -486,9 +494,9 @@ export class ReplayFrameFeed {
       await this.tick();
       return true;
     } catch (err) {
-      console.warn("[ReplayFrameFeed] R2 fetch failed, falling back to Heroku pack-status", err);
+      console.warn("[ReplayFrameFeed] R2 fetch failed", err);
       store.setReplaySource("heroku");
-      store.setWaiting(true, "Loading session data…");
+      store.setWaiting(true, R2_LOAD_ERROR);
       return false;
     }
   }
