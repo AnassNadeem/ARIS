@@ -91,6 +91,8 @@ export function GhostDelta() {
 
   const divLap = ghostData.divergence_lap;
   const outcome = ghostData.outcome;
+  const pitLaps = ghostData.plan_pit_laps ?? [];
+  const pitCompounds = ghostData.plan_pit_compounds ?? [];
 
   const outcomeLabel =
     outcome === "ARIS_CORRECT"
@@ -155,11 +157,46 @@ export function GhostDelta() {
                 axisLine={false}
                 tickFormatter={(v) => `${v > 0 ? "+" : ""}${v.toFixed(0)}s`}
                 width={38}
+                label={{
+                  value: "Gap to real driver (s)",
+                  angle: -90,
+                  position: "insideLeft",
+                  fontSize: 9,
+                  fill: "#6b7280",
+                }}
               />
               <Tooltip content={<GhostTooltip />} />
 
-              {/* Zero reference line */}
-              <ReferenceLine y={0} stroke="rgba(255,255,255,0.4)" strokeDasharray="4 4" />
+              {/* Zero reference line — ghost is running exactly the real driver's pace */}
+              <ReferenceLine
+                y={0}
+                stroke="rgba(255,255,255,0.4)"
+                strokeDasharray="4 4"
+                label={{
+                  value: "Same as real driver",
+                  position: "insideBottomLeft",
+                  fontSize: 8,
+                  fill: "rgba(255,255,255,0.6)",
+                  fontFamily: "var(--font-jbmono)",
+                }}
+              />
+
+              {/* Ghost pit-stop laps */}
+              {pitLaps.map((lap, i) => (
+                <ReferenceLine
+                  key={`pit-${lap}`}
+                  x={lap}
+                  stroke="#4FA8E0"
+                  strokeDasharray="2 3"
+                  label={{
+                    value: `PIT ${pitCompounds[i] ?? ""}`.trim(),
+                    position: "insideTopLeft",
+                    fontSize: 8,
+                    fill: "#4FA8E0",
+                    fontFamily: "var(--font-jbmono)",
+                  }}
+                />
+              ))}
 
               {/* Divergence lap marker */}
               <ReferenceLine

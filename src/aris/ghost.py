@@ -618,6 +618,8 @@ def score_parallel_ghost(
     }
     result: dict[int, dict | None] = {}
     ghost_cum = 0.0
+    real_cum_actual = 0.0
+    focus_code = str(template_state.driver_code or "").upper()
     total_laps = int(template_state.total_laps or len(rows))
 
     for row in rows:
@@ -661,12 +663,30 @@ def score_parallel_ghost(
             result[lap_number] = ghost_to_dict(ghost)
             continue
         ghost_cum += float(ghost.ghost_lap_s or 0.0)
+        # Actual telemetry lap time when the caller supplied it, else fall back
+        # to the model's own STAY_OUT prediction for the real side.
+        lap_time_actual = row.get("lap_time_s")
+        real_cum_actual += (
+            float(lap_time_actual) if lap_time_actual else float(ghost.real_lap_s or 0.0)
+        )
         field_now = (field_cum_by_lap or {}).get(lap_number)
         if field_now:
             fallback = int(advance_state.position or ghost.ghost_position or 1)
-            # Timing-tower rank is ARIS simulated cumulative vs real field times,
-            # not GPS-offset of the real car (classified − delta).
-            pos, gap = _rank_ghost_in_field(ghost_cum, field_now, fallback)
+            # Timing-tower rank must compare like-for-like time bases. `ghost_cum`
+            # is a raw model-predicted absolute time (cold-start on lap 1 with no
+            # lag context, it can be wildly mis-scaled vs measured lap times —
+            # see ISSUES.md Bug 1). Anchor the ghost's absolute cumulative time to
+            # the focus driver's *actual measured* cumulative time (from
+            # field_cum_by_lap, built off real telemetry) offset by the model's
+            # cumulative *delta* — the model is far more reliable at predicting
+            # a relative delta between two compounds/strategies sharing the same
+            # lag context than it is at predicting an absolute lap time cold.
+            # anchor - delta = anchor - (real_lap_s - ghost_lap_s) sum
+            #                = anchor - real_cum_modeled + ghost_cum_modeled
+            # i.e. this reproduces ghost_cum but rebased onto real measured time.
+            anchor = float(field_now.get(focus_code, real_cum_actual))
+            ghost_cum_anchored = anchor - float(ghost.ghost_cumulative_delta)
+            pos, gap = _rank_ghost_in_field(ghost_cum_anchored, field_now, fallback)
             ghost.ghost_position = pos
             ghost.gap_to_leader_s = gap
             if ghost.delta_history:

@@ -96,7 +96,12 @@ export function GhostVsRealChart({
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={chart} margin={{ top: 8, right: 36, bottom: 4, left: 0 }}>
               <CartesianGrid stroke="#2a2a2a" strokeDasharray="2 4" />
-              <XAxis dataKey="lap" stroke="#888888" tick={{ fontFamily: "var(--font-jbmono)", fontSize: 10 }} />
+              <XAxis
+                dataKey="lap"
+                stroke="#888888"
+                tick={{ fontFamily: "var(--font-jbmono)", fontSize: 10 }}
+                label={{ value: "Lap", position: "insideBottom", offset: -2, fill: "#888888", fontSize: 10 }}
+              />
               <YAxis
                 yAxisId="pos"
                 reversed
@@ -117,10 +122,12 @@ export function GhostVsRealChart({
               <Tooltip
                 contentStyle={{ background: "#1a1a1a", border: "1px solid #2a2a2a", fontFamily: "var(--font-jbmono)", fontSize: 11 }}
               />
-              <Line yAxisId="pos" type="stepAfter" dataKey="ghostPos" name="Ghost P" stroke="#e8002d" dot={false} strokeWidth={2} isAnimationActive={false} />
-              <Line yAxisId="pos" type="stepAfter" dataKey="realPos" name="Real P" stroke="#ffffff" dot={false} strokeWidth={1.5} strokeDasharray="4 3" isAnimationActive={false} />
-              <Line yAxisId="gap" type="monotone" dataKey="ghostGap" name="Ghost gap" stroke="#e8002d" dot={false} strokeOpacity={0.45} isAnimationActive={false} />
+              {/* Ghost is always dashed, real is always solid — the same convention as the
+                  track map dot and the timing tower row, so a viewer never has to relearn it. */}
+              <Line yAxisId="pos" type="stepAfter" dataKey="realPos" name="Real P" stroke="#ffffff" dot={false} strokeWidth={2} isAnimationActive={false} />
+              <Line yAxisId="pos" type="stepAfter" dataKey="ghostPos" name="Ghost P" stroke="#e8002d" dot={false} strokeWidth={1.5} strokeDasharray="5 4" isAnimationActive={false} />
               <Line yAxisId="gap" type="monotone" dataKey="realGap" name="Real gap" stroke="#888888" dot={false} strokeOpacity={0.7} isAnimationActive={false} />
+              <Line yAxisId="gap" type="monotone" dataKey="ghostGap" name="Ghost gap" stroke="#e8002d" dot={false} strokeDasharray="5 4" strokeOpacity={0.55} isAnimationActive={false} />
               <Legend wrapperStyle={{ fontFamily: "var(--font-jbmono)", fontSize: 10 }} />
             </LineChart>
           </ResponsiveContainer>

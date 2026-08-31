@@ -1,4 +1,5 @@
 import { useRaceStore, type ReplayPackStage } from "@/store/raceStore";
+import type { CarState } from "@/lib/types";
 import { circuitCoordsFromReplayOutline } from "@/lib/api";
 import { postGhostRecompute } from "@/lib/api";
 import { isFullCircuitOutline, shouldApplyFallbackOutline } from "@/lib/circuitCache";
@@ -101,6 +102,12 @@ function wantRefresh(): boolean {
   }
 }
 
+// Red flag freezes every car including the ghost — cached snapshot keyed to
+// the session/driver so a fresh session or driver swap doesn't inherit a
+// stale freeze. `null` key means "not currently frozen".
+let redFlagFreezeKey: string | null = null;
+let redFlagFrozenCar: CarState | null = null;
+
 function applyGhost(payload: SsePayload) {
   const store = useRaceStore.getState();
   if (!store.isARISOn) {
@@ -112,6 +119,20 @@ function applyGhost(payload: SsePayload) {
     return;
   }
   const driver = store.arisDriver ?? store.session?.driverCode ?? store.focusDriver ?? null;
+  const freezeKey = `${store.session?.year}-${store.session?.round}-${driver}`;
+  if (store.racePhase === "RED_FLAG") {
+    if (redFlagFreezeKey !== freezeKey) {
+      redFlagFreezeKey = freezeKey;
+      redFlagFrozenCar = store.ghostCar;
+    }
+    if (redFlagFrozenCar) {
+      store.setGhostCar(redFlagFrozenCar);
+      return;
+    }
+  } else if (redFlagFreezeKey === freezeKey) {
+    redFlagFreezeKey = null;
+    redFlagFrozenCar = null;
+  }
   const real = driver ? store.cars[driver] ?? null : null;
   const pitLaps = store.activeStrategy?.pit_laps?.length
     ? store.activeStrategy.pit_laps

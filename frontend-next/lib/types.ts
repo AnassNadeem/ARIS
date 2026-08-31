@@ -230,6 +230,11 @@ export interface CommsEntry {
   timestamp: number;
   wetHeuristic?: boolean;
   recommendationId?: string;
+  /** Marks a material strategy decision (auto-adopted pit/tyre/reset call) that
+   * must be surfaced in a visibly bigger box, not a normal scrolling comms line. */
+  kind?: "strategy_change" | "sc_window" | "red_flag_reset" | "wet_switch";
+  big?: boolean;
+  detail?: string;
 }
 
 export type SessionType = "R" | "S" | "Q" | "FP1" | "FP2" | "FP3" | "SS" | "SQ";

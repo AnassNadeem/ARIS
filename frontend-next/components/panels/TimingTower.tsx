@@ -9,11 +9,11 @@ import { orderTimingTower, timingEqual } from "@/lib/mapCars";
 import { driverOutOfRace, fmtGap, fmtLapTime, fmtSectorTime, sectorClass } from "@/lib/timingDisplay";
 import type { CarState } from "@/lib/types";
 
-const TOWER_COLS = "grid-cols-[28px_48px_58px_72px_72px_52px_52px_52px_28px_32px_40px]";
+const TOWER_COLS = "grid-cols-[28px_82px_60px_72px_72px_52px_52px_52px_28px_32px_40px]";
 
 function fmtGhostDelta(v: number): string {
-  if (v > 0) return `+${v.toFixed(1)}s ↑`;
-  if (v < 0) return `${v.toFixed(1)}s ↓`;
+  if (v > 0) return `+${v.toFixed(1)}s`;
+  if (v < 0) return `${v.toFixed(1)}s`;
   return "±0.0s";
 }
 
@@ -66,6 +66,17 @@ const TimingRow = memo(function TimingRow({
           <>
             <span className="h-2 w-1 rounded-sm bg-white/80" />
             <span className="font-semibold tracking-wide text-white">ARIS</span>
+            {car.ghost_cumulative_delta != null && (
+              <span
+                className={`text-[9px] font-semibold ${
+                  car.ghost_cumulative_delta >= 0 ? "text-green-400" : "text-red-400"
+                }`}
+                title="ARIS cumulative gain/loss vs the real driver's actual strategy"
+              >
+                {car.ghost_cumulative_delta >= 0 ? "▲" : "▼"}
+                {fmtGhostDelta(car.ghost_cumulative_delta)}
+              </span>
+            )}
           </>
         ) : (
           <>
@@ -74,17 +85,13 @@ const TimingRow = memo(function TimingRow({
           </>
         )}
       </span>
-      {isGhost ? (
-        <span
-          className={`text-right font-semibold ${
-            (car.ghost_cumulative_delta ?? 0) >= 0 ? "text-green-400" : "text-red-400"
-          }`}
-        >
-          {car.ghost_cumulative_delta != null ? fmtGhostDelta(car.ghost_cumulative_delta) : "—"}
-        </span>
-      ) : (
-        <span className="text-right text-muted">{fmtGap(car.gap_to_leader_s, car.laps_down)}</span>
-      )}
+      <span className="text-right text-muted">
+        {isGhost && car.ghost_in_pits ? (
+          <span className="font-semibold text-white">IN PITS</span>
+        ) : (
+          fmtGap(car.gap_to_leader_s, car.laps_down)
+        )}
+      </span>
       <span className="text-right text-white">{isGhost ? "—" : fmtLapTime(car.last_lap_s)}</span>
       <span className="flex items-center justify-end gap-0.5 text-right text-white">
         {car.fastest_lap ? <span className="text-[9px] text-[#c44dff]">FL</span> : null}
@@ -94,11 +101,15 @@ const TimingRow = memo(function TimingRow({
       <span className={`text-right tabular-nums ${sectorClass(car.s2_colour)}`}>{isGhost ? "—" : fmtSectorTime(car.sector2_s)}</span>
       <span className={`text-right tabular-nums ${sectorClass(car.s3_colour)}`}>{isGhost ? "—" : fmtSectorTime(car.sector3_s)}</span>
       <span className="flex justify-center">
-        <TyreIcon compound={car.compound} />
+        <TyreIcon compound={isGhost && car.ghost_in_pits && car.ghost_pit_compound ? car.ghost_pit_compound : car.compound} />
       </span>
-      <span className="text-right text-muted">{car.tyre_life}</span>
+      <span className="text-right text-muted">{isGhost && car.ghost_in_pits ? "—" : car.tyre_life}</span>
       <span className="text-right text-muted">
-        {out ? car.status : (car.laps_completed ?? car.lap_number)}
+        {isGhost && car.ghost_in_pits
+          ? "PIT"
+          : out
+            ? car.status
+            : (car.laps_completed ?? car.lap_number)}
       </span>
     </div>
   );
@@ -136,7 +147,7 @@ export function TimingTower() {
         </div>
       )}
       <div className="min-h-0 flex-1 overflow-auto [overflow-anchor:none]">
-        <div className="min-w-[620px]">
+        <div className="min-w-[660px]">
           <div className={`grid h-8 shrink-0 ${TOWER_COLS} gap-x-2 border-b border-border px-2 py-2 font-sans text-[10px] uppercase text-muted`}>
             <span>P</span>
             <span>Drv</span>

@@ -68,6 +68,13 @@ async function startReplay(page: Page, year: number, round: number, driver = "VE
   await page.getByRole("button", { name: /Start Race/i }).click();
   await page.waitForURL(/\/replay\/console/, { timeout: 60_000 });
   await waitForTower(page);
+  // The console has its own lights-out "Start Race" gate (consolePlayState
+  // "ready"/"starting" -> "racing"); without clicking it the replay clock
+  // never advances, so seeks land but time never moves forward afterwards.
+  const consoleStart = page.getByRole("button", { name: /Start Race/i });
+  if (await consoleStart.isVisible().catch(() => false)) {
+    await consoleStart.click();
+  }
 }
 
 async function dotPos(locator: Locator) {
@@ -92,8 +99,17 @@ async function seekToLap(page: Page, lap: number) {
   const scrubber = page.getByTestId("lap-scrubber");
   await expect(scrubber).toBeAttached({ timeout: 15_000 });
   await scrubber.evaluate((el, value) => {
-    const input = el as HTMLInputElement;
+    const input = el as HTMLInputElement & { _valueTracker?: { setValue: (v: string) => void } };
+    // React tracks a range input's "previous value" on a hidden value
+    // tracker to decide whether to fire its synthetic onChange. Setting
+    // `.value` directly (as any programmatic seek must) leaves the tracker
+    // already pointing at the new value, so a plain dispatchEvent("input")
+    // is silently swallowed and the app never actually seeks — the DOM
+    // shows the new value but the store's currentLap never moves. Reset the
+    // tracker to the old value first so React detects the change for real.
+    const previousValue = input.value;
     input.value = String(value);
+    input._valueTracker?.setValue(previousValue);
     input.dispatchEvent(new Event("input", { bubbles: true }));
     input.dispatchEvent(new Event("change", { bubbles: true }));
   }, lap);
@@ -154,12 +170,35 @@ test.describe("ghost regression", () => {
     }
   });
 
+  test("Strategy panel shows ARIS stint plan and highlights the current stint", async ({ page }) => {
+    await startReplay(page, 2024, 1, "VER");
+    const panel = page.getByTestId("strategy-panel");
+    await expect(panel).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("strategy-current-stint")).toBeVisible({ timeout: 15_000 });
+  });
+
+  test("Timing tower shows IN PITS while the ghost is in its pit window", async ({ page }) => {
+    await startReplay(page, 2024, 1, "VER");
+    // Read the ghost's actual pit lap from the strategy panel instead of
+    // hardcoding one, so this stays correct if the recommended plan changes.
+    const panelText = await page.getByTestId("strategy-panel").innerText();
+    const pitLapMatch = panelText.match(/L1[–-](\d+)/);
+    const pitLap = pitLapMatch ? Number(pitLapMatch[1]) : 9;
+
+    const row = page.getByTestId("ghost-tower-row");
+    // seekToLap always lands at lap-start (progress ~0); the ghost's pit
+    // window sits near the end of the in-lap (~84% progress). Seek to the
+    // pit lap itself, then let fast playback carry it through the pit-entry
+    // point while polling for the status text.
+    await seekToLap(page, pitLap);
+    await page.getByRole("button", { name: "25×" }).click();
+    await expect
+      .poll(async () => (await row.innerText()).includes("IN PITS"), { timeout: 10_000, intervals: [150] })
+      .toBe(true);
+  });
+
   test("Car dots do not all disappear", async ({ page }) => {
     await startReplay(page, 2024, 1, "VER");
-    const startHeader = page.getByRole("button", { name: /Start Race/i });
-    if (await startHeader.isVisible().catch(() => false)) {
-      await startHeader.click();
-    }
     await page.getByRole("button", { name: "4×" }).click();
     const counts: number[] = [];
     const deadline = Date.now() + 20_000;

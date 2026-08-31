@@ -193,7 +193,8 @@ export function timingEqual(a: CarState, b: CarState): boolean {
     a.team_colour === b.team_colour &&
     a.ghost_cumulative_delta === b.ghost_cumulative_delta &&
     a.laps_completed === b.laps_completed &&
-    a.ghost_in_pits === b.ghost_in_pits
+    a.ghost_in_pits === b.ghost_in_pits &&
+    a.ghost_pit_compound === b.ghost_pit_compound
   );
 }
 

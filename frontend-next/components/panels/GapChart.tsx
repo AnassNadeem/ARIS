@@ -56,8 +56,18 @@ export function GapChart() {
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: -12 }}>
             <CartesianGrid stroke="#2a2a2a" strokeDasharray="2 4" />
-            <XAxis dataKey="lap" stroke="#888888" tick={{ fontFamily: "var(--font-jbmono)", fontSize: 10 }} />
-            <YAxis stroke="#888888" tick={{ fontFamily: "var(--font-jbmono)", fontSize: 10 }} width={40} />
+            <XAxis
+              dataKey="lap"
+              stroke="#888888"
+              tick={{ fontFamily: "var(--font-jbmono)", fontSize: 10 }}
+              label={{ value: "Lap", position: "insideBottom", offset: -2, fill: "#888888", fontSize: 10 }}
+            />
+            <YAxis
+              stroke="#888888"
+              tick={{ fontFamily: "var(--font-jbmono)", fontSize: 10 }}
+              width={48}
+              label={{ value: "Gap (s)", angle: -90, position: "insideLeft", fill: "#888888", fontSize: 10 }}
+            />
             <Tooltip contentStyle={{ background: "#1a1a1a", border: "1px solid #2a2a2a", fontFamily: "var(--font-jbmono)", fontSize: 11 }} />
             <Line type="monotone" dataKey="ahead" stroke="#e8002d" name="Gap ahead" dot={false} strokeWidth={2} isAnimationActive={false} connectNulls />
             <Line type="monotone" dataKey="behind" stroke="#39ff14" name="Gap behind" dot={false} strokeWidth={2} isAnimationActive={false} connectNulls />

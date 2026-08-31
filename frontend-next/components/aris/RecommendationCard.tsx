@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { useRaceStore } from "@/store/raceStore";
-import { askARIS, postGhostRecompute, sendARISAction } from "@/lib/api";
-import type { Compound, StratPlan } from "@/lib/types";
+import { askARIS, sendARISAction } from "@/lib/api";
+import type { Compound } from "@/lib/types";
 
 export function RecommendationCard() {
   const rec = useRaceStore((s) => s.pendingRecommendation);
@@ -12,6 +12,7 @@ export function RecommendationCard() {
   const approve = useRaceStore((s) => s.approveRecommendation);
   const deny = useRaceStore((s) => s.denyRecommendation);
   const alter = useRaceStore((s) => s.alterRecommendation);
+  const adopt = useRaceStore((s) => s.adoptRecommendation);
 
   const [showAlter, setShowAlter] = useState(false);
   const [explain, setExplain] = useState<string | null>(null);
@@ -26,46 +27,10 @@ export function RecommendationCard() {
   const differs = activeStrategy != null && recPit != null && recPit !== planPit;
 
   async function handleAdopt() {
-    const store = useRaceStore.getState();
-    const session = store.session;
-    const driver = store.arisDriver ?? store.selectedDriver;
-    if (!session || !driver || !rec) return;
-    const pits = rec.action.pit_laps?.length
-      ? rec.action.pit_laps
-      : recPit != null
-        ? [recPit]
-        : [];
-    const compounds = rec.action.pit_compounds?.length
-      ? rec.action.pit_compounds
-      : rec.action.pit_compound
-        ? [rec.action.pit_compound]
-        : [];
-    const plan: StratPlan = {
-      id: rec.id,
-      name: rec.label,
-      pit_laps: pits.filter((n): n is number => n != null),
-      pit_compounds: compounds,
-      start_compound: activeStrategy?.start_compound ?? "MEDIUM",
-    };
-    store.setActiveStrategy(plan);
-    const out = await postGhostRecompute({
-      year: session.year,
-      round: session.round,
-      driver,
-      currentLap: store.currentLap,
-      pitLaps: plan.pit_laps,
-      compounds: plan.pit_compounds,
-      label: plan.name,
-    });
-    if (out?.ticks) store.mergeGhostTicksFrom(store.currentLap, out.ticks);
-    store.pushComms({
-      id: `${rec.id}-adopted-${Date.now()}`,
-      lap: rec.lap,
-      source: "USER",
-      text: `Adopted new strategy: ${rec.label}. Ghost from lap ${store.currentLap} follows the new plan.`,
-      timestamp: Date.now(),
-    });
-    approve();
+    if (!rec) return;
+    // Assisted mode: user explicitly chose to adopt — not an auto decision,
+    // but still a material strategy change, so it still raises the big box.
+    await adopt(rec, { auto: false });
   }
 
   async function handleApprove() {
@@ -88,10 +53,12 @@ export function RecommendationCard() {
     setExplain(answer);
   }
 
+  const isAuto = arisMode !== "assisted";
+
   return (
     <div className="m-2 rounded-[8px] border border-red bg-surface p-3">
       <div className="mb-1 font-mono-data text-[10px] uppercase tracking-wide text-red">
-        L{rec.lap} [ARIS RECOMMENDS] {rec.label}
+        L{rec.lap} [{isAuto ? "ARIS STRATEGY" : "ARIS RECOMMENDS"}] {rec.label}
       </div>
       <div className="font-mono-data text-[11px] text-muted">
         Projected: P4 · +2.1s ahead · {(rec.rank_score * 100).toFixed(0)}% confidence
@@ -100,32 +67,35 @@ export function RecommendationCard() {
         Delta {rec.delta_vs_stay_out_s.toFixed(1)}s · std {rec.confidence_std_s.toFixed(1)}s · evidence: {rec.evidence}
       </div>
 
-      {arisMode === "assisted" ? (
-        <div className="mt-3 flex flex-wrap gap-2 font-mono-data text-[10px] uppercase">
-          <button onClick={handleApprove} className="rounded bg-green px-2.5 py-1 text-carbon">✓ APPROVE</button>
-          <button onClick={handleDeny} className="rounded border border-border px-2.5 py-1 text-white hover:border-red">✗ DENY</button>
-          <button
-            onClick={() => setShowAlter((v) => !v)}
-            className="rounded border border-border px-2.5 py-1 text-white hover:border-amber"
-          >
-            ✎ ALTER
-          </button>
-          <button onClick={handleExplain} className="rounded border border-border px-2.5 py-1 text-white hover:border-white">
-            ? EXPLAIN
-          </button>
-        </div>
+      {!isAuto ? (
+        <>
+          <div className="mt-3 flex flex-wrap gap-2 font-mono-data text-[10px] uppercase">
+            <button onClick={handleApprove} className="rounded bg-green px-2.5 py-1 text-carbon">✓ APPROVE</button>
+            <button onClick={handleDeny} className="rounded border border-border px-2.5 py-1 text-white hover:border-red">✗ DENY</button>
+            <button
+              onClick={() => setShowAlter((v) => !v)}
+              className="rounded border border-border px-2.5 py-1 text-white hover:border-amber"
+            >
+              ✎ ALTER
+            </button>
+            <button onClick={handleExplain} className="rounded border border-border px-2.5 py-1 text-white hover:border-white">
+              ? EXPLAIN
+            </button>
+          </div>
+          {differs && (
+            <button
+              type="button"
+              onClick={() => void handleAdopt()}
+              className="mt-2 rounded bg-red px-2.5 py-1 font-mono-data text-[10px] uppercase text-white"
+            >
+              Adopt new strategy
+            </button>
+          )}
+        </>
       ) : (
-        <div className="mt-2 font-mono-data text-[10px] text-muted">Auto mode — ARIS will execute without approval.</div>
-      )}
-
-      {differs && (
-        <button
-          type="button"
-          onClick={() => void handleAdopt()}
-          className="mt-2 rounded bg-red px-2.5 py-1 font-mono-data text-[10px] uppercase text-white"
-        >
-          Adopt new strategy
-        </button>
+        <div className="mt-2 font-mono-data text-[10px] text-muted">
+          Auto mode — ARIS is executing this call now. No approval needed.
+        </div>
       )}
 
       {showAlter && (

@@ -2,6 +2,28 @@
 
 Baseline recorded before instrumentation. TEMP-DEBUG-PHASE0 prints remain in source for Phase 1 strip-out.
 
+> **Status update (2026-08-31, full-spec pass):** Bugs 1–5 below are now fixed.
+> Bug 1 fixed in `src/aris/ghost.py::score_parallel_ghost` by anchoring the
+> ghost's ranked cumulative time to the focus driver's actual telemetry
+> cumulative time (`field_cum_by_lap`) offset by the model's cumulative
+> *delta*, instead of ranking a raw cold-start absolute model prediction
+> against measured field times. Bugs 2 (extra pit stops / wet oscillation)
+> and 4–5 (Copilot/Ask gap-to-X and citation leaks) were already fixed in a
+> later phase without this file being updated — verified against current
+> `src/aris/recommend.py` (`_one_stop_covers_remaining`, `_inter_rain_confirmed`),
+> `src/aris/copilot/agent.py`, and `src/aris/ask/grounded.py`
+> (`_lookup_classified_result` / `_compose_results`). Bug 3 (tower tyre age)
+> needs a fresh repro against current `backend/live.py` before it can be
+> closed — not re-verified in this pass.
+>
+> Also found and fixed in this pass (not part of the original Bug 1–5 list):
+> a frontend regression where `useArisRecommendLoop`'s `force` flag (set on
+> every `arisDriver` change, including the initial pre-race selection) bypassed
+> the "ghost already follows the selected pre-race plan" guard, firing an
+> independent lights-out `recommend()` at lap 1 that could immediately
+> contradict — and, once Auto-mode auto-adopt was added, silently overwrite —
+> the strategy the user just picked. Fixed in `frontend-next/lib/useArisRecommendLoop.ts`.
+
 ---
 
 ## Bug 1: Ghost car doesn't start at the same position as the chosen driver

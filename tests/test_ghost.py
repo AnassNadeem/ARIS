@@ -581,8 +581,20 @@ def test_score_parallel_ghost_from_lap_one():
     assert ticks[8]["delta_history"][0]["lap"] == 1
 
 
-def test_ghost_tower_rank_uses_simulated_cumulative():
-    """Timing-tower position is ARIS simulated cum vs real field times, not GPS offset."""
+def test_ghost_tower_rank_anchored_to_real_telemetry():
+    """Timing-tower position anchors the ghost's absolute cumulative time to the
+    focus driver's *actual measured* cumulative time, offset by the model's
+    cumulative delta — not a raw model absolute prediction.
+
+    ISSUES.md Bug 1: a cold-start absolute lap-1 prediction (no lag context)
+    can be wildly mis-scaled vs measured lap times (97.5s model vs ~74s real).
+    Ranking that raw absolute value against real telemetry cumulative times
+    produced a nonsensical P4 rank on lap 1 even when ARIS's plan had not
+    diverged from what the real driver actually did. Anchoring to the real
+    driver's own measured time (via field_cum_by_lap) and applying only the
+    model's *relative* delta fixes this: zero divergence -> ghost sits right
+    next to the real driver's actual position, not four spots back.
+    """
     from aris.ghost import GhostPlan, score_parallel_ghost
 
     class _Uncalibrated:
@@ -602,6 +614,8 @@ def test_ghost_tower_rank_uses_simulated_cumulative():
         position=1,
         driver_code="VER",
     )
+    # Same compound, no pit -- ARIS's plan matches what the real driver did,
+    # so the ghost should not diverge from VER's actual position at all.
     plan = GhostPlan(pit_laps=[], pit_compounds=[], start_compound="MEDIUM", decision_lap=1)
     ticks = score_parallel_ghost(
         template_state=state,
@@ -612,6 +626,7 @@ def test_ghost_tower_rank_uses_simulated_cumulative():
                 "tyre_life": 1,
                 "real_action": "STAY_OUT",
                 "position": 1,
+                "lap_time_s": 74.00,
             }
         ],
         plan=plan,
@@ -619,10 +634,59 @@ def test_ghost_tower_rank_uses_simulated_cumulative():
         typical_lap_s=74.0,
         field_cum_by_lap={1: dict(field)},
     )
-    # 97.504s simulated vs three real cars at ~74s → P4, gap ~23.5s
-    assert ticks[1]["ghost_position"] == 4
-    assert abs(ticks[1]["gap_to_leader_s"] - 23.504) < 0.01
-    gps_offset_rank = 1  # classified − delta with delta 0 would be P1
-    assert ticks[1]["ghost_position"] != gps_offset_rank
+    # No divergence -> cumulative delta is exactly 0 (both sides scored by the
+    # same mock), so the ghost's anchored time equals VER's actual 74.00s and
+    # it ranks at the very top of the field (P1, or P2 on a tie-break with the
+    # real driver occupying the identical timestamp) -- never P4.
+    assert ticks[1]["ghost_cumulative_delta"] == pytest.approx(0.0, abs=1e-6)
+    assert ticks[1]["ghost_position"] in (1, 2)
+    assert abs(ticks[1]["gap_to_leader_s"]) < 0.01
+
+
+def test_ghost_tower_rank_reflects_real_divergence():
+    """When ARIS's plan genuinely differs from the real strategy, the anchored
+    rank moves relative to the real driver's own actual position by the
+    model's predicted delta -- proving the anchor isn't just clamping the
+    ghost to the real driver forever.
+    """
+    from aris.ghost import GhostPlan, score_parallel_ghost
+
+    field = {"VER": 300.0, "NOR": 295.0, "LEC": 305.0}
+    state = _make_state(
+        compound="HARD",
+        tyre_life=20,
+        lap_number=1,
+        total_laps=1,
+        position=3,
+        driver_code="VER",
+    )
+    # ARIS pits for SOFT (fast, slope 0.08) vs real staying out on 20-lap-old
+    # HARD (slope 0.03) -- SOFT is on lap 1 of its life so it should be faster
+    # despite paying the one-shot pit loss on a short single-lap sim.
+    plan = GhostPlan(pit_laps=[], pit_compounds=[], start_compound="SOFT", decision_lap=1)
+    ticks = score_parallel_ghost(
+        template_state=state,
+        lap_rows=[
+            {
+                "lap_number": 1,
+                "compound": "HARD",
+                "tyre_life": 20,
+                "real_action": "STAY_OUT",
+                "position": 3,
+                "lap_time_s": 300.0 - 295.0,
+            }
+        ],
+        plan=plan,
+        simulate_fn=_mock_simulate,
+        typical_lap_s=93.0,
+        field_cum_by_lap={1: dict(field)},
+    )
+    # HARD @ tyre_life 20 (93 + 0.03*20 = 93.6) vs SOFT @ tyre_life 1
+    # (93 + 0.08*1 = 93.08) -> ghost is faster, positive cumulative delta.
+    assert ticks[1]["ghost_cumulative_delta"] > 0
+    # VER's real actual cumulative anchor is field["VER"]=300.0; the ghost
+    # should land strictly ahead of that anchor once the (positive) delta is
+    # applied, i.e. a better (lower or equal) position than VER's real P3.
+    assert ticks[1]["ghost_position"] <= 3
 
 

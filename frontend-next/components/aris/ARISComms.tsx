@@ -7,6 +7,7 @@ import { RecommendationCard } from "@/components/aris/RecommendationCard";
 import { CopilotPanel } from "@/components/aris/CopilotPanel";
 import { commsTabs } from "@/lib/sessionFlow";
 import { useCommsNarration } from "@/lib/useCommsNarration";
+import { StrategyPanel } from "@/components/aris/StrategyPanel";
 import { PanelEmpty, PanelSkeleton, usePanelFeedLoading } from "@/components/ui/PanelStates";
 
 const CHIPS = ["Gap to Lando?", "Should we extend?", "What's the undercut window?"];
@@ -64,6 +65,7 @@ function MainComms() {
         }}
         className="min-h-0 flex-1 overflow-y-auto p-2 [overflow-anchor:none]"
       >
+        <StrategyPanel />
         {loading && commsLog.length === 0 && !pendingRecommendation ? (
           <PanelSkeleton rows={6} />
         ) : commsLog.length === 0 && !pendingRecommendation ? (

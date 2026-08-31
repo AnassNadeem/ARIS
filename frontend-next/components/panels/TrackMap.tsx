@@ -103,6 +103,8 @@ export function TrackMap() {
   const setCircuitOutline = useRaceStore((s) => s.setCircuitOutline);
   const focusCode = useFocusDriver("");
   const circuitOutline = useRaceStore((s) => s.circuitOutline);
+  const racePhase = useRaceStore((s) => s.racePhase);
+  const isRedFlag = racePhase === "RED_FLAG";
   const carCodesKey = useRaceStore((s) =>
     onTrackCarCodes(s.cars, s.isARISOn && s.ghostCar ? s.ghostCar.driver_code : null),
   );
@@ -246,7 +248,10 @@ export function TrackMap() {
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-carbon">
-      <div className="relative min-h-0 flex-1">
+      <div
+        className={`relative min-h-0 flex-1 ${isRedFlag ? "outline outline-2 outline-[#E8002D]/70" : ""}`}
+        style={isRedFlag ? { boxShadow: "inset 0 0 40px rgba(232,0,45,0.35)" } : undefined}
+      >
         <svg viewBox={viewBox} preserveAspectRatio="xMidYMid meet" className="h-full w-full">
           {coords && (
             <polyline
@@ -398,6 +403,14 @@ export function TrackMap() {
               title="Track map"
               detail="Live circuit outline with car positions, dead-reckoned between ticks. Empty until this session's GPS pack loads the circuit path."
             />
+          </div>
+        )}
+        {isRedFlag && (
+          <div
+            data-testid="track-map-red-flag"
+            className="absolute left-1/2 top-2 z-20 -translate-x-1/2 animate-pulse rounded border-2 border-[#E8002D] bg-carbon/90 px-3 py-1 font-mono-data text-[11px] font-bold uppercase tracking-wide text-[#E8002D]"
+          >
+            🔴 RED FLAG — Field frozen
           </div>
         )}
         {showGhostLegend && (

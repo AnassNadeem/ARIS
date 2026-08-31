@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { annotateVsActivePlan, fetchRecommendation, recommendNarration, shouldFetchRecommend } from "@/lib/arisRecommend";
+import { annotateVsActivePlan, autoDecisionStatement, fetchRecommendation, recommendNarration, shouldFetchRecommend } from "@/lib/arisRecommend";
 import { useRaceStore } from "@/store/raceStore";
 
 /**
@@ -46,6 +46,20 @@ export function useArisRecommendLoop() {
     if (playState !== "racing" && !force) return;
     const car = useRaceStore.getState().cars[driver];
     const tyreLife = car?.tyre_life ?? 0;
+    // The ghost already follows the plan the user picked pre-race — never
+    // fire an independent lights-out recommend() that could immediately
+    // contradict it. `force` (driver change / "Get strategy" click) must
+    // NOT bypass this specific guard, only the cooldown/throttle checks
+    // below it; otherwise the arisDriver-changed effect below fires a
+    // same-tick force on mount and Auto mode auto-adopts a lap-1 "revision"
+    // seconds after the race started, before the chosen plan ever raced.
+    const lockedToPreRacePlan =
+      Boolean(activeStrategy) && (currentLap === 1 || currentLap === 2) && lastLap.current == null;
+    if (lockedToPreRacePlan) {
+      lastPhase.current = racePhase;
+      forceRef.current = false;
+      return;
+    }
     if (
       !force &&
       !shouldFetchRecommend({
@@ -83,7 +97,16 @@ export function useArisRecommendLoop() {
         if (!store.isARISOn) return;
         store.setPendingRecommendation(rec);
         const active = store.activeStrategy;
-        const text = active ? annotateVsActivePlan(rec, active) : recommendNarration(rec);
+        const recPit = rec.action.pit_lap ?? rec.action.pit_laps?.[0];
+        const planPit = active?.pit_laps?.[0];
+        const samePlan = active == null || recPit == null || recPit === planPit;
+        const isAuto = store.arisMode === "auto";
+        const text =
+          isAuto && !samePlan
+            ? autoDecisionStatement(rec, { phase: racePhase, rainfall: store.rainfall }).text
+            : active
+              ? annotateVsActivePlan(rec, active)
+              : recommendNarration(rec);
         store.pushComms({
           id: `${rec.id}-e${store.strategyEpoch}`,
           lap: rec.lap,
@@ -93,11 +116,16 @@ export function useArisRecommendLoop() {
           wetHeuristic: rec.wet_heuristic,
           recommendationId: rec.id,
         });
-        const recPit = rec.action.pit_lap ?? rec.action.pit_laps?.[0];
-        const planPit = active?.pit_laps?.[0];
-        const samePlan = active == null || recPit == null || recPit === planPit;
-        if (store.arisMode === "auto" && samePlan) {
-          store.approveRecommendation();
+        if (isAuto) {
+          if (samePlan) {
+            store.approveRecommendation();
+          } else {
+            // Auto mode never asks — it tells. A pit/strategy change is a big
+            // decision, so it is applied immediately and surfaced in a
+            // visibly bigger box rather than waiting on a click.
+            const { text: reason, kind } = autoDecisionStatement(rec, { phase: racePhase, rainfall: store.rainfall });
+            void store.adoptRecommendation(rec, { auto: true, reason, kind });
+          }
         }
       })
       .finally(() => {

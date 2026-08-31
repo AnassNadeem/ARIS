@@ -123,12 +123,14 @@ export function LapTimesChart() {
               dataKey="lap"
               stroke="#888888"
               tick={{ fontFamily: "var(--font-jbmono)", fontSize: 10 }}
+              label={{ value: "Lap", position: "insideBottom", offset: -2, fill: "#888888", fontSize: 10 }}
             />
             <YAxis
               stroke="#888888"
               tick={{ fontFamily: "var(--font-jbmono)", fontSize: 10 }}
               domain={["auto", "auto"]}
-              width={40}
+              width={48}
+              label={{ value: "Lap time (s)", angle: -90, position: "insideLeft", fill: "#888888", fontSize: 10 }}
             />
             {/* Legacy SC zones from mock data */}
             {scLapRanges().map((z, i) => (

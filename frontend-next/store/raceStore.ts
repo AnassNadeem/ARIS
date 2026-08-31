@@ -18,6 +18,7 @@ import type {
   GhostR2Tick,
 } from "@/lib/types";
 import { deriveGhostLapTimes, pitLossForCircuit, realLapTimesByDriver, DEFAULT_PIT_LOSS_S } from "@/lib/r2Replay";
+import { postGhostRecompute } from "@/lib/api";
 
 export type ARISMode = "assisted" | "auto";
 export type ConsolePlayState = "ready" | "starting" | "racing";
@@ -88,6 +89,15 @@ export interface RaceStore {
   pendingRecommendation: ARISRecommendation | null;
   /** Last strategy used for the ghost after Auto-approve clears the pending card. */
   lastRecommendation: ARISRecommendation | null;
+  /**
+   * A material strategy decision that was just made (Auto mode auto-adopts;
+   * Assisted mode surfaces after user approval). The UI renders this as a
+   * visibly bigger box — strategy changes and pit calls are never quiet.
+   */
+  bigDecision: CommsEntry | null;
+  /** Set the moment the mid-race active strategy changes from the original
+   * pre-race pick — drives the "REVISED LAP N — reason" strategy panel marker. */
+  strategyRevisedAt: { lap: number; reason: string } | null;
   copilotEnabled: boolean;
   strategyLoading: boolean;
   strategyEpoch: number;
@@ -162,6 +172,17 @@ export interface RaceStore {
   approveRecommendation: () => void;
   denyRecommendation: () => void;
   alterRecommendation: (changes: Partial<ARISRecommendation>) => void;
+  /**
+   * Apply a recommendation whose pit plan differs from the current active
+   * strategy: locks the new plan, recomputes the ghost from the current lap,
+   * and raises a big, unmissable decision box. Used by both the Auto-mode
+   * loop (fires without asking) and the Assisted "Adopt new strategy" button.
+   */
+  adoptRecommendation: (
+    rec: ARISRecommendation,
+    opts?: { auto?: boolean; reason?: string; kind?: CommsEntry["kind"] },
+  ) => Promise<void>;
+  setBigDecision: (entry: CommsEntry | null) => void;
   reset: () => void;
 }
 
@@ -211,6 +232,8 @@ const initialState = {
   seekLap: null as number | null,
   commsLog: [] as CommsEntry[],
   pendingRecommendation: null as ARISRecommendation | null,
+  bigDecision: null as CommsEntry | null,
+  strategyRevisedAt: null as { lap: number; reason: string } | null,
   lastRecommendation: null as ARISRecommendation | null,
   copilotEnabled: true,
   strategyLoading: false,
@@ -300,6 +323,8 @@ export const useRaceStore = create<RaceStore>()(
         pendingRecommendation: null,
         lastRecommendation: null,
         strategyLoading: false,
+        bigDecision: null,
+        strategyRevisedAt: null,
         ghostLapS: [],
         ghostCumulativeS: [0],
         ghostImplausibleLaps: [],
@@ -340,6 +365,8 @@ export const useRaceStore = create<RaceStore>()(
               selectedStrategy: null,
               activeStrategy: null,
               driverLocked: false,
+              strategyRevisedAt: null,
+              bigDecision: null,
             },
       ),
     setArisEnabled: (arisEnabled) => get().setARISOn(arisEnabled),
@@ -534,6 +561,63 @@ export const useRaceStore = create<RaceStore>()(
         ],
       }));
     },
+
+    adoptRecommendation: async (rec, opts) => {
+      const s = get();
+      const session = s.session;
+      const driver = s.arisDriver ?? s.selectedDriver;
+      if (!session || !driver) return;
+      const recPit = rec.action.pit_lap ?? rec.action.pit_laps?.[0];
+      const pits = rec.action.pit_laps?.length
+        ? rec.action.pit_laps
+        : recPit != null
+          ? [recPit]
+          : [];
+      const compounds = rec.action.pit_compounds?.length
+        ? rec.action.pit_compounds
+        : rec.action.pit_compound
+          ? [rec.action.pit_compound]
+          : [];
+      const plan: StratPlan = {
+        id: rec.id,
+        name: rec.label,
+        pit_laps: pits.filter((n): n is number => n != null),
+        pit_compounds: compounds,
+        start_compound: s.activeStrategy?.start_compound ?? "MEDIUM",
+      };
+      const currentLap = s.currentLap;
+      set({ activeStrategy: plan, pendingRecommendation: null });
+      const out = await postGhostRecompute({
+        year: session.year,
+        round: session.round,
+        driver,
+        currentLap,
+        pitLaps: plan.pit_laps,
+        compounds: plan.pit_compounds,
+        label: plan.name,
+      });
+      if (out?.ticks) get().mergeGhostTicksFrom(currentLap, out.ticks);
+      const auto = opts?.auto !== false;
+      const compoundLabel = plan.pit_compounds[plan.pit_compounds.length - 1] ?? rec.action.pit_compound ?? "";
+      const entry: CommsEntry = {
+        id: `${rec.id}-adopted-${Date.now()}`,
+        lap: rec.lap,
+        source: auto ? "ARIS" : "USER",
+        text: auto
+          ? (opts?.reason ?? `ARIS is now pitting on lap ${recPit ?? currentLap} for ${compoundLabel}.`)
+          : `Adopted new strategy: ${rec.label}. Ghost from lap ${currentLap} follows the new plan.`,
+        timestamp: Date.now(),
+        kind: opts?.kind ?? "strategy_change",
+        big: true,
+        detail: opts?.reason ?? rec.evidence,
+      };
+      set((state) => ({
+        commsLog: [...state.commsLog, entry],
+        bigDecision: entry,
+        strategyRevisedAt: { lap: rec.lap, reason: entry.text },
+      }));
+    },
+    setBigDecision: (bigDecision) => set({ bigDecision }),
 
     reset: () => set({ ...initialState }),
   })),

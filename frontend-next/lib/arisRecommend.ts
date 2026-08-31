@@ -1,6 +1,49 @@
 import { mockRecommendation, postRecommend } from "@/lib/api";
 import { normalizeCompound } from "@/lib/compounds";
-import type { ARISRecommendation, RecommendApiResponse, StrategyAction } from "@/lib/types";
+import type { ARISRecommendation, RecommendApiResponse, StratPlan, StrategyAction } from "@/lib/types";
+
+export interface StintSegment {
+  index: number;
+  compound: string;
+  startLap: number;
+  /** Inclusive last lap of the stint; null while the final stint is open-ended. */
+  endLap: number | null;
+}
+
+/**
+ * Turn a flat StratPlan (start compound + pit laps/compounds) into a stint
+ * list for the strategy panel: each entry is compound + start/end lap. The
+ * final stint runs to `totalLaps` (or stays open if totalLaps is unknown).
+ */
+export function buildStintPlan(plan: StratPlan | null, totalLaps: number): StintSegment[] {
+  if (!plan) return [];
+  const pitLaps = (plan.pit_laps ?? []).filter((n) => n > 0).sort((a, b) => a - b);
+  const compounds = plan.pit_compounds ?? [];
+  const segments: StintSegment[] = [];
+  let start = 1;
+  let compound = plan.start_compound || "MEDIUM";
+  for (let i = 0; i < pitLaps.length; i++) {
+    const pitLap = pitLaps[i];
+    segments.push({ index: i, compound, startLap: start, endLap: pitLap });
+    start = pitLap + 1;
+    compound = compounds[i] || compound;
+  }
+  segments.push({
+    index: segments.length,
+    compound,
+    startLap: start,
+    endLap: totalLaps > 0 && totalLaps >= start ? totalLaps : null,
+  });
+  return segments;
+}
+
+export function currentStintIndex(segments: StintSegment[], currentLap: number): number {
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    if (currentLap >= seg.startLap && (seg.endLap == null || currentLap <= seg.endLap)) return i;
+  }
+  return Math.max(0, segments.length - 1);
+}
 
 export function fmtDeltaVsStay(delta: number): string {
   const sign = delta > 0 ? "+" : "";
@@ -83,6 +126,43 @@ export function shouldFetchRecommend(opts: {
   if (opts.tyreLife >= 28 && opts.tyreLife <= 30) return true;
   if (opts.lap === 18 || opts.lap === 25 || opts.lap === 33) return true;
   return false;
+}
+
+/**
+ * Auto mode never asks — it tells. This composes a declarative statement of
+ * what ARIS is doing (not "should I…"/"consider…") for the given race
+ * context, used for the big strategy-change box and its comms line.
+ */
+export function autoDecisionStatement(
+  rec: ARISRecommendation,
+  ctx: { phase: string; rainfall?: boolean; wasRaining?: boolean },
+): { text: string; kind: "strategy_change" | "sc_window" | "red_flag_reset" | "wet_switch" } {
+  const compound = rec.action.pit_compound ?? "the recommended tyre";
+  const pitLap = rec.action.pit_lap ?? rec.action.pit_laps?.[0] ?? rec.lap;
+  const isPit = rec.action.kind !== "stay_out";
+
+  if (ctx.phase === "RED_FLAG") {
+    return {
+      text: `RED FLAG — free tyre change. ARIS is restarting on ${compound}.`,
+      kind: "red_flag_reset",
+    };
+  }
+  if (ctx.phase === "SC" || ctx.phase === "VSC") {
+    const window = ctx.phase === "SC" ? "SC WINDOW" : "VSC WINDOW";
+    return isPit
+      ? { text: `${window} — ARIS is pitting now for ${compound}.`, kind: "sc_window" }
+      : { text: `${window} — ARIS is staying out.`, kind: "sc_window" };
+  }
+  if (rec.wet_heuristic) {
+    const label = ctx.rainfall ? "RAIN DETECTED" : "TRACK DRYING";
+    return { text: `${label} — ARIS is pitting for ${compound}.`, kind: "wet_switch" };
+  }
+  return {
+    text: isPit
+      ? `ARIS is pitting on lap ${pitLap} for ${compound}.`
+      : `ARIS strategy update: staying out.`,
+    kind: "strategy_change",
+  };
 }
 
 export function annotateVsActivePlan(

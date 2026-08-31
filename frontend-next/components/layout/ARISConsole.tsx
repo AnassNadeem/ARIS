@@ -25,6 +25,7 @@ import { R2_LOAD_ERROR } from "@/lib/r2Replay";
 import { broadcastRaceState } from "@/lib/broadcastChannel";
 import { SpeedWidget } from "@/components/ui/SpeedWidget";
 import { RaceFinishedDebrief } from "@/components/aris/RaceFinishedDebrief";
+import { StrategyChangeBanner } from "@/components/aris/StrategyChangeBanner";
 import { useArisRecommendLoop } from "@/lib/useArisRecommendLoop";
 import { formatLapHeader } from "@/lib/formatLap";
 import { sessionLabel } from "@/lib/sessionFlow";
@@ -560,6 +561,7 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
           {racePhase === "FORMATION_LAP" && "🟢 EXTRA FORMATION LAP"}
         </div>
       )}
+      <StrategyChangeBanner />
       <div className="relative min-h-0 flex-1 overflow-hidden">
         <RaceFinishedDebrief />
         <div className="h-full min-h-0 overflow-y-auto [overflow-anchor:none]">

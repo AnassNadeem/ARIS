@@ -37,8 +37,20 @@ export function PositionTrace() {
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: -12 }}>
             <CartesianGrid stroke="#2a2a2a" strokeDasharray="2 4" />
-            <XAxis dataKey="lap" stroke="#888888" tick={{ fontFamily: "var(--font-jbmono)", fontSize: 10 }} />
-            <YAxis reversed domain={[1, 20]} stroke="#888888" tick={{ fontFamily: "var(--font-jbmono)", fontSize: 10 }} width={24} />
+            <XAxis
+              dataKey="lap"
+              stroke="#888888"
+              tick={{ fontFamily: "var(--font-jbmono)", fontSize: 10 }}
+              label={{ value: "Lap", position: "insideBottom", offset: -2, fill: "#888888", fontSize: 10 }}
+            />
+            <YAxis
+              reversed
+              domain={[1, 20]}
+              stroke="#888888"
+              tick={{ fontFamily: "var(--font-jbmono)", fontSize: 10 }}
+              width={32}
+              label={{ value: "Position", angle: -90, position: "insideLeft", fill: "#888888", fontSize: 10 }}
+            />
             <Tooltip contentStyle={{ background: "#1a1a1a", border: "1px solid #2a2a2a", fontFamily: "var(--font-jbmono)", fontSize: 11 }} />
             {codes.map((code) => {
               const meta = drivers.find((d) => d.driver_code === code);
