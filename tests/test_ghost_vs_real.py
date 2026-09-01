@@ -98,10 +98,9 @@ def test_ver_zandvoort_ghost_position_anchored_to_real_and_delta():
       from lap 1 sitting exactly on VER's own real classified position —
       this is required regardless of whether ARIS's plan matches what the
       driver actually did.
-    - After lights-out, if ARIS's plan has diverged (non-zero cumulative
-      delta), the ghost's position must move away from VER's real position.
-      A cold CI runner with no trained artefacts may keep delta at 0 for
-      every lap; skip rather than fail in that case.
+    - After lights-out, a non-zero cumulative delta must offset the ghost's
+      gap to the leader (rank only moves if that offset crosses another car).
+      Skip when the runner's artefacts keep delta at 0 for every lap.
     """
     result = get_ghost_vs_real("VER", "2025-15-R")
     ticks = result["ticks"]
@@ -125,6 +124,9 @@ def test_ver_zandvoort_ghost_position_anchored_to_real_and_delta():
         pytest.skip("ARIS plan matched the real stint (no cumulative delta on this runner)")
     lap = min(n for n in diverged if n >= 2) if any(n >= 2 for n in diverged) else diverged[0]
     idx = result["ghost"]["laps"].index(lap)
-    assert ticks[lap]["ghost_cumulative_delta"] != pytest.approx(0.0, abs=1e-6)
+    delta_s = float(ticks[lap]["ghost_cumulative_delta"])
+    ghost_gap = float(ticks[lap]["gap_to_leader_s"])
+    real_gap = float(result["real"]["gap_to_leader"][idx])
+    assert delta_s != pytest.approx(0.0, abs=1e-6)
     assert ticks[lap]["ghost_position"] == result["ghost"]["position"][idx]
-    assert ticks[lap]["ghost_position"] != result["real"]["position"][idx]
+    assert ghost_gap == pytest.approx(real_gap - delta_s, abs=0.05)
