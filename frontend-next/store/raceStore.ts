@@ -112,6 +112,8 @@ export interface RaceStore {
   ghostImplausibleLaps: { lap: number; ghost_lap_s: number; real_lap_s: number; delta_step_s: number }[];
   /** Replay clock (seconds since lights-out). Same counter driving real-car animation. */
   replayElapsedS: number;
+  /** performance.now() when replayElapsedS was last written (shared map/tower clock). */
+  lastTickPerfTime: number;
   pitLossS: number;
 
   // Actions
@@ -247,6 +249,7 @@ const initialState = {
   ghostCumulativeS: [0] as number[],
   ghostImplausibleLaps: [] as { lap: number; ghost_lap_s: number; real_lap_s: number; delta_step_s: number }[],
   replayElapsedS: 0,
+  lastTickPerfTime: 0,
   pitLossS: DEFAULT_PIT_LOSS_S,
 };
 
@@ -329,6 +332,7 @@ export const useRaceStore = create<RaceStore>()(
         ghostCumulativeS: [0],
         ghostImplausibleLaps: [],
         replayElapsedS: 0,
+        lastTickPerfTime: 0,
         pitLossS: DEFAULT_PIT_LOSS_S,
         ghostTicksByLap: {},
       }),
@@ -416,8 +420,12 @@ export const useRaceStore = create<RaceStore>()(
         return { ghostTicksByLap, ...deriveGhostSlice({ ...s, ghostTicksByLap }) };
       }),
     setReplayElapsedS: (replayElapsedS) => {
-      if (get().replayElapsedS === replayElapsedS) return;
-      set({ replayElapsedS });
+      const lastTickPerfTime = typeof performance !== "undefined" ? performance.now() : 0;
+      if (get().replayElapsedS === replayElapsedS) {
+        set({ lastTickPerfTime });
+        return;
+      }
+      set({ replayElapsedS, lastTickPerfTime });
     },
     setFocusDriver: (focusDriver) => set({ focusDriver }),
     setCopilotDocked: (copilotDocked) => set({ copilotDocked }),

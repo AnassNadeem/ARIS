@@ -31,9 +31,9 @@ def test_stabilize_path_fracs_drops_reverse_jumps():
     out = stabilize_path_fracs([0.10, 0.14, 0.40, 0.18, 0.22])
     assert out[0] == 0.10
     assert out[1] > out[0]
-    # 0.40 → 0.18 is a reverse projection; hold and continue forward
-    assert out[3] >= out[2] - 1e-9
-    assert out[4] >= out[3] - 1e-9
+    # 0.40 → 0.18 is a reverse projection; drop the sample (keep last good)
+    assert out[3] == out[2]
+    assert out[4] == out[3]
     assert all(0 <= v < 1 for v in out)
 
 
@@ -84,14 +84,24 @@ def test_apply_bounds_accepts_disk_dict():
     assert 20 < y < 260
 
 
-def test_nudge_path_frac_holds_reverse_jumps():
+def test_nudge_path_frac_drops_reverse_jumps():
     from backend.sessions import nudge_path_frac
 
     path_x = [0.0, 10.0, 10.0, 0.0, 0.0]
     path_y = [0.0, 0.0, 1.0, 1.0, 0.0]
-    # Point on the return lane would snap globally; hold previous bottom-lane frac.
+    # Point on the return lane would snap globally; drop GPS and keep previous.
     held = nudge_path_frac(0.25, 5.1, 0.8, path_x, path_y)
     assert held < 0.45
+
+
+def test_correct_path_frac_discards_hairpin_gps():
+    from backend.sessions import compute_timing_path_frac, correct_path_frac, display_path_frac
+
+    timing = compute_timing_path_frac(lap_number=1, time_since_lap_start_s=45, expected_lap_time_s=90)
+    assert abs(timing - 0.5) < 1e-9
+    assert abs(correct_path_frac(0.16, 0.40) - 0.16) < 1e-9
+    grid = display_path_frac(timing_frac=0.0, gps_frac=0.97, grid_position=1, race_lap_frac=0.0)
+    assert abs(grid) < 1e-6
 
 
 def test_ff1_pack_ready_requires_gps():

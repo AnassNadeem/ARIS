@@ -1,4 +1,17 @@
-import { buildPath, lerpFrac, pointAtFraction, wrap01 } from "@/lib/trackGeometry";
+import { buildPath, pointAtFraction, wrap01 } from "@/lib/trackGeometry";
+import {
+  DEFAULT_EXPECTED_LAP_S,
+  GPS_CORR_EPSILON,
+  GRID_BLEND_LAPS,
+  GRID_SLOT_FRAC,
+  GRID_START_LAP_FRAC,
+  blendedPathFrac,
+  computeTimingPathFrac,
+  displayPathFrac,
+  expectedLapTimeS,
+  gridPathFrac,
+  rollingAverageLapS,
+} from "@/lib/timingPath";
 import type {
   ApiLapRow,
   ApiStintRow,
@@ -14,8 +27,37 @@ import type {
 } from "@/lib/types";
 import { MOCK_DRIVERS_2025 } from "@/lib/mockData";
 
+export {
+  GPS_CORR_EPSILON,
+  GRID_BLEND_LAPS,
+  GRID_SLOT_FRAC,
+  GRID_START_LAP_FRAC,
+  blendedPathFrac,
+  computeTimingPathFrac,
+  displayPathFrac,
+  gridPathFrac,
+};
+
 export const R2_LOAD_ERROR = "Failed to load race data — check R2 connection";
+export const R2_RACE_UNAVAILABLE = "Race data unavailable — check back soon";
 const FETCH_TIMEOUT_MS = 30_000;
+
+/** Thrown when race_field.json (or another R2 pack file) returns HTTP 404. */
+export class RaceFieldNotFoundError extends Error {
+  readonly status = 404 as const;
+  constructor() {
+    super(R2_RACE_UNAVAILABLE);
+    this.name = "RaceFieldNotFoundError";
+  }
+}
+
+export function r2FetchErrorMessage(err: unknown): string {
+  if (err instanceof RaceFieldNotFoundError) return R2_RACE_UNAVAILABLE;
+  if (err instanceof Error && (/\b404\b/.test(err.message) || err.message === R2_RACE_UNAVAILABLE)) {
+    return R2_RACE_UNAVAILABLE;
+  }
+  return R2_LOAD_ERROR;
+}
 
 /**
  * Keep same-origin relative paths as-is. Turbopack may inline
@@ -37,46 +79,99 @@ export function normalizeR2Base(raw: string | undefined | null): string {
   }
 }
 
-const R2_BASE = normalizeR2Base(process.env.NEXT_PUBLIC_R2_BASE_URL);
+const R2_BASE = normalizeR2Base(
+  process.env.NEXT_PUBLIC_R2_BASE_URL ||
+    // next dev rewrites /r2replay → the public R2 bucket. Without this,
+    // `npm run dev` never fetches ghost_*.json and the tower/Ghost Delta stay empty.
+    (process.env.NODE_ENV === "development" ? "/r2replay" : ""),
+);
 /** Bump when race_field.json shape changes so CDN/browser caches cannot serve stale packs. */
 const R2_ASSET_V = "4";
 const DEFAULT_TRACK_M = 5000;
 const SPEED_DT_LAP = 0.04;
-/** lapFrac below this is still "on the grid": prefer qualifying grid_position
- * over FastF1's lap-1 classified position (which is end-of-lap-1). */
-export const GRID_START_LAP_FRAC = 0.02;
-/** Grid slot stagger behind the S/F line so cars are not a single stacked blob. */
-export const GRID_SLOT_FRAC = 0.0035;
-/** Blend grid → GPS over this many laps (~3 s of a 90 s lap). */
-export const GRID_BLEND_LAPS = 0.035;
 
-export function gridPathFrac(gridPosition: number | null | undefined): number {
-  const slot = gridPosition != null && gridPosition > 0 ? gridPosition : 1;
-  return wrap01(0 - (slot - 1) * GRID_SLOT_FRAC);
+const driverCumCache = new WeakMap<RaceField, Map<string, number[]>>();
+const driverLapTimesCache = new WeakMap<RaceField, Map<string, number[]>>();
+
+function driverLapTimes(field: RaceField): Map<string, number[]> {
+  const hit = driverLapTimesCache.get(field);
+  if (hit) return hit;
+  const maxLap = field.meta.total_laps;
+  const by = new Map<string, number[]>();
+  for (const d of field.drivers) by.set(d.code, new Array(maxLap + 1).fill(NaN));
+  for (const row of field.laps) {
+    if (row.lap < 1 || row.lap > maxLap) continue;
+    let arr = by.get(row.driver);
+    if (!arr) {
+      arr = new Array(maxLap + 1).fill(NaN);
+      by.set(row.driver, arr);
+    }
+    if (row.lap_time_s != null && Number.isFinite(row.lap_time_s)) arr[row.lap] = row.lap_time_s;
+  }
+  driverLapTimesCache.set(field, by);
+  return by;
 }
 
-/** Hold the staggered S/F grid, then lerp onto GPS so lights-out does not teleport. */
-export function blendedPathFrac(
-  gpsFrac: number,
-  gridPosition: number | null | undefined,
-  lapFrac: number,
-): number {
-  const gridFrac = gridPathFrac(gridPosition);
-  if (!Number.isFinite(lapFrac) || lapFrac < GRID_START_LAP_FRAC) return gridFrac;
-  const blendEnd = GRID_START_LAP_FRAC + GRID_BLEND_LAPS;
-  if (lapFrac >= blendEnd) return gpsFrac;
-  const t = (lapFrac - GRID_START_LAP_FRAC) / GRID_BLEND_LAPS;
-  return lerpFrac(gridFrac, gpsFrac, t);
+function driverCumulatives(field: RaceField): Map<string, number[]> {
+  const hit = driverCumCache.get(field);
+  if (hit) return hit;
+  const maxLap = field.meta.total_laps;
+  const times = driverLapTimes(field);
+  const cums = new Map<string, number[]>();
+  for (const [code, laps] of times) {
+    const cum = new Array(maxLap + 1).fill(0);
+    for (let lap = 1; lap <= maxLap; lap++) {
+      const t = laps[lap];
+      const step = Number.isFinite(t) && t > 0 ? t : DEFAULT_EXPECTED_LAP_S;
+      cum[lap] = cum[lap - 1] + step;
+    }
+    cums.set(code, cum);
+  }
+  driverCumCache.set(field, cums);
+  return cums;
+}
+
+/** Classified timing path_frac for one driver at a replay clock instant. */
+export function timingFracFromField(field: RaceField, code: string, elapsedS: number): number {
+  const maxLap = Math.max(1, field.meta.total_laps);
+  const cum = driverCumulatives(field).get(code);
+  const laps = driverLapTimes(field).get(code) ?? [];
+  const t = Number.isFinite(elapsedS) ? Math.max(0, elapsedS) : 0;
+  let lapNumber = 1;
+  if (cum && cum.length > 1) {
+    lapNumber = maxLap + 1;
+    for (let lap = 1; lap <= maxLap; lap++) {
+      if (t < cum[lap]) {
+        lapNumber = lap;
+        break;
+      }
+    }
+  }
+  const prevCum = cum ? cum[Math.max(0, Math.min(maxLap, lapNumber - 1))] ?? 0 : (lapNumber - 1) * DEFAULT_EXPECTED_LAP_S;
+  const timeSince = Math.max(0, t - prevCum);
+  const completed = laps.filter((v, i) => i > 0 && i < lapNumber && Number.isFinite(v));
+  const expected =
+    lapNumber <= 1 ? rollingAverageLapS(completed) : expectedLapTimeS(completed, rollingAverageLapS(completed));
+  return computeTimingPathFrac({
+    lapNumber,
+    timeSinceLapStartS: timeSince,
+    expectedLapTimeS: expected,
+  });
 }
 
 /** Along-track fraction for a driver at a replay clock instant (rAF display path). */
 export function replayDisplayFrac(field: RaceField, code: string, elapsedS: number): number {
   const { lapFrac } = elapsedToLap(field, elapsedS);
+  const timing = timingFracFromField(field, code, elapsedS);
   const samples = posSamplesFor(field, code);
   const gps = pathFracAtLap(samples, lapFrac, field.meta.total_laps);
   const drv = field.drivers.find((d) => d.code === code);
-  const gpsSafe = Number.isFinite(gps) ? gps : 0;
-  return blendedPathFrac(gpsSafe, drv?.grid_position, lapFrac);
+  return displayPathFrac({
+    timingFrac: timing,
+    gpsFrac: Number.isFinite(gps) ? gps : null,
+    gridPosition: drv?.grid_position,
+    raceLapFrac: lapFrac,
+  });
 }
 
 export function r2BaseUrl(): string {
@@ -99,6 +194,7 @@ export async function fetchWithProgress(
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
     const res = await fetch(url, { signal: controller.signal });
+    if (res.status === 404) throw new RaceFieldNotFoundError();
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     if (!onProgress || !res.body) return res;
     const total = Number(res.headers.get("content-length") || 0) || null;
@@ -195,6 +291,23 @@ export function r2TickToGhostTick(tick: GhostR2Tick, driver: string, ghost: Ghos
     plan_pit_laps: ghost?.strategy.pit_laps,
     plan_pit_compounds: ghost?.strategy.compounds as GhostTickData["plan_pit_compounds"],
   };
+}
+
+export function ghostDeltaChartPoints(
+  ghostData: GhostTickData | null,
+  ghostTicks: Record<number, GhostR2Tick>,
+  currentLap: number,
+): { lap: number; delta: number }[] {
+  const cap = Math.max(1, currentLap);
+  if (ghostData?.delta_history?.length) {
+    return ghostData.delta_history
+      .filter((pt) => pt.lap <= cap)
+      .map((pt) => ({ lap: pt.lap, delta: pt.delta }));
+  }
+  return Object.values(ghostTicks)
+    .filter((t) => t.lap <= cap)
+    .sort((a, b) => a.lap - b.lap)
+    .map((t) => ({ lap: t.lap, delta: t.cumulative_delta_s }));
 }
 
 /** Fallback when a circuit YAML pit_loss_s is not in the lookup. */
@@ -525,7 +638,8 @@ export function nearestPosSample<T extends { lap_frac: number; path_frac: number
 /**
  * Linear interpolation of path_frac between the two pos_samples that
  * bracket `lapFrac`. Clamps to first/last sample outside the range.
- * path_frac is wrapped so cars take the short way around start/finish.
+ * S/F wrap (negative jump > 0.5) stays forward; the old ">0.5 = reverse"
+ * heuristic is gone — direction comes from the monotonic timing term.
  */
 export function interpolatedPosFrac(
   samples: { lap_frac: number; path_frac: number }[],
@@ -549,7 +663,6 @@ export function interpolatedPosFrac(
   if (span <= 0) return prev.path_frac;
   const t = (lapFrac - prev.lap_frac) / span;
   let dp = next.path_frac - prev.path_frac;
-  if (dp > 0.5) dp -= 1;
   if (dp < -0.5) dp += 1;
   const mixed = wrap01(prev.path_frac + t * dp);
   return Number.isFinite(mixed) ? mixed : last.path_frac;
@@ -598,10 +711,14 @@ export function speedKphFromPath(
   }
   const dp = wrappedPathDelta(a, b);
   const dtS = dtLap * lapDurS;
-  if (dtS < 1e-4 || dp <= 0) return 0;
-  const kph = ((dp * trackLengthM) / dtS) * 3.6;
-  if (!Number.isFinite(kph) || kph < 1) return 0;
-  return Math.min(360, kph);
+  if (dtS >= 1e-4 && dp > 0) {
+    const kph = ((dp * trackLengthM) / dtS) * 3.6;
+    if (Number.isFinite(kph) && kph >= 1) return Math.min(360, kph);
+  }
+  // GPS path can sit still (projection holes). After lights-out, fall back to
+  // lap-average so the HUD is not stuck on "—".
+  if (lapFrac < GRID_START_LAP_FRAC) return 0;
+  return Math.min(360, (trackLengthM / lapDurS) * 3.6);
 }
 
 function firstPathCrossing(
@@ -698,6 +815,28 @@ export function posSamplesFor(field: RaceField, code: string): RaceFieldPosSampl
   return [];
 }
 
+/** Instantaneous HUD speed for a driver at the replay clock. */
+export function driverReplaySpeedKph(field: RaceField, code: string, elapsedS: number): number {
+  const { lap, lapFrac } = elapsedToLap(field, elapsedS);
+  const cum = leaderCum(field);
+  const lapDurS = Math.max(1, (cum[lap] ?? 90) - (cum[lap - 1] ?? 0));
+  return speedKphFromPath(posSamplesFor(field, code), lapFrac, lapDurS, field.meta.total_laps);
+}
+
+export function ghostTickAtOrBefore(
+  ticks: Record<number, GhostR2Tick>,
+  lap: number,
+): GhostR2Tick | undefined {
+  const want = Number.isFinite(lap) ? Math.max(1, Math.floor(lap)) : 1;
+  if (ticks[want]) return ticks[want];
+  let best: GhostR2Tick | undefined;
+  for (const t of Object.values(ticks)) {
+    if (!t || t.lap > want) continue;
+    if (!best || t.lap > best.lap) best = t;
+  }
+  return best;
+}
+
 function flagFromTrackStatus(status: string | null | undefined): string | null {
   const s = String(status || "");
   if (!s || s === "None" || s === "nan") return null;
@@ -743,10 +882,15 @@ export function r2FrameAt(
   const positions: LivePosition[] = [];
   for (const [code, row] of byDriver) {
     const samples = posSamplesFor(field, code);
-    const fracRaw = pathFracAtLap(samples, lapFrac, field.meta.total_laps);
-    let frac = Number.isFinite(fracRaw) ? fracRaw : samples.length ? samples[samples.length - 1].path_frac : 0;
+    const gpsRaw = pathFracAtLap(samples, lapFrac, field.meta.total_laps);
+    const gps = Number.isFinite(gpsRaw) ? gpsRaw : null;
     const grid = gridByDriver.get(code);
-    frac = blendedPathFrac(frac, grid, lapFrac);
+    const frac = displayPathFrac({
+      timingFrac: timingFracFromField(field, code, elapsedS),
+      gpsFrac: gps,
+      gridPosition: grid,
+      raceLapFrac: lapFrac,
+    });
     const xy = pointAtFraction(path, frac);
     const prev = prevByDriver.get(code);
     const kph = useGrid ? 0 : speedKphFromPath(samples, lapFrac, lapDurS, field.meta.total_laps);

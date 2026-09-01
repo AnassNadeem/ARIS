@@ -1775,6 +1775,110 @@ def _lap_completed(row: dict[str, Any], as_of: datetime | None) -> bool:
     return end <= as_of
 
 
+def _expected_lap_s(rows: list[dict[str, Any]]) -> float:
+    times: list[float] = []
+    for row in rows:
+        try:
+            t = float(row.get("lap_duration") or 0)
+        except (TypeError, ValueError):
+            continue
+        if 30.0 < t < 180.0:
+            times.append(t)
+    if not times:
+        return 90.0
+    times.sort()
+    return times[len(times) // 2]
+
+
+def _openf1_driver_laps(
+    laps: list[Any],
+    driver_number: int,
+    clock: datetime,
+) -> list[tuple[datetime, dict[str, Any]]]:
+    mine: list[tuple[datetime, dict[str, Any]]] = []
+    for row in laps:
+        if not isinstance(row, dict):
+            continue
+        try:
+            num = int(row.get("driver_number") or -1)
+        except (TypeError, ValueError):
+            continue
+        if num != int(driver_number):
+            continue
+        start = _parse_dt(row.get("date_start")) or _parse_dt(row.get("date"))
+        if start is None or start > clock:
+            continue
+        mine.append((start, row))
+    mine.sort(key=lambda item: item[0])
+    return mine
+
+
+def _openf1_timing_frac(
+    laps: list[Any],
+    driver_number: int | None,
+    clock: datetime,
+) -> float | None:
+    """Timing-derived path_frac for a live/quali car, or None if not computable."""
+    if driver_number is None:
+        return None
+    from backend.sessions import compute_timing_path_frac
+
+    mine = _openf1_driver_laps(laps, int(driver_number), clock)
+    if not mine:
+        return None
+    start, row = mine[-1]
+    lap_n = int(row.get("lap_number") or 1) or 1
+    time_since = (clock - start).total_seconds()
+    completed = [r for _, r in mine[:-1]]
+    if _lap_completed(row, clock):
+        completed.append(row)
+        try:
+            dur = float(row.get("lap_duration") or 0)
+        except (TypeError, ValueError):
+            dur = 0.0
+        if dur > 0:
+            time_since = max(0.0, time_since - dur)
+            lap_n += 1
+    expected = _expected_lap_s(completed if completed else [r for _, r in mine])
+    return compute_timing_path_frac(
+        lap_number=lap_n,
+        time_since_lap_start_s=time_since,
+        expected_lap_time_s=expected,
+    )
+
+
+def _race_lap_frac_live(laps: list[Any], clock: datetime) -> float:
+    latest_by_num: dict[int, tuple[int, datetime]] = {}
+    for row in laps:
+        if not isinstance(row, dict):
+            continue
+        num = row.get("driver_number")
+        if num is None:
+            continue
+        try:
+            lap_n = int(row.get("lap_number") or 0)
+        except (TypeError, ValueError):
+            continue
+        start = _parse_dt(row.get("date_start")) or _parse_dt(row.get("date"))
+        if start is None or start > clock or lap_n < 1:
+            continue
+        n = int(num)
+        prev = latest_by_num.get(n)
+        if prev is None or lap_n > prev[0] or (lap_n == prev[0] and start > prev[1]):
+            latest_by_num[n] = (lap_n, start)
+    if not latest_by_num:
+        return 0.0
+    leader_lap = max(v[0] for v in latest_by_num.values())
+    time_since = 0.0
+    for lap_n, start in latest_by_num.values():
+        if lap_n != leader_lap:
+            continue
+        dt = (clock - start).total_seconds()
+        if dt > time_since:
+            time_since = dt
+    return (leader_lap - 1) + min(1.0, max(0.0, time_since) / 90.0)
+
+
 def _best_ms_from_laps(laps: list[dict[str, Any]], as_of: datetime | None) -> dict[int, int]:
     best: dict[int, int] = {}
     for row in laps:
@@ -3831,7 +3935,14 @@ async def replay_frame(
     stalls: list[list[float]] = pack.get("pit_stalls") or []
     pit_lane_x: list[float] = pack.get("pit_lane_x") or []
     pit_lane_y: list[float] = pack.get("pit_lane_y") or []
-    from backend.sessions import compute_path_distance, point_on_path, sample_ff1_position, sample_path_trace
+    from backend.sessions import (
+        GPS_CORR_EPSILON_LIVE,
+        compute_path_distance,
+        correct_path_frac,
+        point_on_path,
+        sample_ff1_position,
+        sample_path_trace,
+    )
 
     path_x = pack.get("path_x") or []
     path_y = pack.get("path_y") or []
@@ -3853,8 +3964,10 @@ async def replay_frame(
         frac = 0.0
         st_txt = ""
         traced = sample_path_trace(traces.get(code) or {}, t_epoch) if traces.get(code) else None
+        timing = _openf1_timing_frac(laps, num, clock) if num is not None else None
         if traced is not None and path_x and path_y:
-            frac = float(traced)
+            gps = float(traced)
+            frac = float(correct_path_frac(timing, gps, GPS_CORR_EPSILON_LIVE) if timing is not None else gps)
             px, py = point_on_path(path_x, path_y, frac)
             if sample is not None:
                 st_txt = sample[2]
@@ -3864,7 +3977,8 @@ async def replay_frame(
             in_pit = _location_in_pit(px, py, st_txt, path_x, path_y, pit_lane_x, pit_lane_y)
             if path_x and path_y and not in_pit:
                 try:
-                    frac = float(compute_path_distance(px, py, path_x, path_y))
+                    gps = float(compute_path_distance(px, py, path_x, path_y))
+                    frac = float(correct_path_frac(timing, gps, GPS_CORR_EPSILON_LIVE) if timing is not None else gps)
                 except Exception:
                     frac = 0.0
         elif num is not None and num in locations:
@@ -3881,7 +3995,8 @@ async def replay_frame(
             in_pit = _location_in_pit(px, py, str(row.get("status") or ""), path_x, path_y, pit_lane_x, pit_lane_y)
             if path_x and path_y and not in_pit:
                 try:
-                    frac = float(compute_path_distance(px, py, path_x, path_y))
+                    gps = float(compute_path_distance(px, py, path_x, path_y))
+                    frac = float(correct_path_frac(timing, gps, GPS_CORR_EPSILON_LIVE) if timing is not None else gps)
                 except Exception:
                     frac = 0.0
         reason = _driver_reason(
@@ -4582,7 +4697,7 @@ async def live_positions(
             clock = start if isinstance(start, datetime) else now_utc()
         frame = await cached_replay_frame(replay_session_key, clock)
         return frame.positions
-    from backend.sessions import nudge_path_frac
+    from backend.sessions import GPS_CORR_EPSILON_LIVE, grid_path_frac, nudge_path_frac
 
     if status is None:
         status = await live_status(
@@ -4652,6 +4767,17 @@ async def live_positions(
     _STATE["eliminated"] = eliminated
     prev_fracs: dict[str, float] = dict(_STATE.get("live_frac") or {})
     cars = _STATE.get("car_data") if isinstance(_STATE.get("car_data"), dict) else {}
+    raw_laps: list[Any] = _STATE.get("laps") if isinstance(_STATE.get("laps"), list) else []
+    clock = as_of or now_utc()
+    race_lap_frac = _race_lap_frac_live(raw_laps, clock)
+    grid_by_num: dict[int, int] = {}
+    for rec in _STATE.get("positions") or []:
+        if not isinstance(rec, dict) or rec.get("driver_number") is None:
+            continue
+        try:
+            grid_by_num[int(rec["driver_number"])] = int(rec.get("position") or 0)
+        except (TypeError, ValueError):
+            continue
     positions: list[LivePosition] = []
     for num, row in latest.items():
         if not isinstance(row, dict) or not _gps_usable(row):
@@ -4672,7 +4798,20 @@ async def live_positions(
         frac = 0.0
         if path_x and path_y:
             try:
-                frac = float(nudge_path_frac(prev_fracs.get(code), px, py, path_x, path_y))
+                timing = _openf1_timing_frac(raw_laps, int(num), clock)
+                frac = float(
+                    nudge_path_frac(
+                        prev_fracs.get(code),
+                        px,
+                        py,
+                        path_x,
+                        path_y,
+                        timing_frac=timing,
+                        epsilon=GPS_CORR_EPSILON_LIVE,
+                    )
+                )
+                if race_lap_frac < 0.02:
+                    frac = grid_path_frac(grid_by_num.get(int(num)))
             except Exception:
                 frac = float(prev_fracs.get(code) or 0.0)
         car = cars.get(num) or {}

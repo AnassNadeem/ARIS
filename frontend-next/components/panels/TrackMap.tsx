@@ -6,6 +6,8 @@ import { getCircuitCoords, ghostMapFeatureEnabled } from "@/lib/api";
 import { PathCarAnimator, GPS_HOLD_MS } from "@/lib/deadReckoning";
 import { PIT_ENTRY_FRAC, ghostPlaybackAt } from "@/lib/ghostCar";
 import { replayDisplayFrac } from "@/lib/r2Replay";
+import { replayDisplayElapsed } from "@/lib/timingPath";
+import { wrappedDelta } from "@/lib/deadReckoning";
 import {
   buildPath,
   fractionAtPoint,
@@ -14,6 +16,7 @@ import {
   sectorPathsFromOutline,
   sectorsAreUsable,
   viewBoxFor,
+  wrap01,
 } from "@/lib/trackGeometry";
 import { onTrackCarCodes } from "@/lib/mapCars";
 import { chequeredSfFlag, startFinishMarker } from "@/lib/replayFilter";
@@ -177,30 +180,36 @@ export function TrackMap() {
   //    velocity from path_frac deltas is kept.
   const lastFrac = useRef<Map<string, number>>(new Map());
   const displayElapsedRef = useRef(0);
-  const lastRafRef = useRef(0);
+  const lastStoreElapsedRef = useRef(0);
   const lastPacketAtRef = useRef(0);
+  const lastSpeedRef = useRef(playbackSpeed);
 
   useEffect(() => {
     function frame() {
       const now = performance.now();
-      const wallDt = lastRafRef.current ? Math.min(48, now - lastRafRef.current) : 16.67;
-      lastRafRef.current = now;
       const store = useRaceStore.getState();
       const racing = store.consoleMode === "live" || store.consolePlayState === "racing";
       const playing = store.isPlaying && racing && store.racePhase !== "RED_FLAG";
       const storeElapsed = store.replayElapsedS;
-      let seek = false;
+      const speedChanged = lastSpeedRef.current !== store.playbackSpeed;
+      lastSpeedRef.current = store.playbackSpeed;
+      const seek = speedChanged || (racing && Math.abs(storeElapsed - lastStoreElapsedRef.current) > 1);
+      lastStoreElapsedRef.current = storeElapsed;
       if (!racing) {
         displayElapsedRef.current = 0;
-      } else if (Math.abs(storeElapsed - displayElapsedRef.current) > 6) {
+      } else if (store.consoleMode === "replay") {
+        displayElapsedRef.current = replayDisplayElapsed(
+          storeElapsed,
+          speedChanged ? now : store.lastTickPerfTime,
+          now,
+          playing,
+          store.playbackSpeed,
+        );
+      } else {
         displayElapsedRef.current = storeElapsed;
-        seek = true;
-      } else if (storeElapsed > displayElapsedRef.current + 1.5) {
-        displayElapsedRef.current = storeElapsed;
-      } else if (playing) {
-        displayElapsedRef.current += (wallDt / 1000) * store.playbackSpeed;
       }
-      const packetDue = seek || now - lastPacketAtRef.current >= GPS_HOLD_MS;
+      const holdMs = store.playbackSpeed <= 1 ? 0 : GPS_HOLD_MS;
+      const packetDue = seek || holdMs <= 0 || now - lastPacketAtRef.current >= holdMs;
       if (packetDue) lastPacketAtRef.current = now;
 
       const line = pathRef.current;
@@ -232,6 +241,11 @@ export function TrackMap() {
           } else {
             frac = fractionAtPoint(line, car.x, car.y);
           }
+          if (!isGhost && !seek && prevKnown != null && Number.isFinite(prevKnown)) {
+            const d = wrappedDelta(prevKnown, frac);
+            if (d > 0.25) frac = wrap01(prevKnown + 0.25);
+            else if (d < -0.05) frac = prevKnown;
+          }
           let animator = animators.current.get(code);
           if (!animator) {
             animator = new PathCarAnimator(line, frac, 140);
@@ -246,6 +260,7 @@ export function TrackMap() {
                 headingRad: car.heading_rad,
                 skipSeekJump: Boolean(car.ghost_skip_seek_jump) || !seek,
                 seek,
+                snap: speedChanged,
                 playbackSpeed: store.playbackSpeed,
               });
               lastFrac.current.set(code, frac);
@@ -257,6 +272,7 @@ export function TrackMap() {
             g.setAttribute("transform", `translate(${pos.x}, ${pos.y})`);
             g.setAttribute("cx", String(pos.x));
             g.setAttribute("cy", String(pos.y));
+            g.setAttribute("data-path-frac", frac.toFixed(4));
             if (!isGhost) {
               const circle = g.querySelector("circle");
               if (circle) {

@@ -49,7 +49,7 @@ export function PlaybackControls() {
           >
             ▶▶
           </button>
-          <div className="ml-2 flex gap-1">
+          <div className="ml-2 hidden gap-1 md:flex">
             {SPEEDS.map((s) => (
               <button
                 key={s}
@@ -63,7 +63,22 @@ export function PlaybackControls() {
               </button>
             ))}
           </div>
-          <div className="ml-auto font-mono-data text-xs text-white">
+          <label className="ml-2 md:hidden">
+            <span className="sr-only">Playback speed</span>
+            <select
+              value={playbackSpeed}
+              aria-label="Playback speed"
+              onChange={(e) => setPlaybackSpeed(Number(e.target.value) as (typeof SPEEDS)[number])}
+              className="rounded border border-border bg-surface px-2 py-1 font-mono-data text-xs text-white"
+            >
+              {SPEEDS.map((s) => (
+                <option key={s} value={s}>
+                  {s}×
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="ml-auto hidden font-mono-data text-xs text-white md:block">
             {formatLapHeader(currentLap, totalLaps)}
           </div>
         </div>

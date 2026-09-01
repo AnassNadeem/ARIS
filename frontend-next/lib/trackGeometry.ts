@@ -95,7 +95,6 @@ export function fractionAtPoint(path: PathData, x: number, y: number): number {
 
 export function lerpFrac(a: number, b: number, u: number): number {
   let d = b - a;
-  if (d > 0.5) d -= 1;
   if (d < -0.5) d += 1;
   return wrap01(a + d * Math.max(0, Math.min(1, u)));
 }

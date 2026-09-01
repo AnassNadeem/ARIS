@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { annotateVsActivePlan, shouldFetchRecommend } from "./arisRecommend";
 import { mapTimingAndPositions } from "./mapCars";
-import { fieldToDrivers, fieldToLapRows, interpolatedPosFrac, nearestPosSample, normalizeR2Base, plansMatch, r2Configured, r2FrameAt, r2TickToGhostTick, raceDurationS, sectorSecondsForLap, speedKphFromPath, deriveGhostLapTimes, pitLossForCircuit, realLapTimesByDriver, GRID_START_LAP_FRAC, blendedPathFrac, gridPathFrac, replayDisplayFrac } from "./r2Replay";
+import { fieldToDrivers, fieldToLapRows, interpolatedPosFrac, nearestPosSample, normalizeR2Base, plansMatch, r2Configured, r2FrameAt, r2TickToGhostTick, raceDurationS, sectorSecondsForLap, speedKphFromPath, deriveGhostLapTimes, pitLossForCircuit, realLapTimesByDriver, GRID_START_LAP_FRAC, blendedPathFrac, gridPathFrac, replayDisplayFrac, ghostTickAtOrBefore, ghostDeltaChartPoints, r2FetchErrorMessage, RaceFieldNotFoundError, R2_LOAD_ERROR, R2_RACE_UNAVAILABLE } from "./r2Replay";
 import type { ARISRecommendation, GhostData, RaceField, RaceFieldLap } from "./types";
 
 function rec(over: Partial<ARISRecommendation> = {}): ARISRecommendation {
@@ -99,6 +99,18 @@ describe("normalizeR2Base", () => {
   });
 });
 
+describe("r2FetchErrorMessage", () => {
+  it("maps a race_field 404 to the unavailable copy for any race", () => {
+    expect(r2FetchErrorMessage(new RaceFieldNotFoundError())).toBe(R2_RACE_UNAVAILABLE);
+    expect(r2FetchErrorMessage(new Error("HTTP 404"))).toBe(R2_RACE_UNAVAILABLE);
+  });
+
+  it("keeps connection copy for other failures", () => {
+    expect(r2FetchErrorMessage(new Error("HTTP 503"))).toBe(R2_LOAD_ERROR);
+    expect(r2FetchErrorMessage(new Error("Timed out after 30s"))).toBe(R2_LOAD_ERROR);
+  });
+});
+
 describe("R2 fallback when NEXT_PUBLIC_R2_BASE_URL is unset", () => {
   it("reports unconfigured so ReplayFrameFeed uses Heroku pack-status", () => {
     if (process.env.NEXT_PUBLIC_R2_BASE_URL) {
@@ -186,9 +198,9 @@ describe("nearestPosSample", () => {
     // 90s laps: elapsed 1845s is lap 21, 50% → lapFrac 20.5
     const frame = r2FrameAt(field, 20 * 90 + 45);
     const pos = frame.positions.find((p) => p.driver_code === "VER");
-    expect(pos?.path_frac).toBeCloseTo(0.4825, 5);
+    expect(pos?.path_frac).toBeCloseTo(0.5, 2);
     const cars = mapTimingAndPositions(frame.timing, frame.positions, fieldToDrivers(field), 22, frame.lap);
-    expect(cars.VER.path_frac).toBeCloseTo(0.4825, 5);
+    expect(cars.VER.path_frac).toBeCloseTo(0.5, 2);
     expect(cars.VER.team_colour).toBe("#3671C6");
     expect(cars.VER.speed_kph).toBeGreaterThan(50);
     expect(Object.keys(cars)).toEqual(["VER"]);
@@ -328,7 +340,7 @@ describe("r2FrameAt grid_position at start", () => {
     expect(nor?.path_frac).toBeLessThan(1);
   });
 
-  it("blends grid onto GPS after lights-out instead of a hard cut", () => {
+  it("blends grid onto the timing target after lights-out instead of a hard cut", () => {
     const pole = gridPathFrac(1);
     const gps = 0.12;
     expect(blendedPathFrac(gps, 1, 0.01)).toBeCloseTo(pole, 5);
@@ -346,6 +358,16 @@ describe("r2FrameAt grid_position at start", () => {
       },
     };
     expect(replayDisplayFrac(withGps, "ANT", 0)).toBeCloseTo(0, 2);
+  });
+
+  it("replayDisplayFrac discards a GPS hairpin snap once underway", () => {
+    const withGps: RaceField = {
+      ...field,
+      pos_samples: {
+        ANT: [{ lap_frac: 0, path_frac: 0.02 }, { lap_frac: 0.5, path_frac: 0.4 }],
+      },
+    };
+    expect(replayDisplayFrac(withGps, "ANT", 45)).toBeCloseTo(0.5, 2);
   });
 
   it("lists DNS drivers who have no laps", () => {
@@ -381,6 +403,15 @@ describe("speedKphFromPath", () => {
     ];
     expect(speedKphFromPath(withSpeed, 20.2, 90)).toBe(274);
   });
+
+  it("falls back to lap-average speed when GPS path does not advance", () => {
+    const stuck = [
+      { lap_frac: 1.0, path_frac: 0.4 },
+      { lap_frac: 1.5, path_frac: 0.4 },
+    ];
+    expect(speedKphFromPath(stuck, 1.2, 90)).toBeGreaterThan(50);
+    expect(speedKphFromPath(stuck, 0.0, 90)).toBe(0);
+  });
 });
 
 describe("sectorSecondsForLap", () => {
@@ -409,6 +440,14 @@ describe("interpolatedPosFrac", () => {
 
   it("interpolates the midpoint between bracketing samples", () => {
     expect(interpolatedPosFrac(samples, 20.2)).toBeCloseTo(0.255, 10);
+  });
+
+  it("does not treat a >0.5 forward jump as reverse", () => {
+    const wrapish = [
+      { lap_frac: 1.0, path_frac: 0.1 },
+      { lap_frac: 1.5, path_frac: 0.9 },
+    ];
+    expect(interpolatedPosFrac(wrapish, 1.25)).toBeCloseTo(0.5, 5);
   });
 
   it("returns the exact sample at the first lap_frac", () => {
@@ -591,5 +630,33 @@ describe("r2TickToGhostTick", () => {
     expect(mapped.delta_history[0]).toEqual({ lap: 1, delta: 0, ghost_pos: 2, real_pos: 0 });
     expect(mapped.delta_history[1].delta).toBe(-0.3);
     expect(mapped.ghost_cumulative_delta).toBe(-0.3);
+  });
+});
+
+describe("ghostTickAtOrBefore", () => {
+  const ticks = {
+    1: { lap: 1, position: 2, gap_to_leader_s: 0, compound: "M", tyre_life: 1, stint: 1, cumulative_delta_s: 0, aris_action: "STAY_OUT", aris_confidence: 1 },
+    3: { lap: 3, position: 3, gap_to_leader_s: 1, compound: "M", tyre_life: 3, stint: 1, cumulative_delta_s: 0.8, aris_action: "STAY_OUT", aris_confidence: 1 },
+  };
+
+  it("returns the exact lap when present", () => {
+    expect(ghostTickAtOrBefore(ticks, 3)?.lap).toBe(3);
+  });
+
+  it("returns the previous tick when the current lap has no row", () => {
+    expect(ghostTickAtOrBefore(ticks, 2)?.lap).toBe(1);
+  });
+});
+
+describe("ghostDeltaChartPoints", () => {
+  it("uses ghost ticks when ghostData is missing", () => {
+    const pts = ghostDeltaChartPoints(null, {
+      1: { lap: 1, position: 1, gap_to_leader_s: 0, compound: "M", tyre_life: 1, stint: 1, cumulative_delta_s: 0, aris_action: "STAY_OUT", aris_confidence: 1 },
+      2: { lap: 2, position: 2, gap_to_leader_s: 0.4, compound: "M", tyre_life: 2, stint: 1, cumulative_delta_s: -0.4, aris_action: "STAY_OUT", aris_confidence: 1 },
+    }, 2);
+    expect(pts).toEqual([
+      { lap: 1, delta: 0 },
+      { lap: 2, delta: -0.4 },
+    ]);
   });
 });

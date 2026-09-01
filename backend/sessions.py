@@ -1150,6 +1150,75 @@ def point_at_path_frac(path_x: list[float], path_y: list[float], frac: float) ->
     return path_x[-1], path_y[-1]
 
 
+GPS_CORR_EPSILON = 0.015
+GPS_CORR_EPSILON_LIVE = 0.02
+GRID_START_LAP_FRAC = 0.02
+GRID_SLOT_FRAC = 0.0035
+DEFAULT_EXPECTED_LAP_S = 90.0
+
+
+def _wrap01(f: float) -> float:
+    return (float(f) % 1.0 + 1.0) % 1.0
+
+
+def grid_path_frac(grid_position: int | None, slot_frac: float = GRID_SLOT_FRAC) -> float:
+    slot = grid_position if grid_position and grid_position > 0 else 1
+    return _wrap01(0.0 - (slot - 1) * slot_frac)
+
+
+def compute_timing_path_frac(
+    *,
+    lap_number: int | float | None,
+    time_since_lap_start_s: float | None,
+    expected_lap_time_s: float | None,
+) -> float:
+    """Along-track fraction from classified timing only. No GPS."""
+    expected = float(expected_lap_time_s) if expected_lap_time_s and expected_lap_time_s > 1 else DEFAULT_EXPECTED_LAP_S
+    t = float(time_since_lap_start_s) if time_since_lap_start_s is not None else 0.0
+    if t < 0:
+        t = 0.0
+    frac_within = min(1.0, t / expected)
+    lap_n = float(lap_number) if lap_number is not None else 1.0
+    return _wrap01(lap_n - 1.0 + frac_within)
+
+
+def correct_path_frac(
+    timing_frac: float,
+    gps_frac: float | None,
+    epsilon: float = GPS_CORR_EPSILON,
+) -> float:
+    """Bounded GPS correction. |gps-timing| > epsilon → discard GPS, use timing."""
+    timing = _wrap01(timing_frac)
+    if gps_frac is None:
+        return timing
+    try:
+        gps = _wrap01(float(gps_frac))
+    except (TypeError, ValueError):
+        return timing
+    d = gps - timing
+    if abs(d) > epsilon:
+        return timing
+    if d > epsilon:
+        d = epsilon
+    elif d < -epsilon:
+        d = -epsilon
+    return _wrap01(timing + d)
+
+
+def display_path_frac(
+    *,
+    timing_frac: float,
+    gps_frac: float | None = None,
+    grid_position: int | None = None,
+    race_lap_frac: float | None = None,
+    epsilon: float = GPS_CORR_EPSILON,
+) -> float:
+    corrected = correct_path_frac(timing_frac, gps_frac, epsilon)
+    if race_lap_frac is not None and race_lap_frac < GRID_START_LAP_FRAC:
+        return grid_path_frac(grid_position)
+    return corrected
+
+
 def nudge_path_frac(
     prev: float | None,
     car_x: float,
@@ -1159,9 +1228,13 @@ def nudge_path_frac(
     *,
     max_back: float = 0.03,
     max_fwd: float = 0.15,
+    timing_frac: float | None = None,
+    epsilon: float = GPS_CORR_EPSILON_LIVE,
 ) -> float:
-    """Live GPS: keep the car moving forward instead of snapping across the track."""
+    """Live GPS as a bounded correction on timing. Reverse samples are dropped, not held."""
     raw = compute_path_distance(car_x, car_y, path_x, path_y)
+    if timing_frac is not None:
+        return correct_path_frac(timing_frac, raw, epsilon)
     if prev is None:
         return raw
     try:
@@ -1173,12 +1246,8 @@ def nudge_path_frac(
     d = raw - prev_f
     if d < -0.5:
         d += 1.0
-    elif d > 0.5:
-        d -= 1.0
-    if d < -max_back:
-        d = 0.0
-    elif d > max_fwd:
-        d = max_fwd
+    if d < -max_back or d > max_fwd:
+        return prev_f
     return (prev_f + d) % 1.0
 
 
@@ -1297,7 +1366,7 @@ def project_points_along_path(
 
 
 def stabilize_path_fracs(fracs: list[float], *, max_back: float = 0.04, max_fwd: float = 0.45) -> list[float]:
-    """Keep path distance moving forward so projection errors cannot reverse a car."""
+    """Keep path distance moving forward. Reverse / huge jumps are dropped, not frozen-crawled."""
     out: list[float] = []
     prev: float | None = None
     for raw in fracs:
@@ -1314,12 +1383,9 @@ def stabilize_path_fracs(fracs: list[float], *, max_back: float = 0.04, max_fwd:
         d = f - prev
         if d < -0.5:
             d += 1.0
-        elif d > 0.5:
-            d -= 1.0
-        if d < -max_back:
-            d = 0.0
-        elif d > max_fwd:
-            d = max_fwd * 0.2
+        if d < -max_back or d > max_fwd:
+            out.append(prev)
+            continue
         nxt = (prev + d) % 1.0
         out.append(nxt)
         prev = nxt
@@ -3137,6 +3203,7 @@ def session_positions_all(
         pos_data = getattr(sess, "pos_data", None) or {}
         laps_out: dict[str, list[SessionCarPosition]] = {str(n): [] for n in range(1, max_lap + 1)}
 
+        last_frac_by_code: dict[str, float] = {}
         for num, df in pos_data.items():
             code = code_by_num.get(str(num), "")
             if not code:
@@ -3179,11 +3246,31 @@ def session_positions_all(
                     continue
                 px, py = _apply_bounds(rx, ry, bounds) if bounds else (rx, ry)
                 path_frac = 0.0
+                gps: float | None = None
                 if cmap.x and cmap.y:
                     try:
-                        path_frac = compute_path_distance(px, py, cmap.x, cmap.y)
+                        gps = float(compute_path_distance(px, py, cmap.x, cmap.y))
                     except Exception:
-                        path_frac = 0.0
+                        gps = None
+                timing_frac: float | None = None
+                if ref_time is not None and row is not None and "Time" in df.columns:
+                    try:
+                        dt = float((row["Time"] - ref_time).total_seconds())
+                        lt = this.iloc[0].get("LapTime") if not this.empty else None
+                        lap_s = None
+                        if lt is not None and pd.notna(lt) and hasattr(lt, "total_seconds"):
+                            lap_s = float(lt.total_seconds())
+                        if lap_s and lap_s > 1 and dt >= 0:
+                            timing_frac = max(0.0, min(1.0, dt / lap_s))
+                    except Exception:
+                        timing_frac = None
+                if timing_frac is not None:
+                    path_frac = correct_path_frac(timing_frac, gps)
+                elif gps is not None:
+                    prev = last_frac_by_code.get(code)
+                    path_frac = correct_path_frac(prev, gps) if prev is not None else gps
+                if gps is not None or timing_frac is not None:
+                    last_frac_by_code[code] = path_frac
                 speed_ms = None
                 if not this.empty and "LapTime" in this.columns:
                     lt = this.iloc[0].get("LapTime")

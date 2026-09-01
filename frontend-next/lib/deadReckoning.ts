@@ -90,9 +90,9 @@ export class CarAnimator {
   }
 }
 
-function wrappedDelta(from: number, to: number): number {
+/** Signed along-track delta. S/F wrap stays forward; large forward jumps are not treated as reverse. */
+export function wrappedDelta(from: number, to: number): number {
   let d = to - from;
-  if (d > 0.5) d -= 1;
   if (d < -0.5) d += 1;
   return d;
 }
@@ -105,13 +105,17 @@ export interface PathTickKinematics {
   skipSeekJump?: boolean;
   /** User scrub / session change — only then may we teleport. */
   seek?: boolean;
+  /** Force visFrac onto the target (playback speed change). */
+  snap?: boolean;
   playbackSpeed?: number;
 }
 
 export const GPS_HOLD_MS = 100;
-/** Catch-up cap at 1× (~0.08 lap/s). Scaled by playbackSpeed. */
+/** Catch-up cap at high speed (~0.08 lap/s at 1×). Scaled by playbackSpeed. */
 export const BASE_MAX_FRAC_PER_MS = 0.00008;
 export const SEEK_JUMP = 0.22;
+/** 1×: allow a GPS-sized bump per frame, not a hole-teleport. */
+export const BUMP_MAX_FRAC = 0.012;
 
 /** Interpolate along a circuit path so dots stay on the racing line. */
 export class PathCarAnimator {
@@ -136,12 +140,23 @@ export class PathCarAnimator {
 
   onTick(frac: number, now: number, kinematics?: PathTickKinematics) {
     const target = wrap01(frac);
+    const nextSpeed =
+      kinematics?.playbackSpeed != null && Number.isFinite(kinematics.playbackSpeed)
+        ? Math.max(0.25, kinematics.playbackSpeed)
+        : this.playbackSpeed;
+    const speedDropped = nextSpeed < this.playbackSpeed - 1e-6;
+    this.playbackSpeed = nextSpeed;
+
+    if (kinematics?.snap || speedDropped) {
+      this.lastFrac = target;
+      this.visFrac = target;
+      this.lastTickAt = now;
+      this.lastVisAt = now;
+      return;
+    }
+
     const d = wrappedDelta(this.visFrac, target);
     if (Math.abs(d) < 1e-6 && Math.abs(wrappedDelta(this.lastFrac, target)) < 1e-6) return;
-
-    if (kinematics?.playbackSpeed != null && Number.isFinite(kinematics.playbackSpeed)) {
-      this.playbackSpeed = Math.max(0.25, kinematics.playbackSpeed);
-    }
 
     const jump = Math.abs(d);
     const allowSeek = Boolean(kinematics?.seek) && !kinematics?.skipSeekJump;
@@ -164,11 +179,21 @@ export class PathCarAnimator {
 
     const speed = Math.max(0.25, this.playbackSpeed);
     const d = wrappedDelta(this.visFrac, this.lastFrac);
-    const ease = 1 - Math.pow(1 - 0.18, Math.min(frameDt, this.easeMs) / 16.67);
-    let step = d * Math.min(1, ease);
-    const maxStep = BASE_MAX_FRAC_PER_MS * speed * Math.min(frameDt, 48);
-    if (frameDt <= 48 && Math.abs(step) > maxStep) {
-      step = Math.sign(d) * maxStep;
+    const dt = Math.min(frameDt, 48);
+    let step: number;
+    if (speed <= 1) {
+      // Follow the timing/GPS target closely so 1× reads as small natural bumps,
+      // not a lagged ease. Still cap a hole so a bad sample cannot teleport.
+      step = d * 0.72;
+      const maxBump = BUMP_MAX_FRAC * (dt / 16.67);
+      if (Math.abs(step) > maxBump) step = Math.sign(d) * maxBump;
+    } else {
+      const ease = 1 - Math.pow(1 - 0.18, dt / 16.67);
+      step = d * Math.min(1, ease);
+      const maxStep = BASE_MAX_FRAC_PER_MS * speed * dt;
+      if (frameDt <= 48 && Math.abs(step) > maxStep) {
+        step = Math.sign(d) * maxStep;
+      }
     }
     this.visFrac = wrap01(this.visFrac + step);
     return this.visFrac;

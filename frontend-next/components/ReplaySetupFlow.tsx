@@ -15,7 +15,7 @@ import {
   circuitCoordsFromReplayOutline,
   prewarmSession,
 } from "@/lib/api";
-import { fetchGhost, fetchRaceField, fieldToDrivers, fieldToLapRows, fieldToStintRows, ghostTicksMap, r2Configured, R2_LOAD_ERROR } from "@/lib/r2Replay";
+import { fetchGhost, fetchRaceField, fieldToDrivers, fieldToLapRows, fieldToStintRows, ghostTicksMap, r2Configured, r2FetchErrorMessage, R2_LOAD_ERROR } from "@/lib/r2Replay";
 import { MOCK_DRIVERS_2025 } from "@/lib/mockData";
 import { isFullCircuitOutline, shouldApplyFallbackOutline } from "@/lib/circuitCache";
 import {
@@ -172,8 +172,9 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
         console.warn("[ReplaySetupFlow] R2 fetch failed", err);
         useRaceStore.getState().setReplaySource("heroku");
         if (r2Configured()) {
-          setLoadError(R2_LOAD_ERROR);
-          useRaceStore.getState().setWaiting(true, R2_LOAD_ERROR);
+          const msg = r2FetchErrorMessage(err);
+          setLoadError(msg);
+          useRaceStore.getState().setWaiting(true, msg);
           return;
         }
       }
