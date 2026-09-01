@@ -41,6 +41,9 @@ export {
 export const R2_LOAD_ERROR = "Failed to load race data — check R2 connection";
 export const R2_RACE_UNAVAILABLE = "Race data unavailable — check back soon";
 const FETCH_TIMEOUT_MS = 30_000;
+/** recommend() + per-lap simulate is seconds, not minutes — wait on the request. */
+const GHOST_PACK_TIMEOUT_MS = 60_000;
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
 
 /** Thrown when race_field.json (or another R2 pack file) returns HTTP 404. */
 export class RaceFieldNotFoundError extends Error {
@@ -48,6 +51,18 @@ export class RaceFieldNotFoundError extends Error {
   constructor() {
     super(R2_RACE_UNAVAILABLE);
     this.name = "RaceFieldNotFoundError";
+  }
+}
+
+export type GhostUnavailableCode = "driver_did_not_race" | "ghost_data_gap";
+
+/** Driver is not in this race, or FastF1/pack laps cannot support a ghost. */
+export class GhostUnavailableError extends Error {
+  readonly code: GhostUnavailableCode;
+  constructor(code: GhostUnavailableCode, message: string) {
+    super(message);
+    this.name = "GhostUnavailableError";
+    this.code = code;
   }
 }
 
@@ -232,21 +247,78 @@ export async function fetchRaceField(
   return (await res.json()) as RaceField;
 }
 
+function ghostPackUrl(year: number, round: number, driver: string): string {
+  const qs = new URLSearchParams({
+    year: String(year),
+    round_number: String(round),
+    driver,
+  });
+  return `${API_BASE}/api/aris/ghost-pack?${qs.toString()}`;
+}
+
+function ghostDetailCode(detail: unknown): { code: string; message: string } | null {
+  if (detail && typeof detail === "object" && !Array.isArray(detail)) {
+    const row = detail as { code?: unknown; message?: unknown };
+    const code = typeof row.code === "string" ? row.code : "";
+    const message = typeof row.message === "string" ? row.message : "";
+    if (code || message) return { code, message };
+  }
+  if (typeof detail === "string" && detail) return { code: "", message: detail };
+  return null;
+}
+
+async function fetchGhostFromApi(year: number, round: number, driver: string): Promise<GhostData | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), GHOST_PACK_TIMEOUT_MS);
+  try {
+    const res = await fetch(ghostPackUrl(year, round, driver), { signal: controller.signal });
+    if (res.ok) return (await res.json()) as GhostData;
+    let parsed: { code: string; message: string } | null = null;
+    try {
+      const body = (await res.json()) as { detail?: unknown };
+      parsed = ghostDetailCode(body.detail);
+    } catch {
+      /* ignore parse errors */
+    }
+    const code = parsed?.code || "";
+    const message = parsed?.message || res.statusText || `HTTP ${res.status}`;
+    if (code === "driver_did_not_race" || code === "ghost_data_gap") {
+      throw new GhostUnavailableError(code, message);
+    }
+    if (code === "race_unavailable" || res.status === 404) {
+      return null;
+    }
+    throw new GhostUnavailableError("ghost_data_gap", message);
+  } catch (err) {
+    if (err instanceof GhostUnavailableError) throw err;
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new GhostUnavailableError(
+        "ghost_data_gap",
+        `Timed out computing a ghost for ${driver} after ${GHOST_PACK_TIMEOUT_MS / 1000}s`,
+      );
+    }
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function fetchGhost(
   year: number,
   round: number,
   driver: string,
   onProgress?: (loaded: number, total: number | null) => void,
 ): Promise<GhostData | null> {
-  if (!R2_BASE) return null;
   const code = driver.toUpperCase();
-  try {
-    const res = await fetchWithProgress(r2Url(year, round, `ghost_${code}.json`), onProgress);
-    if (!res.ok) return null;
-    return (await res.json()) as GhostData;
-  } catch {
-    return null;
+  if (R2_BASE) {
+    try {
+      const res = await fetchWithProgress(r2Url(year, round, `ghost_${code}.json`), onProgress);
+      if (res.ok) return (await res.json()) as GhostData;
+    } catch {
+      // Baked file miss or R2 error — fall through to on-demand compute.
+    }
   }
+  return fetchGhostFromApi(year, round, code);
 }
 
 export function plansMatch(a: StratPlan | null | undefined, b: GhostData | null | undefined): boolean {

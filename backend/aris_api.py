@@ -1777,6 +1777,17 @@ def explain_degradation(
     )
 
 
+def ghost_pack(year: int, round_number: int, driver: str) -> dict:
+    """R2-shaped ghost for a driver who raced this weekend.
+
+    Serves a baked ``ghost_{DRIVER}.json`` when present; otherwise computes
+    from ``race_field.json`` and persists it. Does not overwrite existing files.
+    """
+    from aris.ghost_pack import get_or_compute_ghost
+
+    return get_or_compute_ghost(int(year), int(round_number), str(driver).upper())
+
+
 def explain_ghost(
     session_id: str | None,
     driver: str,

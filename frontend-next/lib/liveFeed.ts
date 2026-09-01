@@ -13,6 +13,7 @@ import {
   fieldToLapRows,
   fieldToStintRows,
   ghostTicksMap,
+  GhostUnavailableError,
   lapToElapsed,
   plansMatch,
   elapsedToLap,
@@ -299,6 +300,8 @@ function applyGhost(payload: SsePayload) {
   }
   store.setGhostCar(null);
   store.setGhostData(null);
+  const keep = store.ghostReason;
+  if (keep === "driver_did_not_race" || keep === "ghost_data_gap") return;
   store.setGhostReason(payload.ghost_reason ?? (driver ? "no_divergence" : "no_driver_selected"));
 }
 
@@ -574,10 +577,22 @@ export class ReplayFrameFeed {
       if (plan && !store.activeStrategy) store.setActiveStrategy(plan);
       if (driver) {
         let ghost = store.r2Ghost;
-        if (!ghost) ghost = await fetchGhost(year, round, driver);
+        try {
+          if (!ghost) ghost = await fetchGhost(year, round, driver);
+        } catch (ghostErr) {
+          if (ghostErr instanceof GhostUnavailableError) {
+            store.setR2Ghost(null);
+            store.setGhostTicks({});
+            store.setGhostReason(ghostErr.code);
+            ghost = null;
+          } else {
+            throw ghostErr;
+          }
+        }
         if (ghost) {
           store.setR2Ghost(ghost);
           store.setGhostTicks(ghostTicksMap(ghost));
+          store.setGhostReason(null);
         }
         if (plan && ghost && !plansMatch(plan, ghost)) {
           const recomputed = await postGhostRecompute({
