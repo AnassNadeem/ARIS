@@ -3,7 +3,7 @@ import type { CarState } from "@/lib/types";
 import { circuitCoordsFromReplayOutline } from "@/lib/api";
 import { postGhostRecompute } from "@/lib/api";
 import { isFullCircuitOutline, shouldApplyFallbackOutline } from "@/lib/circuitCache";
-import { mapTimingAndPositions, mergeByDriverCode, mergeCars, sessionFlagToPhase, timingFingerprint } from "@/lib/mapCars";
+import { annotateGhostTower, mapTimingAndPositions, mergeByDriverCode, mergeCars, sessionFlagToPhase, timingFingerprint } from "@/lib/mapCars";
 import { asGhostTick, ghostCarFromTick, ghostLastLapS, ghostPlaybackAt, ghostStartFracFromSamples, maybeLogGhostDiagnostics, syntheticGhostCar, syntheticGhostTick } from "@/lib/ghostCar";
 import { normalizeCompound } from "@/lib/compounds";
 import {
@@ -25,6 +25,8 @@ import {
   raceDurationS,
   deriveGhostLapTimes,
   realLapTimesByDriver,
+  ghostTickAtOrBefore,
+  r2FetchErrorMessage,
   R2_LOAD_ERROR,
 } from "@/lib/r2Replay";
 import type { ApiLapRow, ApiStintRow, CircuitCoords, LivePosition, LiveTimingRow } from "@/lib/types";
@@ -152,7 +154,19 @@ function pinGhostToGridAtStart(car: CarState, real: CarState | null): CarState {
       ? 0
       : 1;
   if (frac >= GRID_START_LAP_FRAC) return car;
-  return { ...car, position: real.position };
+  return {
+    ...car,
+    position: real.position,
+    gap_to_leader_s: real.position === 1 ? 0 : null,
+    gap_ahead_s: null,
+    ghost_delta_s: null,
+    ghost_delta_vs: undefined,
+  };
+}
+
+function finalizeGhostCar(car: CarState, real: CarState | null): CarState {
+  const store = useRaceStore.getState();
+  return pinGhostToGridAtStart(annotateGhostTower(car, store.cars, real), real);
 }
 
 function applyGhost(payload: SsePayload) {
@@ -231,20 +245,19 @@ function applyGhost(payload: SsePayload) {
   }
   const ghostLap = playback?.lap ?? store.currentLap;
   const towerLap = playback?.towerLap ?? ghostLap;
-  const rankTick = driver ? store.ghostTicksByLap[ghostLap] : undefined;
-  const compoundTick = driver ? store.ghostTicksByLap[towerLap] ?? rankTick : undefined;
+  const rankTick = driver ? ghostTickAtOrBefore(store.ghostTicksByLap, ghostLap) : undefined;
+  const compoundTick = driver
+    ? ghostTickAtOrBefore(store.ghostTicksByLap, towerLap) ?? rankTick
+    : undefined;
   const localTick = compoundTick ?? rankTick;
   if (localTick && driver) {
     const mapped = r2TickToGhostTick(localTick, driver, store.r2Ghost);
     if (rankTick) {
-      mapped.ghost_position = rankTick.position;
       mapped.ghost_cumulative_delta = rankTick.cumulative_delta_s;
-      mapped.gap_to_leader_s = rankTick.gap_to_leader_s;
     }
     mapped.plan_pit_laps = pitLaps;
     mapped.plan_pit_compounds = pitCompounds as typeof mapped.plan_pit_compounds;
-    store.setGhostData(mapped);
-    const car = ghostCarFromTick(mapped, real, ghostLap, store.totalLaps, playback);
+    const car = finalizeGhostCar(ghostCarFromTick(mapped, real, ghostLap, store.totalLaps, playback), real);
     car.last_lap_s = playback ? ghostLastLapS(ghostLapS, playback.lastCompletedLap) : null;
     if (car.ghost_in_pits && !car.ghost_pit_compound) {
       const pitLap = pitLaps.find((p) => p === ghostLap) ?? ghostLap;
@@ -253,8 +266,11 @@ function applyGhost(payload: SsePayload) {
         car.ghost_pit_compound = normalizeCompound(pitTick.compound);
       }
     }
+    mapped.ghost_position = car.position ?? mapped.ghost_position;
+    mapped.gap_to_leader_s = car.gap_to_leader_s ?? undefined;
+    store.setGhostData(mapped);
     maybeAnnounceGhostBoxing(car, driver);
-    store.setGhostCar(pinGhostToGridAtStart(car, real));
+    store.setGhostCar(car);
     store.setGhostReason(null);
     return;
   }
@@ -266,17 +282,17 @@ function applyGhost(payload: SsePayload) {
   const tick = asGhostTick(patched);
   if (tick) {
     store.setGhostData(tick);
-    const car = ghostCarFromTick(tick, real, ghostLap, store.totalLaps, playback);
+    const car = finalizeGhostCar(ghostCarFromTick(tick, real, ghostLap, store.totalLaps, playback), real);
     maybeAnnounceGhostBoxing(car, driver);
-    store.setGhostCar(pinGhostToGridAtStart(car, real));
+    store.setGhostCar(car);
     store.setGhostReason(null);
     return;
   }
   const rec = store.pendingRecommendation ?? store.lastRecommendation;
   if (rec && real && driver) {
-    const car = syntheticGhostCar(rec, real, store.currentLap, store.totalLaps, playback);
+    const car = finalizeGhostCar(syntheticGhostCar(rec, real, store.currentLap, store.totalLaps, playback), real);
     maybeAnnounceGhostBoxing(car, driver);
-    store.setGhostCar(pinGhostToGridAtStart(car, real));
+    store.setGhostCar(car);
     store.setGhostData(syntheticGhostTick(rec, driver, store.currentLap));
     store.setGhostReason(null);
     return;
@@ -486,7 +502,8 @@ export class ReplayFrameFeed {
     try {
       if (await this.tryR2(year, round, sessionType)) return;
       if (r2Configured()) {
-        store.setWaiting(true, R2_LOAD_ERROR);
+        const cur = useRaceStore.getState().waitingMessage;
+        store.setWaiting(true, cur && cur !== "Loading race from R2…" ? cur : R2_LOAD_ERROR);
         setFeedStatus("disconnected");
         this.onFailure?.();
         return;
@@ -522,8 +539,8 @@ export class ReplayFrameFeed {
       void this.warmLookahead();
       this.timer = setInterval(() => void this.tick(), 250);
       await this.tick();
-    } catch {
-      if (r2Configured()) store.setWaiting(true, R2_LOAD_ERROR);
+    } catch (err) {
+      if (r2Configured()) store.setWaiting(true, r2FetchErrorMessage(err));
       setFeedStatus("disconnected");
       this.onFailure?.();
     }
@@ -604,7 +621,7 @@ export class ReplayFrameFeed {
     } catch (err) {
       console.warn("[ReplayFrameFeed] R2 fetch failed", err);
       store.setReplaySource("heroku");
-      store.setWaiting(true, R2_LOAD_ERROR);
+      store.setWaiting(true, r2FetchErrorMessage(err));
       return false;
     }
   }

@@ -246,6 +246,7 @@ describe("ghostCarFromTick playback", () => {
     const car = ghostCarFromTick(tick(), null, 1, 57, pb);
     expect(car.driver_number).toBe(0);
     expect(car.full_name).toBe("ARIS");
+    expect(car.is_ghost).toBe(true);
     expect(car.ghost_in_pits).toBe(true);
     expect(car.is_pitted).toBe(true);
     expect(car.ghost_pit_compound).toBe("HARD");

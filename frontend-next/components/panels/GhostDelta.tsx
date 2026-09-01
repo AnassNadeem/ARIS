@@ -12,10 +12,10 @@ import {
   YAxis,
 } from "recharts";
 import { useRaceStore } from "@/store/raceStore";
-import type { GhostDeltaPoint } from "@/lib/types";
 import { PanelEmpty, PanelSkeleton, usePanelFeedLoading } from "@/components/ui/PanelStates";
 import { useAnalyticsReady } from "@/lib/usePanelHistory";
 import { AXIS_TICK, xAxisLabel, yAxisLabel } from "@/lib/chartAxis";
+import { ghostDeltaChartPoints } from "@/lib/r2Replay";
 
 function formatDelta(v: number): string {
   if (v >= 0) return `+${v.toFixed(2)}s`;
@@ -50,7 +50,7 @@ function GhostTooltip({
 
 function ghostEmptyCopy(isARISOn: boolean, reason: string | null): string {
   if (!isARISOn || reason === "aris_disabled") {
-    return "ARIS is off. Turn ARIS on and select a driver to compare the recommended strategy as a ghost.";
+    return "ARIS is off. On the replay setup screen, click On, pick a driver, then a strategy — the ghost is ARIS's plan from lights out.";
   }
   if (reason === "no_driver_selected") {
     return "Select a driver to compute the ARIS ghost.";
@@ -59,9 +59,9 @@ function ghostEmptyCopy(isARISOn: boolean, reason: string | null): string {
     return "This session isn't in the ARIS database yet, so the ghost can't be computed from lap 1. Ingested race sessions show ARIS's lights-out plan on the map and tower.";
   }
   if (reason === "no_divergence") {
-    return "Computing the ARIS ghost from lap 1 — or waiting for the first replay frame. The ghost is ARIS's full-race plan, not only a later divergence.";
+    return "No ghost_*.json for this driver/race, or it hasn't loaded yet. Use a completed replay pack (e.g. 2024 Bahrain or 2026 Hungary/Zandvoort) with ARIS On from setup.";
   }
-  return "No active ghost driver. Turn ARIS on and select a driver; the ghost is ARIS's strategy from lights out.";
+  return "No active ghost driver. Turn ARIS on from the replay setup (On), pick a driver, then Start Race.";
 }
 
 export function GhostDelta() {
@@ -70,39 +70,30 @@ export function GhostDelta() {
   const currentLap = useRaceStore((s) => s.currentLap);
   const isARISOn = useRaceStore((s) => s.isARISOn);
   const ghostReason = useRaceStore((s) => s.ghostReason);
+  const arisDriver = useRaceStore((s) => s.arisDriver ?? s.selectedDriver ?? s.focusDriver);
   const loading = usePanelFeedLoading();
   const ready = useAnalyticsReady();
 
-  const chartData = useMemo(() => {
-    if (!ready) return [];
-    if (ghostData?.delta_history?.length) {
-      return ghostData.delta_history
-        .filter((pt: GhostDeltaPoint) => pt.lap <= Math.max(1, currentLap))
-        .map((pt: GhostDeltaPoint) => ({
-          lap: pt.lap,
-          delta: pt.delta,
-        }));
-    }
-    return Object.values(ghostTicks)
-      .filter((t) => t.lap <= Math.max(1, currentLap))
-      .sort((a, b) => a.lap - b.lap)
-      .map((t) => ({ lap: t.lap, delta: t.cumulative_delta_s }));
-  }, [ghostData, ghostTicks, currentLap, ready]);
+  const chartData = useMemo(
+    () => (ready ? ghostDeltaChartPoints(ghostData, ghostTicks, currentLap) : []),
+    [ghostData, ghostTicks, currentLap, ready],
+  );
+  const hasGhost = Boolean(ghostData) || (isARISOn && Object.keys(ghostTicks).length > 0);
 
   if (!ready) {
     return (
       <PanelEmpty
         title="Ghost delta"
-        detail="Time delta between the real driver and the ARIS ghost. Empty until you click Start Race."
+        detail="Time delta between the real driver and the ARIS ghost. Click Start Race in the header — the chart stays blank until lights-out."
       />
     );
   }
 
-  if (loading && (!isARISOn || !ghostData)) {
+  if (loading && !hasGhost) {
     return <PanelSkeleton />;
   }
 
-  if (!isARISOn || !ghostData) {
+  if (!isARISOn || !hasGhost) {
     return (
       <PanelEmpty
         title="Ghost delta"
@@ -111,10 +102,13 @@ export function GhostDelta() {
     );
   }
 
-  const divLap = ghostData.divergence_lap;
-  const outcome = ghostData.outcome;
-  const pitLaps = ghostData.plan_pit_laps ?? [];
-  const pitCompounds = ghostData.plan_pit_compounds ?? [];
+  const divLap = ghostData?.divergence_lap ?? 1;
+  const outcome = ghostData?.outcome;
+  const pitLaps = ghostData?.plan_pit_laps ?? [];
+  const pitCompounds = ghostData?.plan_pit_compounds ?? [];
+  const driverCode = ghostData?.driver_code ?? arisDriver ?? "—";
+  const arisAction = ghostData?.aris_action ?? "STAY_OUT";
+  const realAction = ghostData?.real_action ?? "STAY_OUT";
 
   const outcomeLabel =
     outcome === "ARIS_CORRECT"
@@ -132,11 +126,11 @@ export function GhostDelta() {
       <div className="shrink-0 border-b border-border px-4 py-2">
         <div className="flex items-center justify-between">
           <span className="font-sans text-xs text-white">
-            Ghost Δ — <span className="font-mono-data">{ghostData.driver_code}</span>
+            Ghost Δ — <span className="font-mono-data">{driverCode}</span>
           </span>
           <span className="font-mono-data text-[10px] text-muted">
-            Div. L{divLap}: {ghostData.aris_action}{" "}
-            <span className="text-amber">vs</span> {ghostData.real_action}
+            Div. L{divLap}: {arisAction}{" "}
+            <span className="text-amber">vs</span> {realAction}
           </span>
         </div>
         {outcome && (

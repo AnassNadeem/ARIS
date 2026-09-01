@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { filterReplayRounds, replayYears, defaultReplayYear, startFinishMarker, isReplayableRound, chequeredSfFlag } from "./replayFilter";
-import { mapTimingAndPositions, mergeByDriverCode, mergeCars, onTrackCarCodes, orderTimingTower, sessionFlagToPhase, timingEqual, timingFingerprint } from "./mapCars";
+import { annotateGhostTower, mapTimingAndPositions, mergeByDriverCode, mergeCars, onTrackCarCodes, orderTimingTower, rankGhostByGap, realClassifiedCars, sessionFlagToPhase, timingEqual, timingFingerprint } from "./mapCars";
 import { normalizeCompound, msToSeconds } from "./compounds";
 import { countryFlag } from "./flags";
 import { commsTabs, nextSelectorStep } from "./sessionFlow";
 import { driverOutOfRace, fmtGap, fmtSectorTime, sectorClass } from "./timingDisplay";
 import { buildPath, fractionAtPoint, lerpFrac, pointAtFraction } from "./trackGeometry";
-import { PathCarAnimator } from "./deadReckoning";
+import { PathCarAnimator, wrappedDelta } from "./deadReckoning";
 import { isFullCircuitOutline, shouldApplyFallbackOutline } from "./circuitCache";
 import { lapRecordsFromApi, stintsFromLapRecords } from "./panelData";
 import { sectorPathsFromOutline } from "./trackGeometry";
@@ -151,6 +151,8 @@ describe("timing display", () => {
     expect(sectorClass("purple")).toContain("c44dff");
     expect(sectorClass("green")).toContain("39ff14");
     expect(fmtGap(0)).toBe("LEADER");
+    expect(fmtGap(-0.4)).toBe("LEADER");
+    expect(fmtGap(1.2)).toBe("+1.2s");
     expect(fmtGap(1.2, 1)).toBe("+1L");
     expect(fmtSectorTime(25.123)).toBe("25.123");
     expect(fmtSectorTime(null)).toBe("—");
@@ -199,23 +201,29 @@ describe("path interpolation", () => {
     const frac = fractionAtPoint(path, 10, 0);
     expect(frac).toBeGreaterThanOrEqual(0);
     expect(lerpFrac(0.9, 0.1, 0.5)).toBeCloseTo(0, 5);
+    expect(lerpFrac(0.1, 0.9, 0.5)).toBeCloseTo(0.5, 5);
     const anim = new PathCarAnimator(path, 0, 200);
-    anim.onTick(0.25, 0);
+    anim.onTick(0.25, 0, { playbackSpeed: 4 });
     const pos = anim.currentPosition(200);
     expect(Number.isFinite(pos.x)).toBe(true);
     expect(Number.isFinite(pos.y)).toBe(true);
-    anim.onTick(0.3, 250);
+    anim.onTick(0.3, 250, { playbackSpeed: 4 });
     const later = anim.currentPosition(500);
-    expect(later.frac).toBeGreaterThan(0.2);
+    expect(later.frac).toBeGreaterThan(0.05);
     expect(later.frac).toBeLessThan(0.5);
     const onLine = fractionAtPoint(path, later.x, later.y);
     expect(Math.abs(onLine - later.frac) < 0.02 || Math.abs(onLine - later.frac) > 0.98).toBe(true);
   });
 
+  it("keeps S/F wrap forward and does not reverse a >0.5 jump", () => {
+    expect(wrappedDelta(0.9, 0.1)).toBeCloseTo(0.2, 5);
+    expect(wrappedDelta(0.1, 0.9)).toBeCloseTo(0.8, 5);
+  });
+
   it("eases toward a new tick instead of snapping", () => {
     const path = buildPath([0, 10, 10, 0], [0, 0, 10, 10]);
     const anim = new PathCarAnimator(path, 0, 140);
-    anim.onTick(0.2, 0);
+    anim.onTick(0.2, 0, { playbackSpeed: 4 });
     const a = anim.currentPosition(16);
     const b = anim.currentPosition(32);
     expect(a.frac).toBeGreaterThan(0);
@@ -230,6 +238,24 @@ describe("path interpolation", () => {
     anim.onTick(0.5, 0, { playbackSpeed: 1 });
     const a = anim.currentPosition(16, true);
     expect(a.frac).toBeLessThan(0.05);
+  });
+
+  it("follows a 1x GPS-sized bump instead of lagging it", () => {
+    const path = buildPath([0, 10, 10, 0], [0, 0, 10, 10]);
+    const anim = new PathCarAnimator(path, 0, 140);
+    anim.onTick(0.01, 0, { playbackSpeed: 1 });
+    const a = anim.currentPosition(16, true);
+    expect(a.frac).toBeGreaterThan(0.005);
+    expect(a.frac).toBeLessThan(0.012);
+  });
+
+  it("snaps onto the new target when playback speed drops", () => {
+    const path = buildPath([0, 10, 10, 0], [0, 0, 10, 10]);
+    const anim = new PathCarAnimator(path, 0.4, 140);
+    anim.onTick(0.4, 0, { playbackSpeed: 50 });
+    anim.onTick(0.28, 16, { playbackSpeed: 1 });
+    const pos = anim.currentPosition(32, true);
+    expect(pos.frac).toBeCloseTo(0.28, 3);
   });
 
   it("fingerprints timing so unchanged SSE ticks can be skipped", () => {
@@ -426,6 +452,142 @@ describe("orderTimingTower", () => {
     );
     expect(rows.map((r) => r.driver_code)).toEqual(["VER", "A_VER", "LEC", "HAM", "GAS"]);
   });
+
+  it("sorts a ghost already in the cars array like a classified car", () => {
+    const rows = orderTimingTower([
+      car({ driver_code: "VER", position: 1, gap_to_leader_s: 0 }),
+      car({ driver_code: "NOR", position: 2, gap_to_leader_s: 0.8 }),
+      car({ driver_code: "LEC", position: 3, gap_to_leader_s: 1.5 }),
+      car({ driver_code: "A_NOR", position: 2, is_ghost: true, gap_to_leader_s: 0.8 }),
+    ]);
+    expect(rows.map((r) => r.driver_code)).toEqual(["VER", "A_NOR", "NOR", "LEC"]);
+  });
+
+  it("excludes the ghost from real classified count", () => {
+    const rows = orderTimingTower(
+      [
+        car({ driver_code: "VER", position: 1 }),
+        car({ driver_code: "NOR", position: 2 }),
+        car({ driver_code: "GAS", position: 3, is_dnf: true }),
+      ],
+      car({ driver_code: "A_VER", position: 2, is_ghost: true }),
+    );
+    expect(rows).toHaveLength(4);
+    expect(realClassifiedCars(rows).map((r) => r.driver_code)).toEqual(["VER", "NOR"]);
+  });
+});
+
+describe("annotateGhostTower", () => {
+  const base = {
+    driver_code: "VER",
+    driver_number: 1,
+    full_name: "Max",
+    team: "RBR",
+    team_colour: "#00f",
+    position: 1,
+    lap_number: 12,
+    compound: "MEDIUM" as const,
+    tyre_life: 12,
+    gap_to_leader_s: 0,
+    gap_ahead_s: 0,
+    gap_ahead_history: [] as number[],
+    last_lap_s: 71,
+    pit_stops: 0,
+    is_pitted: false,
+    is_dnf: false,
+    x: 10,
+    y: 10,
+    speed_kph: 200,
+    heading_rad: 0,
+    laps_remaining: 45,
+    total_laps: 57,
+    path_frac: 0.2,
+  } satisfies CarState;
+
+  function car(over: Partial<CarState>): CarState {
+    return { ...base, ...over };
+  }
+
+  const field = {
+    VER: car({ driver_code: "VER", position: 1, gap_to_leader_s: 0, gap_ahead_s: 0 }),
+    NOR: car({ driver_code: "NOR", position: 2, gap_to_leader_s: 1.2, gap_ahead_s: 1.2 }),
+    LEC: car({ driver_code: "LEC", position: 3, gap_to_leader_s: 2.4, gap_ahead_s: 1.2 }),
+    GAS: car({ driver_code: "GAS", position: 4, gap_to_leader_s: 8, is_dnf: true }),
+  };
+
+  it("ranks by classified gap_to_leader, ignoring stale tick position and path_frac", () => {
+    const ghost = car({
+      driver_code: "A_NOR",
+      is_ghost: true,
+      position: 23,
+      gap_to_leader_s: 6742,
+      ghost_cumulative_delta: 0.5,
+      path_frac: 0.91,
+    });
+    const placed = annotateGhostTower(ghost, field, field.NOR);
+    expect(placed.is_ghost).toBe(true);
+    expect(placed.position).toBe(2);
+    expect(placed.gap_to_leader_s).toBeCloseTo(0.7, 5);
+    expect(placed.ghost_delta_vs).toBe("VER");
+    expect(placed.ghost_delta_s).toBeCloseTo(-0.7, 5);
+    expect(placed.gap_ahead_s).toBeCloseTo(0.7, 5);
+  });
+
+  it("uses +delta (ahead) / −delta (behind) vs the adjacent real car", () => {
+    const behind = annotateGhostTower(
+      car({ driver_code: "A_NOR", ghost_cumulative_delta: 0.5, position: 23 }),
+      field,
+      field.NOR,
+    );
+    expect(behind.ghost_delta_s).toBeLessThan(0);
+    expect(fmtGap(behind.gap_to_leader_s)).toBe("+0.7s");
+
+    const ahead = annotateGhostTower(
+      car({ driver_code: "A_NOR", ghost_cumulative_delta: 1.5, position: 23 }),
+      field,
+      field.NOR,
+    );
+    expect(ahead.position).toBe(1);
+    expect(ahead.ghost_delta_vs).toBe("VER");
+    expect(ahead.ghost_delta_s).toBeCloseTo(0.3, 5);
+    expect(ahead.ghost_delta_s).toBeGreaterThan(0);
+    expect(fmtGap(ahead.gap_to_leader_s)).toBe("LEADER");
+  });
+
+  it("matches the focus driver's classified position when cumulative_delta is 0", () => {
+    const placed = annotateGhostTower(
+      car({ driver_code: "A_NOR", ghost_cumulative_delta: 0, position: 23 }),
+      field,
+      field.NOR,
+    );
+    expect(placed.position).toBe(2);
+    expect(placed.gap_to_leader_s).toBe(1.2);
+  });
+
+  it("does not change rank when path_frac / pos_samples on the inputs change", () => {
+    const ghost = car({
+      driver_code: "A_NOR",
+      ghost_cumulative_delta: 0.5,
+      path_frac: 0.1,
+    });
+    const a = annotateGhostTower(ghost, field, field.NOR);
+    const shifted = {
+      VER: { ...field.VER, path_frac: 0.99, x: 1, y: 2 },
+      NOR: { ...field.NOR, path_frac: 0.02, x: 3, y: 4 },
+      LEC: { ...field.LEC, path_frac: 0.5 },
+      GAS: { ...field.GAS, path_frac: 0.7 },
+    };
+    const b = annotateGhostTower({ ...ghost, path_frac: 0.77, x: 9, y: 9 }, shifted, shifted.NOR);
+    expect(b.position).toBe(a.position);
+    expect(b.gap_to_leader_s).toBe(a.gap_to_leader_s);
+    expect(b.ghost_delta_s).toBe(a.ghost_delta_s);
+    expect(b.ghost_delta_vs).toBe(a.ghost_delta_vs);
+  });
+
+  it("rankGhostByGap ignores DNF-sized gaps that are not in the classified snapshot", () => {
+    expect(rankGhostByGap(0.7, [0, 1.2, 2.4], 99)).toBe(2);
+    expect(rankGhostByGap(0, [0, 1.2, 2.4], 99)).toBe(1);
+  });
 });
 
 describe("onTrackCarCodes", () => {
@@ -518,6 +680,7 @@ describe("ghostCarFromTick", () => {
     });
     const car = ghostCarFromTick(tick!, real, 20, 72, playback);
     expect(car.driver_code).toBe("A_HAM");
+    expect(car.is_ghost).toBe(true);
     expect(car.full_name).toBe("ARIS");
     expect(car.driver_number).toBe(0);
     expect(car.path_frac).toBeCloseTo(0.5, 5);

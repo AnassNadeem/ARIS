@@ -1,15 +1,18 @@
 "use client";
 
-import { memo, useMemo } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useRaceStore } from "@/store/raceStore";
 import { TyreIcon } from "@/components/ui/TyreIcon";
 import { PanelEmpty, PanelSkeleton, usePanelFeedLoading } from "@/components/ui/PanelStates";
 import { useFocusDriver } from "@/lib/useFocusDriver";
-import { orderTimingTower, timingEqual } from "@/lib/mapCars";
+import { isGhostRow, orderTimingTower, timingEqual } from "@/lib/mapCars";
 import { driverOutOfRace, fmtGap, fmtLapTime, fmtSectorTime, sectorClass } from "@/lib/timingDisplay";
 import type { CarState } from "@/lib/types";
 
 const TOWER_COLS = "grid-cols-[28px_82px_60px_72px_72px_52px_52px_52px_28px_32px_40px]";
+const PIT_CHURN_MS = 2000;
+
+export type TowerFlashKind = "gain" | "loss" | "pit";
 
 function fmtGhostDelta(v: number): string {
   if (v > 0) return `+${v.toFixed(1)}s`;
@@ -17,23 +20,69 @@ function fmtGhostDelta(v: number): string {
   return "±0.0s";
 }
 
+function useTowerFlashes(rows: CarState[]): Record<string, { kind: TowerFlashKind; at: number }> {
+  const [flashes, setFlashes] = useState<Record<string, { kind: TowerFlashKind; at: number }>>({});
+  const prevRef = useRef<Map<string, { position: number; is_pitted: boolean }>>(new Map());
+  const pitChurnUntil = useRef(0);
+
+  useEffect(() => {
+    const now = performance.now();
+    const prev = prevRef.current;
+    const next = new Map<string, { position: number; is_pitted: boolean }>();
+    const pitEntered = rows.some((c) => {
+      const before = prev.get(c.driver_code);
+      return Boolean(c.is_pitted || c.ghost_in_pits) && before?.is_pitted === false;
+    });
+    if (pitEntered) pitChurnUntil.current = now + PIT_CHURN_MS;
+    const churn = now < pitChurnUntil.current;
+    const patch: Record<string, { kind: TowerFlashKind; at: number }> = {};
+    for (const car of rows) {
+      const pos = car.position != null && car.position > 0 ? car.position : 99;
+      const pitted = Boolean(car.is_pitted || car.ghost_in_pits);
+      const before = prev.get(car.driver_code);
+      next.set(car.driver_code, { position: pos, is_pitted: pitted });
+      if (!before) continue;
+      if (pitted && !before.is_pitted) {
+        patch[car.driver_code] = { kind: "pit", at: now };
+        continue;
+      }
+      if (churn || pitted) continue;
+      if (pos < before.position) patch[car.driver_code] = { kind: "gain", at: now };
+      else if (pos > before.position) patch[car.driver_code] = { kind: "loss", at: now };
+    }
+    prevRef.current = next;
+    if (Object.keys(patch).length) {
+      setFlashes((cur) => ({ ...cur, ...patch }));
+    }
+  }, [rows]);
+
+  return flashes;
+}
+
 const TimingRow = memo(function TimingRow({
   car,
   isFocus,
   onFocus,
+  flash,
 }: {
   car: CarState;
   isFocus: boolean;
   onFocus: (code: string) => void;
+  flash: { kind: TowerFlashKind; at: number } | null;
 }) {
-  const isGhost = car.driver_code.startsWith("A_");
+  const isGhost = isGhostRow(car);
   const code = isGhost ? car.driver_code.replace("A_", "") : car.driver_code;
   const out = driverOutOfRace(car.status, car.is_dnf);
+  const ghostDelta = car.ghost_delta_s;
   return (
     <div
       data-testid={isGhost ? "ghost-tower-row" : `tower-row-${car.driver_code}`}
       data-dnf={car.is_dnf ? "true" : "false"}
       data-position={car.position ?? ""}
+      data-flash={flash?.kind ?? ""}
+      data-is-ghost={isGhost ? "true" : "false"}
+      data-ghost-delta={ghostDelta != null ? String(ghostDelta) : ""}
+      data-delta-vs={car.ghost_delta_vs ?? ""}
       onClick={() => {
         if (!isGhost) onFocus(car.driver_code);
       }}
@@ -41,10 +90,14 @@ const TimingRow = memo(function TimingRow({
         isGhost
           ? `ARIS from lap 1: ${car.aris_action || "strategy"}${
               car.divergence_lap ? ` · vs ${car.real_action ?? "real"}` : ""
+            }${
+              car.ghost_delta_vs && ghostDelta != null
+                ? ` · ${fmtGhostDelta(ghostDelta)} vs ${car.ghost_delta_vs}`
+                : ""
             }`
           : undefined
       }
-      className={`grid h-8 ${TOWER_COLS} items-center gap-x-2 px-2 ${
+      className={`relative grid h-8 ${TOWER_COLS} items-center gap-x-2 px-2 ${
         isGhost
           ? "cursor-default border-y border-white/35"
           : `cursor-pointer border-b border-border/60 ${
@@ -60,21 +113,26 @@ const TimingRow = memo(function TimingRow({
           : undefined
       }
     >
+      {flash ? <span key={flash.at} className={`tower-flash-${flash.kind}`} /> : null}
       <span className="text-white">{car.position ?? "—"}</span>
       <span className="flex items-center gap-1 text-white">
         {isGhost ? (
           <>
             <span className="h-2 w-1 rounded-sm bg-white/80" />
             <span className="font-semibold tracking-wide text-white">ARIS</span>
-            {car.ghost_cumulative_delta != null && (
+            {car.ghost_delta_s != null && (
               <span
                 className={`text-[9px] font-semibold ${
-                  car.ghost_cumulative_delta >= 0 ? "text-green-400" : "text-red-400"
+                  car.ghost_delta_s >= 0 ? "text-green-400" : "text-red-400"
                 }`}
-                title="ARIS cumulative gain/loss vs the real driver's actual strategy"
+                title={
+                  car.ghost_delta_vs
+                    ? `Gap to ${car.ghost_delta_vs} (adjacent classified car)`
+                    : "Gap to adjacent classified car"
+                }
               >
-                {car.ghost_cumulative_delta >= 0 ? "▲" : "▼"}
-                {fmtGhostDelta(car.ghost_cumulative_delta)}
+                {car.ghost_delta_s >= 0 ? "▲" : "▼"}
+                {fmtGhostDelta(car.ghost_delta_s)}
               </span>
             )}
           </>
@@ -113,7 +171,13 @@ const TimingRow = memo(function TimingRow({
       </span>
     </div>
   );
-}, (prev, next) => prev.isFocus === next.isFocus && prev.onFocus === next.onFocus && timingEqual(prev.car, next.car));
+}, (prev, next) =>
+  prev.isFocus === next.isFocus &&
+  prev.onFocus === next.onFocus &&
+  prev.flash?.kind === next.flash?.kind &&
+  prev.flash?.at === next.flash?.at &&
+  timingEqual(prev.car, next.car),
+);
 
 export function TimingTower() {
   const cars = useRaceStore((s) => s.cars);
@@ -130,9 +194,13 @@ export function TimingTower() {
   const preRace = consoleMode !== "live" && consolePlayState !== "racing";
 
   const rows = useMemo(() => {
-    const list = Object.values(cars);
-    return orderTimingTower(list, isARISOn && ghostCar ? ghostCar : null);
+    // Tower ghost is independent of NEXT_PUBLIC_ARIS_GHOST_MAP (map-dot only).
+    const list = Object.values(cars).filter((c) => !isGhostRow(c));
+    const ghost = isARISOn && ghostCar ? { ...ghostCar, is_ghost: true as const } : null;
+    return orderTimingTower(ghost ? [...list, ghost] : list);
   }, [cars, ghostCar, isARISOn]);
+
+  const flashes = useTowerFlashes(rows);
 
   const banner =
     racePhase === "SC"
@@ -182,7 +250,8 @@ export function TimingTower() {
                 <TimingRow
                   key={car.driver_code}
                   car={car}
-                  isFocus={!car.driver_code.startsWith("A_") && car.driver_code === focus}
+                  flash={flashes[car.driver_code] ?? null}
+                  isFocus={!isGhostRow(car) && car.driver_code === focus}
                   onFocus={setFocusDriver}
                 />
               ))

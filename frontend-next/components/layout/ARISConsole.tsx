@@ -1,25 +1,26 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Actions,
   DockLocation,
   Layout,
   Model,
+  type Action,
   type IJsonModel,
   type ILayoutApi,
+  type Node as FlexNode,
   type TabNode,
 } from "flexlayout-react";
 import "flexlayout-react/style/dark.css";
 import { useRaceStore } from "@/store/raceStore";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { PanelWrapper, renderTabWithTearOff } from "@/components/layout/PanelWrapper";
-import { AnalyticsAddSlot } from "@/components/layout/AnalyticsAddSlot";
 import { AnalyticsCatalogue } from "@/components/layout/AnalyticsCatalogue";
 import { MobileConsole } from "@/components/layout/MobileConsole";
 import { catalogueEntry, renderPanel } from "@/lib/panelRegistry";
 import { getCircuitCoords } from "@/lib/api";
-import { defaultAnalyticsIds, loadAnalyticsSlots, saveAnalyticsSlots } from "@/lib/analyticsSlots";
+import { defaultAnalyticsIds, loadAnalyticsSlots, moveAnalyticsSlot, saveAnalyticsSlots, clearAnalyticsSlots } from "@/lib/analyticsSlots";
 import { useIsNarrow } from "@/lib/useIsNarrow";
 import { MockRaceFeed } from "@/lib/mockRaceFeed";
 import { LiveSseFeed, ReplayFrameFeed } from "@/lib/liveFeed";
@@ -29,33 +30,43 @@ import { SpeedWidget } from "@/components/ui/SpeedWidget";
 import { RaceFinishedDebrief } from "@/components/aris/RaceFinishedDebrief";
 import { StrategyChangeBanner } from "@/components/aris/StrategyChangeBanner";
 import { useArisRecommendLoop } from "@/lib/useArisRecommendLoop";
-import { formatLapHeader } from "@/lib/formatLap";
+import { formatLapCompact, formatLapHeader } from "@/lib/formatLap";
 import { sessionLabel } from "@/lib/sessionFlow";
 import { useCountdown } from "@/lib/useCountdown";
 import {
-  ANALYTICS_ADD_TAB_ID,
-  ANALYTICS_ADD_TABSET_ID,
   ANALYTICS_ROW_ID,
   componentsFromLayoutJson,
   loadPersistedLayout,
+  rowWeightFromLayout,
   savePersistedLayout,
+  clearPersistedLayout,
 } from "@/lib/layoutPersist";
 
 const COMMS_TABSET_ID = "comms-tabset";
 const MAIN_ROW_ID = "main-dock-row";
 
-const AnalyticsLayoutCtx = createContext<{
-  onAdd: (componentId: string) => void;
-  already: string[];
-}>({ onAdd: () => {}, already: [] });
+/** Main dock fills one screen; analytics sit on a scrollable canvas below. */
+const MAIN_ROW_VH = 100;
+const ANALYTICS_BASE_VH = 56;
+const GROWTH_PER_TAB_VH = 30;
+const BASE_ANALYTICS_TABS = 3;
+const MAX_EXTRA_VH = 360;
 
-function AnalyticsAddTab() {
-  const { onAdd, already } = useContext(AnalyticsLayoutCtx);
-  return (
-    <PanelWrapper>
-      <AnalyticsAddSlot onAdd={onAdd} already={already} />
-    </PanelWrapper>
-  );
+function extraVhFromCount(count: number): number {
+  return Math.max(0, Math.min(MAX_EXTRA_VH, (count - BASE_ANALYTICS_TABS) * GROWTH_PER_TAB_VH));
+}
+
+function countTabsInSubtree(node: FlexNode): number {
+  if (node.getType() === "tab") return 1;
+  return node.getChildren().reduce((sum, child) => sum + countTabsInSubtree(child), 0);
+}
+
+/** Tabs below the main dock (analytics canvas), not lap-times etc. in the top row. */
+function countAnalyticsCanvasTabs(model: Model): number {
+  const main = model.getNodeById(MAIN_ROW_ID);
+  const mainCount = main ? countTabsInSubtree(main) : 0;
+  const all = componentsFromLayoutJson(model.toJson()).filter((id) => id !== "analytics-add").length;
+  return Math.max(0, all - mainCount);
 }
 
 function analyticsIdsFromModel(model: Model): string[] {
@@ -66,10 +77,9 @@ function analyticsIdsFromModel(model: Model): string[] {
 
 function tab(componentId: string, name?: string, extra: Record<string, unknown> = {}) {
   const entry = catalogueEntry(componentId);
-  const stableId = componentId === "analytics-add" ? ANALYTICS_ADD_TAB_ID : undefined;
   return {
     type: "tab",
-    id: stableId ?? `${componentId}-${Math.random().toString(36).slice(2, 8)}`,
+    id: `${componentId}-${Math.random().toString(36).slice(2, 8)}`,
     name: name ?? entry?.label ?? componentId,
     component: componentId,
     ...extra,
@@ -80,7 +90,7 @@ function buildDefaultModel(isARISOn: boolean): IJsonModel {
   const mainRow = {
     type: "row",
     id: MAIN_ROW_ID,
-    weight: 62,
+    weight: MAIN_ROW_VH,
     children: [
       {
         type: "tabset",
@@ -111,25 +121,19 @@ function buildDefaultModel(isARISOn: boolean): IJsonModel {
   const analyticsRow = {
     type: "row",
     id: ANALYTICS_ROW_ID,
-    weight: 38,
-    children: [
-      { type: "tabset", weight: 28, children: [tab("tyredeg")] },
-      { type: "tabset", weight: 28, children: [tab("sectortimes")] },
-      { type: "tabset", weight: 28, children: [tab("gapchart")] },
-      {
-        type: "tabset",
-        id: ANALYTICS_ADD_TABSET_ID,
-        weight: 16,
-        enableDrop: false,
-        children: [
-          tab("analytics-add", "+", {
-            enableClose: false,
-            enableDrag: false,
-            enableRename: false,
-          }),
+    weight: ANALYTICS_BASE_VH,
+    children: isARISOn
+      ? [
+          { type: "tabset", weight: 25, children: [tab("ghostdelta", "Ghost Δ")] },
+          { type: "tabset", weight: 25, children: [tab("tyredeg")] },
+          { type: "tabset", weight: 25, children: [tab("sectortimes")] },
+          { type: "tabset", weight: 25, children: [tab("gapchart")] },
+        ]
+      : [
+          { type: "tabset", weight: 34, children: [tab("tyredeg")] },
+          { type: "tabset", weight: 33, children: [tab("sectortimes")] },
+          { type: "tabset", weight: 33, children: [tab("gapchart")] },
         ],
-      },
-    ],
   };
 
   return {
@@ -137,8 +141,8 @@ function buildDefaultModel(isARISOn: boolean): IJsonModel {
       rootOrientationVertical: true,
       tabEnableClose: true,
       tabSetEnableMaximize: true,
-      tabSetMinWidth: 120,
-      tabSetMinHeight: 100,
+      tabSetMinWidth: 160,
+      tabSetMinHeight: 120,
     },
     borders: [],
     layout: {
@@ -229,7 +233,11 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
   const canPersistLayout = useRef(false);
   const [layoutReady, setLayoutReady] = useState(false);
   const isNarrow = useIsNarrow();
-  const [analyticsSlots, setAnalyticsSlots] = useState<string[]>(() => defaultAnalyticsIds());
+  const [analyticsSlots, setAnalyticsSlots] = useState<string[]>(() =>
+    defaultAnalyticsIds({ arisOn: useRaceStore.getState().isARISOn }),
+  );
+  const [extraVh, setExtraVh] = useState(0);
+  const [layoutEpoch, setLayoutEpoch] = useState(0);
 
   useEffect(() => {
     const saved = loadPersistedLayout();
@@ -241,6 +249,13 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
         const fromLayout = analyticsIdsFromModel(loaded);
         if (fromLayout.length) setAnalyticsSlots(fromLayout);
         else if (extra?.length) setAnalyticsSlots(extra);
+        const count = countAnalyticsCanvasTabs(loaded);
+        const weight = rowWeightFromLayout(saved, ANALYTICS_ROW_ID);
+        if (weight != null && weight > ANALYTICS_BASE_VH) {
+          setExtraVh(Math.min(MAX_EXTRA_VH, weight - ANALYTICS_BASE_VH));
+        } else {
+          setExtraVh(extraVhFromCount(count));
+        }
       } catch {
         if (extra?.length) setAnalyticsSlots(extra);
       }
@@ -389,14 +404,29 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
     });
   }, []);
 
-  const handleModelChange = useCallback((changedModel: Model) => {
+  const handleModelChange = useCallback((changedModel: Model, action: Action) => {
     const ids = analyticsIdsFromModel(changedModel);
-    setAnalyticsSlots(ids.length ? ids : defaultAnalyticsIds());
-    saveAnalyticsSlots(ids.length ? ids : defaultAnalyticsIds());
+    setAnalyticsSlots(ids.length ? ids : defaultAnalyticsIds({ arisOn: isARISOn }));
+    saveAnalyticsSlots(ids.length ? ids : defaultAnalyticsIds({ arisOn: isARISOn }));
     if (canPersistLayout.current) {
       savePersistedLayout(changedModel);
     }
-  }, []);
+    if (action.type === Actions.ADJUST_WEIGHTS) return;
+    const count = countAnalyticsCanvasTabs(changedModel);
+    setExtraVh((v) => {
+      const next = extraVhFromCount(count);
+      return next === v ? v : next;
+    });
+  }, [isARISOn]);
+
+  useEffect(() => {
+    if (!layoutReady || isNarrow) return;
+    const root = model.getRootRow();
+    if (!root) return;
+    const children = root.getChildren();
+    if (children.length !== 2) return;
+    model.doAction(Actions.adjustWeights(root.getId(), [MAIN_ROW_VH, ANALYTICS_BASE_VH + extraVh]));
+  }, [extraVh, model, layoutReady, isNarrow]);
 
   useEffect(() => {
     if (!layoutReady) return;
@@ -406,7 +436,6 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
   const factory = useMemo(() => {
     return function renderTabContent(node: TabNode) {
       const componentId = node.getComponent() ?? "";
-      if (componentId === "analytics-add") return <AnalyticsAddTab />;
       return <PanelWrapper>{renderPanel(componentId)}</PanelWrapper>;
     };
   }, []);
@@ -428,6 +457,15 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
     });
   }, []);
 
+  const moveAnalytics = useCallback((componentId: string, direction: -1 | 1) => {
+    setAnalyticsSlots((prev) => {
+      const next = moveAnalyticsSlot(prev, componentId, direction);
+      if (next === prev) return prev;
+      saveAnalyticsSlots(next);
+      return next;
+    });
+  }, []);
+
   function handleAddPanel(componentId: string) {
     const entry = catalogueEntry(componentId);
     if (isNarrow) {
@@ -436,15 +474,9 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
     }
     if (entry?.category === "analytics") {
       if (analyticsSlots.includes(componentId)) return;
-      const addSet = model.getNodeById(ANALYTICS_ADD_TABSET_ID);
-      if (addSet) {
-        model.doAction(Actions.addNode(tab(componentId), ANALYTICS_ADD_TABSET_ID, DockLocation.LEFT, -1));
-        addAnalytics(componentId);
-        return;
-      }
       const row = model.getNodeById(ANALYTICS_ROW_ID);
       if (row) {
-        model.doAction(Actions.addNode(tab(componentId), ANALYTICS_ROW_ID, DockLocation.RIGHT, -1));
+        model.doAction(Actions.addNode(tab(componentId), ANALYTICS_ROW_ID, DockLocation.BOTTOM, -1));
         addAnalytics(componentId);
         return;
       }
@@ -452,12 +484,35 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
     layoutRef.current?.addTabToActiveTabSet(tab(componentId));
   }
 
+  const resetView = useCallback(() => {
+    const defaults = defaultAnalyticsIds({ arisOn: isARISOn });
+    const next = Model.fromJson(buildDefaultModel(isARISOn));
+    canPersistLayout.current = false;
+    clearPersistedLayout();
+    clearAnalyticsSlots();
+    setModel(next);
+    setAnalyticsSlots(defaults);
+    setExtraVh(0);
+    setLayoutEpoch((n) => n + 1);
+    savePersistedLayout(next);
+    saveAnalyticsSlots(defaults);
+    canPersistLayout.current = true;
+  }, [isARISOn]);
+
   useEffect(() => {
     if (!explainTabRequest) return;
     handleAddPanel("explain");
     // handleAddPanel closes over latest model/slots; fire once per request.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [explainTabRequest]);
+
+  useEffect(() => {
+    if (!layoutReady || !isARISOn) return;
+    handleAddPanel("ghostdelta");
+    // Same as explainTabRequest: add Ghost Δ once ARIS is on so localhost
+    // users don't have to find it in the catalogue.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isARISOn, layoutReady]);
 
   useEffect(() => {
     if (!packToast) return;
@@ -472,7 +527,7 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
         backHref={mode === "replay" ? "/replay" : "/live"}
         right={
           <>
-            <span className="hidden font-sans text-xs font-medium text-white sm:inline">
+            <span className="hidden font-sans text-xs font-medium text-white md:inline">
               {session?.circuitName ?? "ARIS"}
               {session?.year != null ? (
                 <>
@@ -482,11 +537,11 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
               ) : null}
             </span>
             {isARISOn && arisDriver && (
-              <span className="hidden rounded bg-red/15 px-2 py-0.5 font-mono-data text-[10px] uppercase text-red sm:inline">
+              <span className="hidden rounded bg-red/15 px-2 py-0.5 font-mono-data text-[10px] uppercase text-red md:inline">
                 ARIS for {arisDriver}
               </span>
             )}
-            <span className="font-mono-data text-xs text-muted">
+            <span className="hidden font-mono-data text-xs text-muted md:inline">
               {formatLapHeader(currentLap, totalLaps)}
             </span>
             {mode === "replay" && replayNotRacing && (
@@ -495,7 +550,7 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
                 disabled={!startEnabled || lightsOut}
                 onClick={() => beginLightsOut()}
                 title={!packReady ? "Waiting for laps and circuit map…" : "Lights-out on the track, then replay from lap 1"}
-                className={`shrink-0 rounded px-3 py-1 font-mono-data text-[11px] uppercase tracking-wide ${
+                className={`hidden shrink-0 rounded px-3 py-1 font-mono-data text-[11px] uppercase tracking-wide md:inline-flex ${
                   !startEnabled || lightsOut
                     ? "cursor-not-allowed border border-border text-muted-2 opacity-50"
                     : "bg-red text-white hover:brightness-110"
@@ -514,7 +569,7 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
                     ? "Strategy ARIS can only be enabled from the race selector. Add Copilot to ask about this race."
                     : undefined
               }
-              className={`shrink-0 rounded px-2 py-0.5 font-mono-data text-[10px] uppercase ${
+              className={`hidden shrink-0 rounded px-2 py-0.5 font-mono-data text-[10px] uppercase md:inline-flex ${
                 !arisCapable || (!canEnableStrategy && !isARISOn)
                   ? "cursor-not-allowed border border-border text-muted-2 opacity-50"
                   : isARISOn
@@ -528,20 +583,73 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
               <button
                 type="button"
                 onClick={() => setCopilotDocked(true)}
-                className="rounded border border-border px-2 py-0.5 font-mono-data text-[10px] uppercase text-muted hover:text-white"
+                className="hidden rounded border border-border px-2 py-0.5 font-mono-data text-[10px] uppercase text-muted hover:text-white md:inline-flex"
               >
                 {copilotDocked ? "● Copilot" : "Add Copilot"}
               </button>
             )}
-            {!isNarrow && (
-              <div className="shrink-0">
-                <AnalyticsCatalogue onAdd={handleAddPanel} />
-              </div>
-            )}
+            <button
+              type="button"
+              onClick={resetView}
+              title="Restore the default panel layout"
+              className="shrink-0 rounded border border-border bg-surface px-3 py-1.5 font-mono-data text-[11px] uppercase text-white hover:border-white"
+            >
+              Reset view
+            </button>
+            <div className="hidden shrink-0 md:block">
+              <AnalyticsCatalogue onAdd={handleAddPanel} />
+            </div>
           </>
         }
       />
-      <SpeedWidget />
+      <div className="grid shrink-0 grid-cols-3 items-center border-b border-border bg-surface-2 px-3 py-1.5 md:hidden">
+        <span className="justify-self-start font-mono-data text-xs text-white">
+          {formatLapCompact(currentLap, totalLaps)}
+        </span>
+        <div className="justify-self-center">
+          {mode === "replay" && replayNotRacing ? (
+            <button
+              type="button"
+              disabled={!startEnabled || lightsOut}
+              onClick={() => beginLightsOut()}
+              title={!packReady ? "Waiting for laps and circuit map…" : "Lights-out on the track, then replay from lap 1"}
+              className={`rounded px-3 py-1 font-mono-data text-[11px] uppercase tracking-wide ${
+                !startEnabled || lightsOut
+                  ? "cursor-not-allowed border border-border text-muted-2 opacity-50"
+                  : "bg-red text-white hover:brightness-110"
+              }`}
+            >
+              {lightsOut ? "Lights out…" : "Start Race"}
+            </button>
+          ) : (
+            <span />
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => canEnableStrategy && setARISOn(!isARISOn)}
+          disabled={!canEnableStrategy && !isARISOn}
+          title={
+            !arisCapable
+              ? "ARIS runs on Race sessions only."
+              : !canEnableStrategy
+                ? "Strategy ARIS can only be enabled from the race selector. Add Copilot to ask about this race."
+                : undefined
+          }
+          className={`justify-self-end rounded px-2 py-0.5 font-mono-data text-[10px] uppercase ${
+            !arisCapable || (!canEnableStrategy && !isARISOn)
+              ? "cursor-not-allowed border border-border text-muted-2 opacity-50"
+              : isARISOn
+                ? "bg-red/15 text-red"
+                : "border border-border text-muted hover:text-white"
+          }`}
+        >
+          {isARISOn ? "● ARIS ON" : "○ ARIS OFF"}
+        </button>
+      </div>
+      <div>
+        {consolePlayState === "racing" && <SpeedWidget />}
+      </div>
       {mode === "replay" && !packReady && (
         <div className="shrink-0 bg-amber/10 px-4 py-2 font-sans text-xs text-amber">
           {waitingMessage ??
@@ -587,7 +695,6 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
         </div>
       )}
       <StrategyChangeBanner />
-      <AnalyticsLayoutCtx.Provider value={{ onAdd: handleAddPanel, already: analyticsSlots }}>
       <div className="relative min-h-0 flex-1 overflow-hidden">
         <RaceFinishedDebrief />
         {isNarrow ? (
@@ -597,26 +704,32 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
               slots={analyticsSlots}
               onAdd={addAnalytics}
               onRemove={removeAnalytics}
+              onMove={moveAnalytics}
             />
           </div>
         ) : (
-          <div className="relative h-full w-full">
+          <div className="h-full min-h-0 overflow-y-auto [overflow-anchor:none]">
             {layoutReady ? (
-              <Layout
-                ref={layoutRef}
-                model={model}
-                factory={factory}
-                onRenderTab={renderTabWithTearOff}
-                onModelChange={handleModelChange}
-                realtimeResize
-              />
+              <div
+                className="relative w-full"
+                style={{ height: `${MAIN_ROW_VH + ANALYTICS_BASE_VH + extraVh}vh` }}
+              >
+                <Layout
+                  key={layoutEpoch}
+                  ref={layoutRef}
+                  model={model}
+                  factory={factory}
+                  onRenderTab={renderTabWithTearOff}
+                  onModelChange={handleModelChange}
+                  realtimeResize
+                />
+              </div>
             ) : (
               <div className="h-full w-full bg-carbon" />
             )}
           </div>
         )}
       </div>
-      </AnalyticsLayoutCtx.Provider>
     </div>
   );
 }

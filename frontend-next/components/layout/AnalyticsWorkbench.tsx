@@ -1,16 +1,13 @@
 "use client";
 
 import { catalogueEntry, renderPanel } from "@/lib/panelRegistry";
-import { AnalyticsAddSlot } from "@/components/layout/AnalyticsAddSlot";
 import { PanelWrapper } from "@/components/layout/PanelWrapper";
 
 export function AnalyticsWorkbench({
   slots,
-  onAdd,
   onRemove,
 }: {
   slots: string[];
-  onAdd: (componentId: string) => void;
   onRemove: (componentId: string) => void;
 }) {
   return (
@@ -38,7 +35,6 @@ export function AnalyticsWorkbench({
           </section>
         );
       })}
-      <AnalyticsAddSlot onAdd={onAdd} already={slots} />
     </div>
   );
 }

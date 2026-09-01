@@ -19,6 +19,27 @@ export function componentsFromLayoutJson(json: { layout?: unknown }): string[] {
   return out;
 }
 
+/** Drop the desktop analytics "+" tab from saved layouts (add-slot is mobile-only). */
+export function stripAnalyticsAddFromLayout(json: IJsonModel): IJsonModel {
+  const visit = (node: unknown): unknown | null => {
+    if (!node || typeof node !== "object") return node;
+    const rec = node as { type?: string; id?: string; component?: string; children?: unknown[] };
+    if (rec.type === "tab" && (rec.component === "analytics-add" || rec.id === ANALYTICS_ADD_TAB_ID)) {
+      return null;
+    }
+    if (rec.id === ANALYTICS_ADD_TABSET_ID) return null;
+    if (!Array.isArray(rec.children)) return rec;
+    const children = rec.children.map(visit).filter((child): child is NonNullable<unknown> => child != null);
+    if ((rec.type === "tabset" || rec.type === "row") && children.length === 0) return null;
+    return { ...rec, children };
+  };
+  const layout = visit(json.layout);
+  return {
+    ...json,
+    layout: (layout && typeof layout === "object" ? layout : { type: "row", children: [] }) as IJsonModel["layout"],
+  };
+}
+
 function isJsonRow(value: unknown): value is IJsonModel["layout"] {
   return Boolean(value && typeof value === "object" && (value as { type?: string }).type === "row");
 }
@@ -34,7 +55,7 @@ export function loadPersistedLayout(): IJsonModel | null {
     const raw = window.localStorage.getItem(LAYOUT_STORAGE_KEY);
     if (!raw) return null;
     const parsed: unknown = JSON.parse(raw);
-    return isPersistedLayout(parsed) ? parsed : null;
+    return isPersistedLayout(parsed) ? stripAnalyticsAddFromLayout(parsed) : null;
   } catch {
     return null;
   }
@@ -46,6 +67,15 @@ export function savePersistedLayout(model: Model): void {
     window.localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(model.toJson()));
   } catch {
     // quota / private mode — layout still works in-memory
+  }
+}
+
+export function clearPersistedLayout(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(LAYOUT_STORAGE_KEY);
+  } catch {
+    // private mode
   }
 }
 

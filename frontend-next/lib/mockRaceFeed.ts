@@ -1,6 +1,7 @@
 import { MOCK_DRIVERS_2025, zandvoortOvalCoords } from "@/lib/mockData";
 import { mockRecommendation } from "@/lib/api";
 import { ghostCarFromTick, ghostPlaybackAt } from "@/lib/ghostCar";
+import { annotateGhostTower } from "@/lib/mapCars";
 import { buildPath, headingAtFraction, pointAtFraction } from "@/lib/trackGeometry";
 import type { useRaceStore } from "@/store/raceStore";
 import type { CarState, GhostTickData } from "@/lib/types";
@@ -174,7 +175,7 @@ export class MockRaceFeed {
         ghost_compound: "HARD",
         from_lap_one: true,
       };
-      const car = ghostCarFromTick(tick, real, lap, totalLaps, playback);
+      const car = annotateGhostTower(ghostCarFromTick(tick, real, lap, totalLaps, playback), cars, real);
       setGhostCar({
         ...car,
         x: ghostPoint.x,

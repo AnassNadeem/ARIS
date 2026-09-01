@@ -82,7 +82,9 @@ export interface CarState {
   laps_remaining: number;
   total_laps: number;
   is_aris_driver?: boolean;
-  // Ghost-specific fields (only present when driver_code starts with "A_")
+  /** Virtual ARIS strategy car — never a classified/grid result. */
+  is_ghost?: boolean;
+  // Ghost-specific fields (only present when is_ghost or driver_code starts with "A_")
   ghost_cumulative_delta?: number;
   divergence_lap?: number;
   aris_action?: string;
@@ -90,6 +92,10 @@ export interface CarState {
   ghost_in_pits?: boolean;
   ghost_pit_compound?: Compound | null;
   ghost_skip_seek_jump?: boolean;
+  /** Signed gap to the adjacent real car: + ghost is ahead, − ghost is behind. */
+  ghost_delta_s?: number | null;
+  /** Real driver_code the ghost_delta_s is measured against. */
+  ghost_delta_vs?: string;
 }
 
 export interface GhostDeltaPoint {

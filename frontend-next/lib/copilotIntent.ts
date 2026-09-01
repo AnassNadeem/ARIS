@@ -50,7 +50,7 @@ export function classifyIntent(question: string): CopilotIntent {
 
 function classifiedCars(cars: Record<string, CarState>): CarState[] {
   return Object.values(cars)
-    .filter((c) => !c.driver_code.startsWith("A_") && !c.is_dnf && c.status !== "DNS")
+    .filter((c) => !c.is_ghost && !c.driver_code.startsWith("A_") && !c.is_dnf && c.status !== "DNS")
     .sort((a, b) => (a.position ?? 99) - (b.position ?? 99));
 }
 

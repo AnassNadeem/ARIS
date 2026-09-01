@@ -29,7 +29,8 @@ export function fmtSectorTime(v: number | null | undefined): string {
 export function fmtGap(v: number | null | undefined, lapsDown?: number | null): string {
   if (lapsDown && lapsDown > 0) return `+${lapsDown}L`;
   if (v == null) return "—";
-  return v === 0 ? "LEADER" : `+${v.toFixed(1)}s`;
+  if (!(v > 0)) return "LEADER";
+  return `+${v.toFixed(1)}s`;
 }
 
 export function driverOutOfRace(status: string | undefined, isDnf: boolean | undefined): boolean {

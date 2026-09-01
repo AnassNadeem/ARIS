@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { PANEL_CATALOGUE } from "@/lib/panelRegistry";
 
+const MENU_WIDTH = 288;
+
 export function AnalyticsAddSlot({
   onAdd,
   already,
@@ -13,7 +15,8 @@ export function AnalyticsAddSlot({
 }) {
   const [open, setOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
-  const [menuPos, setMenuPos] = useState({ top: 0, left: 0 });
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [menuPos, setMenuPos] = useState({ top: 0, left: 0, maxHeight: 320 });
   const analytics = PANEL_CATALOGUE.filter((p) => p.category === "analytics");
   const taken = new Set(already);
 
@@ -21,14 +24,27 @@ export function AnalyticsAddSlot({
     if (!open || !btnRef.current) return;
     const place = () => {
       const r = btnRef.current!.getBoundingClientRect();
-      const width = 288;
-      const left = Math.min(Math.max(8, r.left), window.innerWidth - width - 8);
-      setMenuPos({ top: r.bottom + 6, left });
+      const left = Math.min(Math.max(8, r.left), window.innerWidth - MENU_WIDTH - 8);
+      const gap = 6;
+      const pad = 8;
+      const spaceBelow = window.innerHeight - r.bottom - gap - pad;
+      const spaceAbove = r.top - gap - pad;
+      const openUp = spaceAbove > spaceBelow;
+      const maxHeight = Math.max(120, openUp ? spaceAbove : spaceBelow);
+      const contentH = menuRef.current?.scrollHeight || Math.min(window.innerHeight * 0.7, 420);
+      const usedH = Math.min(contentH, maxHeight);
+      const top = openUp ? Math.max(pad, r.top - gap - usedH) : r.bottom + gap;
+      setMenuPos({ top, left, maxHeight });
     };
     place();
+    const frames = [window.requestAnimationFrame(() => {
+      place();
+      window.requestAnimationFrame(place);
+    })];
     window.addEventListener("resize", place);
     window.addEventListener("scroll", place, true);
     return () => {
+      frames.forEach((id) => window.cancelAnimationFrame(id));
       window.removeEventListener("resize", place);
       window.removeEventListener("scroll", place, true);
     };
@@ -51,8 +67,10 @@ export function AnalyticsAddSlot({
           <>
             <div className="fixed inset-0 z-[90]" onClick={() => setOpen(false)} />
             <div
-              className="fixed z-[100] w-72 max-h-[70vh] overflow-y-auto rounded-[8px] border border-border bg-surface-2 p-2 shadow-2xl"
-              style={{ top: menuPos.top, left: menuPos.left }}
+              ref={menuRef}
+              data-testid="analytics-add-menu"
+              className="fixed z-[100] w-72 overflow-y-auto rounded-[8px] border border-border bg-surface-2 p-2 shadow-2xl"
+              style={{ top: menuPos.top, left: menuPos.left, maxHeight: menuPos.maxHeight }}
             >
               <div className="px-2 py-1 font-sans text-[10px] uppercase text-muted">Add analytics</div>
               {analytics.map((entry) => {

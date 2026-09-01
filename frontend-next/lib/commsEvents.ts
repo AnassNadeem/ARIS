@@ -13,32 +13,30 @@ function id(prefix: string, lap: number, extra: string): string {
   return `${prefix}-L${lap}-${extra}`;
 }
 
+function isRealDriver(c: CarState): boolean {
+  return !c.is_ghost && !c.driver_code.startsWith("A_");
+}
+
 function carAhead(cars: Record<string, CarState>, focus: CarState): CarState | null {
   const pos = focus.position;
   if (pos == null) return null;
-  return (
-    Object.values(cars).find((c) => c.position === pos - 1 && !c.driver_code.startsWith("A_")) ??
-    null
-  );
+  return Object.values(cars).find((c) => c.position === pos - 1 && isRealDriver(c)) ?? null;
 }
 
 function carBehind(cars: Record<string, CarState>, focus: CarState): CarState | null {
   const pos = focus.position;
   if (pos == null) return null;
-  return (
-    Object.values(cars).find((c) => c.position === pos + 1 && !c.driver_code.startsWith("A_")) ??
-    null
-  );
+  return Object.values(cars).find((c) => c.position === pos + 1 && isRealDriver(c)) ?? null;
 }
 
 function fastestLapHolder(cars: Record<string, CarState>): string | null {
-  const row = Object.values(cars).find((c) => c.fastest_lap && !c.driver_code.startsWith("A_"));
+  const row = Object.values(cars).find((c) => c.fastest_lap && isRealDriver(c));
   return row?.driver_code ?? null;
 }
 
 function dnfCodes(cars: Record<string, CarState>): string[] {
   return Object.values(cars)
-    .filter((c) => (c.is_dnf || c.status === "DNF" || c.status === "DNS") && !c.driver_code.startsWith("A_"))
+    .filter((c) => (c.is_dnf || c.status === "DNF" || c.status === "DNS") && isRealDriver(c))
     .map((c) => c.driver_code)
     .sort();
 }
