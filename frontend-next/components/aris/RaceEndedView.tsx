@@ -3,12 +3,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { explainFeatureEnabled, explainSessionId, getGhostVsReal } from "@/lib/api";
 import { useRaceStore } from "@/store/raceStore";
+import { raceFinishSummary } from "@/lib/debriefSummary";
 import type { GhostVsRealResponse } from "@/lib/types";
 
 export function RaceEndedView() {
   const session = useRaceStore((s) => s.session);
   const arisDriver = useRaceStore((s) => s.arisDriver ?? s.focusDriver ?? session?.driverCode);
   const ghostData = useRaceStore((s) => s.ghostData);
+  const ghostCar = useRaceStore((s) => s.ghostCar);
+  const ghostTicks = useRaceStore((s) => s.ghostTicksByLap);
+  const cars = useRaceStore((s) => s.cars);
+  const field = useRaceStore((s) => s.r2RaceField);
   const isARISOn = useRaceStore((s) => s.isARISOn);
   const setExplainTabRequest = useRaceStore((s) => s.setExplainTabRequest);
   const setRaceFinished = useRaceStore((s) => s.setRaceFinished);
@@ -28,7 +33,18 @@ export function RaceEndedView() {
   }, [sid, arisDriver]);
 
   const lastDelta = ghostData?.delta_history?.at(-1)?.delta ?? ghostData?.ghost_cumulative_delta;
+  const finish = useMemo(() => {
+    if (!arisDriver) return null;
+    return raceFinishSummary({
+      driver: arisDriver,
+      field,
+      cars,
+      ghostCar,
+      ghostTicks,
+    });
+  }, [arisDriver, field, cars, ghostCar, ghostTicks]);
   const summary = useMemo(() => {
+    if (finish && (finish.realPos != null || finish.ghostPos != null)) return finish;
     if (!compare?.real?.laps?.length) return null;
     const n = compare.real.laps.length;
     const last = n - 1;
@@ -40,7 +56,7 @@ export function RaceEndedView() {
       posDelta: compare.delta.position_delta[last],
       gapDelta: compare.delta.gap_delta[last],
     };
-  }, [compare]);
+  }, [finish, compare]);
 
   return (
     <div className="absolute inset-0 z-[85] flex items-center justify-center bg-carbon/80 p-4 backdrop-blur-[2px]">
@@ -56,12 +72,12 @@ export function RaceEndedView() {
         {isARISOn && (
           <div className="mt-4 grid grid-cols-2 gap-3 font-mono-data text-[11px]">
             <div className="rounded border border-border bg-carbon p-3">
-              <div className="text-[9px] uppercase text-muted">Ghost (ARIS)</div>
+              <div className="text-[9px] uppercase text-muted">ARIS (timing tower)</div>
               <div className="mt-1 text-white">P{summary?.ghostPos ?? ghostData?.ghost_position ?? "—"}</div>
               <div className="text-muted">Gap {summary?.ghostGap != null ? `${summary.ghostGap.toFixed(1)}s` : "—"}</div>
             </div>
             <div className="rounded border border-border bg-carbon p-3">
-              <div className="text-[9px] uppercase text-muted">Real</div>
+              <div className="text-[9px] uppercase text-muted">Real finish</div>
               <div className="mt-1 text-white">P{summary?.realPos ?? "—"}</div>
               <div className="text-muted">Gap {summary?.realGap != null ? `${summary.realGap.toFixed(1)}s` : "—"}</div>
             </div>

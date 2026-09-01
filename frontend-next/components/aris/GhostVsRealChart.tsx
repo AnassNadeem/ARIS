@@ -16,6 +16,7 @@ import { MOCK_DRIVERS_2025 } from "@/lib/mockData";
 import { useRaceStore } from "@/store/raceStore";
 import { useFocusDriver } from "@/lib/useFocusDriver";
 import { PanelEmpty, PanelSkeleton } from "@/components/ui/PanelStates";
+import { ghostVsRealFromField } from "@/lib/debriefSummary";
 import type { GhostVsRealResponse } from "@/lib/types";
 
 const SELECT =
@@ -38,8 +39,19 @@ export function GhostVsRealChart({
   const [data, setData] = useState<GhostVsRealResponse | null>(null);
   const [pending, setPending] = useState(false);
   const sid = sessionId ?? explainSessionId(session);
+  const field = useRaceStore((s) => s.r2RaceField);
+  const ticks = useRaceStore((s) => s.ghostTicksByLap);
+  const local = useMemo(
+    () => (field && Object.keys(ticks).length ? ghostVsRealFromField(field, code, ticks) : null),
+    [field, ticks, code],
+  );
 
   useEffect(() => {
+    if (local) {
+      setData(local);
+      setPending(false);
+      return;
+    }
     let cancelled = false;
     setPending(true);
     getGhostVsReal({ session_id: sid, driver: code }).then((payload) => {
@@ -50,7 +62,7 @@ export function GhostVsRealChart({
     return () => {
       cancelled = true;
     };
-  }, [sid, code]);
+  }, [sid, code, local]);
 
   const currentLap = useRaceStore((s) => s.currentLap) || 1;
 
