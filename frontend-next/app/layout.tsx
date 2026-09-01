@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import type { ReactNode } from "react";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -18,7 +19,7 @@ export const metadata: Metadata = {
     "F1 race strategy decision-support: classical decision support stitched with modern ML, not end-to-end black-box AI. Beta.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable} h-full dark`} suppressHydrationWarning>
       <body className="min-h-full flex flex-col bg-carbon text-white antialiased" suppressHydrationWarning>

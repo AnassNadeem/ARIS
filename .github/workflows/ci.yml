@@ -40,5 +40,8 @@ jobs:
           cache: npm
           cache-dependency-path: frontend-next/package-lock.json
       - run: npm ci
+      # LayoutProps / typed routes live in .next/types; tsc on a cold checkout
+      # needs typegen (next build also writes them, but CI only typechecks).
+      - run: npx next typegen
       - run: npx tsc --noEmit
       - run: npm test
