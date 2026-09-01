@@ -1094,6 +1094,15 @@ class CopilotChatRequest(BaseModel):
     use_llm: bool | None = None
 
 
+class AskRequest(BaseModel):
+    question: str
+    race_state: Any | None = None
+    year: int | None = None
+    round_number: int | None = None
+    driver_code: str | None = None
+    current_lap: int | None = None
+
+
 class CopilotRetrievedChunk(BaseModel):
     chunk_id: str
     source: str

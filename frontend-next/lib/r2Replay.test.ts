@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { annotateVsActivePlan, shouldFetchRecommend } from "./arisRecommend";
 import { mapTimingAndPositions } from "./mapCars";
-import { fieldToDrivers, fieldToLapRows, interpolatedPosFrac, nearestPosSample, normalizeR2Base, plansMatch, r2Configured, r2FrameAt, raceDurationS, sectorSecondsForLap, speedKphFromPath, deriveGhostLapTimes, pitLossForCircuit, realLapTimesByDriver } from "./r2Replay";
+import { fieldToDrivers, fieldToLapRows, interpolatedPosFrac, nearestPosSample, normalizeR2Base, plansMatch, r2Configured, r2FrameAt, r2TickToGhostTick, raceDurationS, sectorSecondsForLap, speedKphFromPath, deriveGhostLapTimes, pitLossForCircuit, realLapTimesByDriver, GRID_START_LAP_FRAC, blendedPathFrac, gridPathFrac, replayDisplayFrac } from "./r2Replay";
 import type { ARISRecommendation, GhostData, RaceField, RaceFieldLap } from "./types";
 
 function rec(over: Partial<ARISRecommendation> = {}): ARISRecommendation {
@@ -246,6 +246,122 @@ describe("nearestPosSample", () => {
   });
 });
 
+describe("r2FrameAt grid_position at start", () => {
+  const lap = (
+    driver: string,
+    n: number,
+    position: number,
+  ): RaceFieldLap => ({
+    lap: n,
+    driver,
+    position,
+    gap_to_leader_s: 0,
+    gap_ahead_s: 0,
+    compound: "MEDIUM",
+    tyre_life: n,
+    stint_number: 1,
+    pit_this_lap: false,
+    is_dnf: false,
+    is_dsq: false,
+    track_status: "1",
+    lap_time_s: 90,
+    sector_1_s: null,
+    sector_2_s: null,
+    sector_3_s: null,
+  });
+
+  const field: RaceField = {
+    meta: {
+      year: 2026,
+      round: 6,
+      session_type: "R",
+      circuit_name: "Miami",
+      total_laps: 2,
+      date_race: "2026-05-03",
+      green_flag_s: 0,
+      session_key: 1,
+    },
+    outline: { x: [0, 100], y: [0, 0] },
+    drivers: [
+      { code: "ANT", name: "Kimi Antonelli", team: "Mercedes", colour: "#27F4D2", grid_position: 1, number: 12 },
+      { code: "NOR", name: "Lando Norris", team: "McLaren", colour: "#FF8000", grid_position: 2, number: 4 },
+    ],
+    laps: [
+      lap("ANT", 1, 2),
+      lap("NOR", 1, 1),
+      lap("ANT", 2, 2),
+      lap("NOR", 2, 1),
+    ],
+    stints: [],
+    weather: [],
+    race_control: [],
+    pos_samples: {},
+  };
+
+  it("uses qualifying grid_position at lights-out, not lap-1 classified", () => {
+    const frame = r2FrameAt(field, 0);
+    expect(GRID_START_LAP_FRAC).toBeGreaterThan(0);
+    expect(frame.timing.find((r) => r.driver_code === "ANT")?.position).toBe(1);
+    expect(frame.timing.find((r) => r.driver_code === "NOR")?.position).toBe(2);
+    expect(frame.timing.map((r) => r.driver_code)).toEqual(["ANT", "NOR"]);
+  });
+
+  it("uses classified position once the race is underway", () => {
+    const frame = r2FrameAt(field, 45);
+    expect(frame.timing.find((r) => r.driver_code === "ANT")?.position).toBe(2);
+    expect(frame.timing.find((r) => r.driver_code === "NOR")?.position).toBe(1);
+  });
+
+  it("places cars on the start/finish line at lights-out", () => {
+    const withGps: RaceField = {
+      ...field,
+      pos_samples: {
+        ANT: [{ lap_frac: 0, path_frac: 0.97 }, { lap_frac: 0.5, path_frac: 0.4 }],
+        NOR: [{ lap_frac: 0, path_frac: 0.96 }, { lap_frac: 0.5, path_frac: 0.4 }],
+      },
+    };
+    const frame = r2FrameAt(withGps, 0);
+    const ant = frame.positions.find((p) => p.driver_code === "ANT");
+    const nor = frame.positions.find((p) => p.driver_code === "NOR");
+    expect(ant?.path_frac).toBeCloseTo(0, 2);
+    expect(nor?.path_frac).toBeGreaterThan(0.98);
+    expect(nor?.path_frac).toBeLessThan(1);
+  });
+
+  it("blends grid onto GPS after lights-out instead of a hard cut", () => {
+    const pole = gridPathFrac(1);
+    const gps = 0.12;
+    expect(blendedPathFrac(gps, 1, 0.01)).toBeCloseTo(pole, 5);
+    const mid = blendedPathFrac(gps, 1, GRID_START_LAP_FRAC + 0.0175);
+    expect(mid).toBeGreaterThan(pole);
+    expect(mid).toBeLessThan(gps);
+    expect(blendedPathFrac(gps, 1, 0.2)).toBeCloseTo(gps, 5);
+  });
+
+  it("replayDisplayFrac holds the grid at t=0 even when GPS wraps to 0.97", () => {
+    const withGps: RaceField = {
+      ...field,
+      pos_samples: {
+        ANT: [{ lap_frac: 0, path_frac: 0.97 }, { lap_frac: 0.5, path_frac: 0.4 }],
+      },
+    };
+    expect(replayDisplayFrac(withGps, "ANT", 0)).toBeCloseTo(0, 2);
+  });
+
+  it("lists DNS drivers who have no laps", () => {
+    const withDns: RaceField = {
+      ...field,
+      drivers: [
+        ...field.drivers,
+        { code: "HUL", name: "Nico Hulkenberg", team: "Sauber", colour: "#52E252", grid_position: 0, is_dns: true },
+      ],
+    };
+    const frame = r2FrameAt(withDns, 0);
+    expect(frame.timing.find((r) => r.driver_code === "HUL")?.status).toBe("DNS");
+    expect(frame.positions.find((p) => p.driver_code === "HUL")).toBeUndefined();
+  });
+});
+
 describe("speedKphFromPath", () => {
   const samples = [
     { lap_frac: 20.0, path_frac: 0.1 },
@@ -455,5 +571,25 @@ describe("pitLossForCircuit", () => {
 
   it("falls back to 22s when unknown", () => {
     expect(pitLossForCircuit("Unknown GP")).toBe(22);
+  });
+});
+
+describe("r2TickToGhostTick", () => {
+  it("fills delta_history from ticks up to the current lap", () => {
+    const ghost: GhostData = {
+      driver: "ANT",
+      strategy: { pit_laps: [18], compounds: ["HARD"], label: "1-stop" },
+      ticks: [
+        { lap: 1, position: 2, gap_to_leader_s: 0.4, compound: "MEDIUM", tyre_life: 1, stint: 1, cumulative_delta_s: 0, aris_action: "STAY_OUT", aris_confidence: 1 },
+        { lap: 2, position: 2, gap_to_leader_s: 0.5, compound: "MEDIUM", tyre_life: 2, stint: 1, cumulative_delta_s: -0.3, aris_action: "STAY_OUT", aris_confidence: 1 },
+        { lap: 3, position: 3, gap_to_leader_s: 1.1, compound: "MEDIUM", tyre_life: 3, stint: 1, cumulative_delta_s: 0.8, aris_action: "STAY_OUT", aris_confidence: 1 },
+      ],
+      outcome: { aris_action: "PIT", real_action: "STAY_OUT", verdict: null },
+    };
+    const mapped = r2TickToGhostTick(ghost.ticks[1], "ANT", ghost);
+    expect(mapped.delta_history).toHaveLength(2);
+    expect(mapped.delta_history[0]).toEqual({ lap: 1, delta: 0, ghost_pos: 2, real_pos: 0 });
+    expect(mapped.delta_history[1].delta).toBe(-0.3);
+    expect(mapped.ghost_cumulative_delta).toBe(-0.3);
   });
 });

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { publicWsBase } from "./raceSocket";
+import { publicWsBase } from "./wsBase";
 
 describe("publicWsBase", () => {
   afterEach(() => {

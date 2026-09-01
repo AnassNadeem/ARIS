@@ -1,24 +1,26 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   Actions,
   DockLocation,
   Layout,
   Model,
-  type Action,
   type IJsonModel,
   type ILayoutApi,
-  type Node as FlexNode,
   type TabNode,
 } from "flexlayout-react";
 import "flexlayout-react/style/dark.css";
 import { useRaceStore } from "@/store/raceStore";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { PanelWrapper, renderTabWithTearOff } from "@/components/layout/PanelWrapper";
+import { AnalyticsAddSlot } from "@/components/layout/AnalyticsAddSlot";
 import { AnalyticsCatalogue } from "@/components/layout/AnalyticsCatalogue";
+import { MobileConsole } from "@/components/layout/MobileConsole";
 import { catalogueEntry, renderPanel } from "@/lib/panelRegistry";
-import { explainFeatureEnabled, getCircuitCoords } from "@/lib/api";
+import { getCircuitCoords } from "@/lib/api";
+import { defaultAnalyticsIds, loadAnalyticsSlots, saveAnalyticsSlots } from "@/lib/analyticsSlots";
+import { useIsNarrow } from "@/lib/useIsNarrow";
 import { MockRaceFeed } from "@/lib/mockRaceFeed";
 import { LiveSseFeed, ReplayFrameFeed } from "@/lib/liveFeed";
 import { R2_LOAD_ERROR } from "@/lib/r2Replay";
@@ -31,46 +33,54 @@ import { formatLapHeader } from "@/lib/formatLap";
 import { sessionLabel } from "@/lib/sessionFlow";
 import { useCountdown } from "@/lib/useCountdown";
 import {
+  ANALYTICS_ADD_TAB_ID,
+  ANALYTICS_ADD_TABSET_ID,
+  ANALYTICS_ROW_ID,
+  componentsFromLayoutJson,
   loadPersistedLayout,
-  rowWeightFromLayout,
   savePersistedLayout,
 } from "@/lib/layoutPersist";
 
 const COMMS_TABSET_ID = "comms-tabset";
 const MAIN_ROW_ID = "main-dock-row";
-const ANALYTICS_ROW_ID = "analytics-row";
 
-// The main dock's target height, in vh — kept pinned so the primary panels
-// (track map, timing, comms) always fill exactly one screen. The analytics
-// row below gets whatever is left of MAIN_ROW_VH + ANALYTICS_BASE_VH + extraVh,
-// so it starts as a real "second screen" rather than squeezed alongside the dock.
-const MAIN_ROW_VH = 100;
-const ANALYTICS_BASE_VH = 56;
-const GROWTH_PER_TAB_VH = 30;
-const MAX_EXTRA_VH = 360;
+const AnalyticsLayoutCtx = createContext<{
+  onAdd: (componentId: string) => void;
+  already: string[];
+}>({ onAdd: () => {}, already: [] });
+
+function AnalyticsAddTab() {
+  const { onAdd, already } = useContext(AnalyticsLayoutCtx);
+  return (
+    <PanelWrapper>
+      <AnalyticsAddSlot onAdd={onAdd} already={already} />
+    </PanelWrapper>
+  );
+}
+
+function analyticsIdsFromModel(model: Model): string[] {
+  return componentsFromLayoutJson(model.toJson()).filter(
+    (id) => id !== "analytics-add" && catalogueEntry(id)?.category === "analytics",
+  );
+}
 
 function tab(componentId: string, name?: string, extra: Record<string, unknown> = {}) {
   const entry = catalogueEntry(componentId);
+  const stableId = componentId === "analytics-add" ? ANALYTICS_ADD_TAB_ID : undefined;
   return {
     type: "tab",
-    id: `${componentId}-${Math.random().toString(36).slice(2, 8)}`,
+    id: stableId ?? `${componentId}-${Math.random().toString(36).slice(2, 8)}`,
     name: name ?? entry?.label ?? componentId,
     component: componentId,
     ...extra,
   };
 }
 
-/** Counts tab nodes in a node's subtree (itself included). */
-function countTabsInSubtree(node: FlexNode): number {
-  if (node.getType() === "tab") return 1;
-  return node.getChildren().reduce((sum, child) => sum + countTabsInSubtree(child), 0);
-}
-
 function buildDefaultModel(isARISOn: boolean): IJsonModel {
   const mainRow = {
     type: "row",
     id: MAIN_ROW_ID,
-    weight: MAIN_ROW_VH,
+    weight: 62,
     children: [
       {
         type: "tabset",
@@ -78,8 +88,6 @@ function buildDefaultModel(isARISOn: boolean): IJsonModel {
         children: [tab("trackmap", "Track Map", { enableClose: false })],
       },
       {
-        // Nested inside the (horizontal) main row, so it renders as a
-        // vertical stack: Timing Tower on top, Lap Times below.
         type: "row",
         weight: 28,
         children: [
@@ -100,37 +108,37 @@ function buildDefaultModel(isARISOn: boolean): IJsonModel {
     ],
   };
 
-  // A second full-width row, below the main dock, seeded with the core
-  // analytics panels. It's a normal flexlayout row — free to split, resize
-  // via native splitters, and tear any tab off into its own window, exactly
-  // like the dock above it.
-  const analyticsChildren = [
-    { type: "tabset", weight: 34, children: [tab("tyredeg", "Tyre Degradation")] },
-    { type: "tabset", weight: 33, children: [tab("sectortimes", "Sector Times")] },
-    { type: "tabset", weight: 33, children: [tab("gapchart", "Gap Chart")] },
-  ];
-  if (explainFeatureEnabled()) {
-    analyticsChildren.push({ type: "tabset", weight: 34, children: [tab("explain", "Explain")] });
-  }
-
   const analyticsRow = {
     type: "row",
     id: ANALYTICS_ROW_ID,
-    weight: ANALYTICS_BASE_VH,
-    children: analyticsChildren,
+    weight: 38,
+    children: [
+      { type: "tabset", weight: 28, children: [tab("tyredeg")] },
+      { type: "tabset", weight: 28, children: [tab("sectortimes")] },
+      { type: "tabset", weight: 28, children: [tab("gapchart")] },
+      {
+        type: "tabset",
+        id: ANALYTICS_ADD_TABSET_ID,
+        weight: 16,
+        enableDrop: false,
+        children: [
+          tab("analytics-add", "+", {
+            enableClose: false,
+            enableDrag: false,
+            enableRename: false,
+          }),
+        ],
+      },
+    ],
   };
 
   return {
     global: {
-      // Root lays its own children out vertically (main dock, then the
-      // analytics row below) — which flips each of those rows back to
-      // horizontal for their own children. See flexlayout's alternating
-      // row/column orientation model.
       rootOrientationVertical: true,
       tabEnableClose: true,
       tabSetEnableMaximize: true,
-      tabSetMinWidth: 160,
-      tabSetMinHeight: 120,
+      tabSetMinWidth: 120,
+      tabSetMinHeight: 100,
     },
     borders: [],
     layout: {
@@ -220,26 +228,24 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
   const arisOnAtMount = useRef(isARISOn);
   const canPersistLayout = useRef(false);
   const [layoutReady, setLayoutReady] = useState(false);
+  const isNarrow = useIsNarrow();
+  const [analyticsSlots, setAnalyticsSlots] = useState<string[]>(() => defaultAnalyticsIds());
 
-  // Tracks total tab count so the analytics row can grow (or shrink back)
-  // as panels are added to / removed from the console, instead of a manual
-  // "more space" control.
-  const tabCountRef = useRef(0);
-  const [extraVh, setExtraVh] = useState(0);
-
-  // Load saved dock JSON after mount so SSR/default layout cannot overwrite it.
   useEffect(() => {
     const saved = loadPersistedLayout();
+    const extra = loadAnalyticsSlots();
     if (saved) {
       try {
-        setModel(Model.fromJson(saved));
-        const weight = rowWeightFromLayout(saved, ANALYTICS_ROW_ID);
-        if (weight != null) {
-          setExtraVh(Math.max(0, Math.min(MAX_EXTRA_VH, weight - ANALYTICS_BASE_VH)));
-        }
+        const loaded = Model.fromJson(saved);
+        setModel(loaded);
+        const fromLayout = analyticsIdsFromModel(loaded);
+        if (fromLayout.length) setAnalyticsSlots(fromLayout);
+        else if (extra?.length) setAnalyticsSlots(extra);
       } catch {
-        // Corrupt JSON — keep the default model.
+        if (extra?.length) setAnalyticsSlots(extra);
       }
+    } else if (extra?.length) {
+      setAnalyticsSlots(extra);
     }
     setLayoutReady(true);
   }, []);
@@ -268,6 +274,10 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
   }, [session?.year, session?.round]);
 
   useEffect(() => {
+    if (mode === "live" && isARISOn) setARISOn(false);
+  }, [mode, isARISOn, setARISOn]);
+
+  useEffect(() => {
     if (!arisCapable && isARISOn) setARISOn(false);
   }, [arisCapable, isARISOn, setARISOn]);
 
@@ -284,11 +294,6 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
   }, [mode, carCount, startRacing, setWaiting]);
 
   const waitingForLiveData = mode === "live" && carCount === 0;
-
-  useEffect(() => {
-    const analyticsRow = model.getNodeById(ANALYTICS_ROW_ID);
-    tabCountRef.current = analyticsRow ? countTabsInSubtree(analyticsRow) : 0;
-  }, [model]);
 
   // Dynamically add/remove the Comms tab if ARIS is on at mount or Copilot is added.
   useEffect(() => {
@@ -384,56 +389,74 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
     });
   }, []);
 
-  // Grows the analytics row (and the scrollable canvas beneath the main
-  // dock) whenever a panel is added there, and shrinks it back down when
-  // panels are removed — so there's always room below without a manual
-  // "more space" control. Scoped to the analytics row's own subtree so
-  // adding a panel elsewhere (e.g. re-enabling ARIS Comms) doesn't grow it.
-  const handleModelChange = useCallback((changedModel: Model, action: Action) => {
-    if (action.type === Actions.ADD_TAB || action.type === Actions.DELETE_TAB) {
-      const analyticsRow = changedModel.getNodeById(ANALYTICS_ROW_ID);
-      const count = analyticsRow ? countTabsInSubtree(analyticsRow) : 0;
-      const delta = count - tabCountRef.current;
-      tabCountRef.current = count;
-      if (delta !== 0) {
-        setExtraVh((v) => Math.max(0, Math.min(MAX_EXTRA_VH, v + delta * GROWTH_PER_TAB_VH)));
-      }
-    }
+  const handleModelChange = useCallback((changedModel: Model) => {
+    const ids = analyticsIdsFromModel(changedModel);
+    setAnalyticsSlots(ids.length ? ids : defaultAnalyticsIds());
+    saveAnalyticsSlots(ids.length ? ids : defaultAnalyticsIds());
     if (canPersistLayout.current) {
       savePersistedLayout(changedModel);
     }
   }, []);
 
-  // Keeps the main dock pinned at MAIN_ROW_VH and routes all extra growth
-  // into the analytics row's own weight (rather than letting flex
-  // proportionally inflate the dock too).
   useEffect(() => {
     if (!layoutReady) return;
     canPersistLayout.current = true;
-    const root = model.getRootRow();
-    if (!root) return;
-    const children = root.getChildren();
-    if (children.length !== 2) return; // analytics row was closed entirely
-    model.doAction(Actions.adjustWeights(root.getId(), [MAIN_ROW_VH, ANALYTICS_BASE_VH + extraVh]));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [extraVh, model, layoutReady]);
+  }, [layoutReady]);
 
-  // Not a component definition: this is flexlayout's per-node render callback,
-  // invoked imperatively by the layout engine rather than rendered as JSX.
   const factory = useMemo(() => {
     return function renderTabContent(node: TabNode) {
       const componentId = node.getComponent() ?? "";
+      if (componentId === "analytics-add") return <AnalyticsAddTab />;
       return <PanelWrapper>{renderPanel(componentId)}</PanelWrapper>;
     };
   }, []);
 
+  const addAnalytics = useCallback((componentId: string) => {
+    setAnalyticsSlots((prev) => {
+      if (prev.includes(componentId)) return prev;
+      const next = [...prev, componentId];
+      saveAnalyticsSlots(next);
+      return next;
+    });
+  }, []);
+
+  const removeAnalytics = useCallback((componentId: string) => {
+    setAnalyticsSlots((prev) => {
+      const next = prev.filter((id) => id !== componentId);
+      saveAnalyticsSlots(next);
+      return next;
+    });
+  }, []);
+
   function handleAddPanel(componentId: string) {
+    const entry = catalogueEntry(componentId);
+    if (isNarrow) {
+      addAnalytics(componentId);
+      return;
+    }
+    if (entry?.category === "analytics") {
+      if (analyticsSlots.includes(componentId)) return;
+      const addSet = model.getNodeById(ANALYTICS_ADD_TABSET_ID);
+      if (addSet) {
+        model.doAction(Actions.addNode(tab(componentId), ANALYTICS_ADD_TABSET_ID, DockLocation.LEFT, -1));
+        addAnalytics(componentId);
+        return;
+      }
+      const row = model.getNodeById(ANALYTICS_ROW_ID);
+      if (row) {
+        model.doAction(Actions.addNode(tab(componentId), ANALYTICS_ROW_ID, DockLocation.RIGHT, -1));
+        addAnalytics(componentId);
+        return;
+      }
+    }
     layoutRef.current?.addTabToActiveTabSet(tab(componentId));
   }
 
   useEffect(() => {
     if (!explainTabRequest) return;
     handleAddPanel("explain");
+    // handleAddPanel closes over latest model/slots; fire once per request.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [explainTabRequest]);
 
   useEffect(() => {
@@ -510,9 +533,11 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
                 {copilotDocked ? "● Copilot" : "Add Copilot"}
               </button>
             )}
-            <div className="shrink-0">
-              <AnalyticsCatalogue onAdd={handleAddPanel} />
-            </div>
+            {!isNarrow && (
+              <div className="shrink-0">
+                <AnalyticsCatalogue onAdd={handleAddPanel} />
+              </div>
+            )}
           </>
         }
       />
@@ -562,10 +587,20 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
         </div>
       )}
       <StrategyChangeBanner />
+      <AnalyticsLayoutCtx.Provider value={{ onAdd: handleAddPanel, already: analyticsSlots }}>
       <div className="relative min-h-0 flex-1 overflow-hidden">
         <RaceFinishedDebrief />
-        <div className="h-full min-h-0 overflow-y-auto [overflow-anchor:none]">
-          <div style={{ height: `${MAIN_ROW_VH + ANALYTICS_BASE_VH + extraVh}vh` }} className="relative w-full">
+        {isNarrow ? (
+          <div className="h-full min-h-0 overflow-y-auto [overflow-anchor:none]">
+            <MobileConsole
+              showComms={isARISOn || copilotDocked}
+              slots={analyticsSlots}
+              onAdd={addAnalytics}
+              onRemove={removeAnalytics}
+            />
+          </div>
+        ) : (
+          <div className="relative h-full w-full">
             {layoutReady ? (
               <Layout
                 ref={layoutRef}
@@ -579,8 +614,9 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
               <div className="h-full w-full bg-carbon" />
             )}
           </div>
-        </div>
+        )}
       </div>
+      </AnalyticsLayoutCtx.Provider>
     </div>
   );
 }

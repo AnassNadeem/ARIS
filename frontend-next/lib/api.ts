@@ -55,6 +55,13 @@ export function explainFeatureEnabled(): boolean {
   return process.env.NODE_ENV !== "production";
 }
 
+/** Ghost dot on the track map — hidden by default (backend GPS-projection
+ * bug can misplace the dot; see docs/GHOST_CAR_REMEDIATION_PLAN.md).
+ * Force on with NEXT_PUBLIC_ARIS_GHOST_MAP=1 once the backend fix lands. */
+export function ghostMapFeatureEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_ARIS_GHOST_MAP === "1";
+}
+
 export function explainSessionId(session: SessionMeta | null | undefined): string {
   if (!session) return "2025-15-R";
   const stype = session.sessionType === "S" ? "S" : "R";
@@ -643,14 +650,44 @@ export async function getQuickAnalysis(
   };
 }
 
-export async function askARIS(question: string, raceState?: unknown): Promise<{ answer: string }> {
+export async function askARIS(
+  question: string,
+  raceState?: unknown,
+  meta?: { year?: number; round?: number; driver?: string; currentLap?: number },
+): Promise<{ answer: string; offline: boolean }> {
   const live = await tryFetch<{ answer: string }>("/api/ask", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ question, race_state: raceState }),
+    body: JSON.stringify({
+      question,
+      race_state: raceState,
+      year: meta?.year,
+      round_number: meta?.round,
+      driver_code: meta?.driver,
+      current_lap: meta?.currentLap,
+    }),
   });
-  if (live) return live;
-  return { answer: mockAskAnswer(question) };
+  if (live?.answer) return { answer: live.answer, offline: false };
+  const viaChat = await tryFetch<{ answer: string }>(
+    `/api/aris/chat?question=${encodeURIComponent(question)}${
+      meta?.year != null ? `&year=${meta.year}` : ""
+    }${meta?.round != null ? `&round_number=${meta.round}` : ""}${
+      meta?.driver ? `&driver_code=${encodeURIComponent(meta.driver)}` : ""
+    }${meta?.currentLap != null ? `&current_lap=${meta.currentLap}` : ""}`,
+  );
+  if (viaChat?.answer) return { answer: viaChat.answer, offline: false };
+  return { answer: mockAskAnswer(question), offline: true };
+}
+
+export async function getSessionResults(
+  year: number,
+  round: number,
+  sessionType = "R",
+): Promise<{ position: number | null; driver_code: string; status: string }[] | null> {
+  const live = await tryFetch<{
+    results: { position: number | null; driver_code: string; status: string }[];
+  }>(`/api/session/${year}/${round}/${sessionType}/results`);
+  return live?.results ?? null;
 }
 
 export async function getDegradationCurve(params: {
@@ -810,7 +847,9 @@ export async function chatCopilot(payload: {
     },
     30000,
   );
-  if (live) return live;
+  if (live) return { ...live, offline: false };
+  // Backend unreachable — flag it so the UI never passes a canned answer off
+  // as a real tool-calling response.
   return mockCopilotAnswer(payload.message);
 }
 
@@ -830,13 +869,14 @@ function mockCopilotAnswer(message: string): CopilotChatResponse {
         ]
       : [],
     needs_approval: needs,
+    offline: true,
   };
 }
 
 function mockAskAnswer(question: string): string {
   const q = question.toLowerCase();
-  if (q.includes("gap") && q.includes("lando")) {
-    return "Gap to NOR (car ahead): +1.8s and closing at ~0.1s/lap over the last 3 laps. Inside the 22s undercut window.";
+  if (q.includes("gap") && (q.includes("ahead") || q.includes("leader") || q.includes("rival"))) {
+    return "Gap to the driver ahead: +1.8s and closing at ~0.1s/lap over the last 3 laps. Inside the 22s undercut window.";
   }
   if (q.includes("extend")) {
     return "Extending is worth about −0.4s vs the base plan at current tyre life, but the model discounts confidence beyond lap 34 on this compound (extrapolation_weight 0.7). Marginal call.";

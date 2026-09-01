@@ -2,6 +2,11 @@ name: prebuild-race-r2
 
 on:
   workflow_dispatch:
+    inputs:
+      force:
+        description: "Force rebuild all races, ignoring already-built R2 files (use after a ghost/ranking algorithm change)"
+        type: boolean
+        default: false
   schedule:
     # Monday 18:00 UTC — every race Sunday has ended by Monday morning.
     - cron: "0 18 * * 1"
@@ -10,6 +15,13 @@ on:
     paths:
       - "scripts/prebuild_race_r2.py"
       - "deploy/r2_upload.py"
+      # A change to the ghost simulation/ranking or the physics model changes
+      # what every already-built ghost_*.json *should* contain. Without this,
+      # --skip-existing (below) silently keeps serving stale, pre-fix data —
+      # this is exactly how the Miami 2026 P23 ghost-position bug shipped.
+      - "src/aris/ghost.py"
+      - "src/aris/explain/ghost.py"
+      - "src/aris/simulate.py"
       - ".github/workflows/prebuild_race.yml"
 
 jobs:
@@ -40,7 +52,18 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           ARIS_DB_URL: ${{ secrets.DATABASE_URL }}
         run: |
-          python scripts/prebuild_race_r2.py --all-completed --skip-existing
+          # --skip-existing is only safe for the routine weekly/push run (new
+          # races only). A manual force run (workflow_dispatch, force=true)
+          # drops it so every race is rebuilt from the current ghost/ranking
+          # and physics code — required after a change to src/aris/ghost.py
+          # or src/aris/simulate.py, since --skip-existing would otherwise
+          # keep serving stale pre-fix ghost_*.json forever.
+          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+            echo "Force rebuild requested — ignoring already-built R2 files."
+            python scripts/prebuild_race_r2.py --all-completed
+          else
+            python scripts/prebuild_race_r2.py --all-completed --skip-existing
+          fi
 
       - name: Upload any remaining local JSON
         if: always()

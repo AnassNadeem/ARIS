@@ -376,17 +376,26 @@ export const useRaceStore = create<RaceStore>()(
     },
     setARISModeLocked: (arisModeLocked) => set({ arisModeLocked }),
     setARISDriver: (arisDriver) =>
-      set({ arisDriver, selectedDriver: arisDriver, focusDriver: arisDriver ?? get().focusDriver }),
+      set((s) => ({
+        arisDriver,
+        selectedDriver: arisDriver,
+        focusDriver: arisDriver ?? s.focusDriver,
+        // Re-derive ghostLapS/ghostCumulativeS for the new driver — without
+        // this, switching drivers mid-session left the ghost's playback
+        // math aligned to the *previous* driver's real lap times.
+        ...deriveGhostSlice({ ...s, arisDriver, selectedDriver: arisDriver }),
+      })),
     setSelectedDriver: (selectedDriver) =>
-      set({
+      set((s) => ({
         selectedDriver,
         arisDriver: selectedDriver,
-        focusDriver: selectedDriver ?? get().focusDriver,
+        focusDriver: selectedDriver ?? s.focusDriver,
         driverLocked: false,
         strategies: null,
         selectedStrategy: null,
         activeStrategy: null,
-      }),
+        ...deriveGhostSlice({ ...s, arisDriver: selectedDriver, selectedDriver }),
+      })),
     setDriverLocked: (driverLocked) => set({ driverLocked }),
     setStrategies: (strategies) => set({ strategies }),
     setSelectedStrategy: (selectedStrategy) =>
@@ -586,7 +595,7 @@ export const useRaceStore = create<RaceStore>()(
         start_compound: s.activeStrategy?.start_compound ?? "MEDIUM",
       };
       const currentLap = s.currentLap;
-      set({ activeStrategy: plan, pendingRecommendation: null });
+      set({ pendingRecommendation: null });
       const out = await postGhostRecompute({
         year: session.year,
         round: session.round,
@@ -596,7 +605,30 @@ export const useRaceStore = create<RaceStore>()(
         compounds: plan.pit_compounds,
         label: plan.name,
       });
-      if (out?.ticks) get().mergeGhostTicksFrom(currentLap, out.ticks);
+      if (!out?.ticks) {
+        // The ghost's simulated ticks could not be regenerated for this
+        // plan (e.g. ghost-recompute unavailable) — committing
+        // activeStrategy anyway would show a strategy in the panel that
+        // the Timing Tower/map never actually simulate: the "Main Comms
+        // says MEDIUM, tower says HARD" sync bug. Keep the plan the ghost
+        // is still actually following and say so, instead of silently
+        // diverging from what's really being simulated.
+        set((state) => ({
+          commsLog: [
+            ...state.commsLog,
+            {
+              id: `${rec.id}-recompute-failed-${Date.now()}`,
+              lap: rec.lap,
+              source: "ARIS",
+              text: `Could not resimulate the ghost for ${rec.label} — staying on the current plan.`,
+              timestamp: Date.now(),
+            },
+          ],
+        }));
+        return;
+      }
+      set({ activeStrategy: plan });
+      get().mergeGhostTicksFrom(currentLap, out.ticks);
       const auto = opts?.auto !== false;
       const compoundLabel = plan.pit_compounds[plan.pit_compounds.length - 1] ?? rec.action.pit_compound ?? "";
       const entry: CommsEntry = {

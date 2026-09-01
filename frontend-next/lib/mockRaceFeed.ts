@@ -1,9 +1,9 @@
 import { MOCK_DRIVERS_2025, zandvoortOvalCoords } from "@/lib/mockData";
 import { mockRecommendation } from "@/lib/api";
-import { ghostPlaybackAt } from "@/lib/ghostCar";
+import { ghostCarFromTick, ghostPlaybackAt } from "@/lib/ghostCar";
 import { buildPath, headingAtFraction, pointAtFraction } from "@/lib/trackGeometry";
 import type { useRaceStore } from "@/store/raceStore";
-import type { CarState } from "@/lib/types";
+import type { CarState, GhostTickData } from "@/lib/types";
 
 type Store = typeof useRaceStore;
 
@@ -159,19 +159,26 @@ export class MockRaceFeed {
               pitLossS: st.pitLossS,
             });
       const ghostPoint = pointAtFraction(this.path, playback.path_frac);
+      const tick: GhostTickData = {
+        driver_code: focus,
+        divergence_lap: 1,
+        aris_action: "STAY_OUT",
+        real_action: "STAY_OUT",
+        ghost_tyre: "HARD",
+        ghost_tyre_age: real.tyre_life,
+        ghost_position: Math.max(1, (real.position ?? 1) - 1),
+        ghost_cumulative_delta: 0,
+        active: true,
+        outcome: null,
+        delta_history: [],
+        ghost_compound: "HARD",
+        from_lap_one: true,
+      };
+      const car = ghostCarFromTick(tick, real, lap, totalLaps, playback);
       setGhostCar({
-        ...real,
-        driver_code: `A_${real.driver_code}`,
-        position: Math.max(1, (real.position ?? 1) - 1),
+        ...car,
         x: ghostPoint.x,
         y: ghostPoint.y,
-        path_frac: playback.path_frac,
-        compound: "HARD",
-        is_aris_driver: false,
-        ghost_in_pits: playback.inPits,
-        ghost_pit_compound: playback.pitCompound,
-        ghost_skip_seek_jump: playback.skipSeekJump,
-        is_pitted: playback.inPits,
       });
     } else {
       setGhostCar(null);

@@ -690,3 +690,164 @@ def test_ghost_tower_rank_reflects_real_divergence():
     assert ticks[1]["ghost_position"] <= 3
 
 
+# ---------------------------------------------------------------------------
+# Gap-anchored ranking (field_gap_by_lap) — replaces the cumulative-sum
+# anchor for callers that can supply the field's real per-lap gap-to-leader.
+# See docs/GHOST_CAR_REMEDIATION_PLAN.md BUG-2: the cumulative-sum anchor
+# freezes a retired car's cumulative time and mistakes it for the race
+# leader forever, driving the ghost's rank past the end of the field
+# (observed: Miami 2026 ANT — real P2, ghost shown as P23 in a 22-car field).
+# ---------------------------------------------------------------------------
+
+
+def test_rank_ghost_by_gap_zero_delta_matches_real_position():
+    """delta == 0 -> ghost_gap equals the real driver's own gap -> the ghost
+    ranks at exactly the real driver's own classified position."""
+    from aris.ghost import rank_ghost_by_gap
+
+    field_gap_now = {"LEAD": 0.0, "ANT": 1.1, "NOR": 4.5, "PIA": 9.0}
+    ghost_gap = max(0.0, 1.1 - 0.0)  # real_gap - delta, delta == 0
+    assert rank_ghost_by_gap(ghost_gap, field_gap_now, fallback_pos=2) == 2
+
+
+def test_rank_ghost_by_gap_positive_delta_gains_places():
+    """Positive delta (ghost ahead of what the real driver actually did)
+    shrinks the anchored gap and moves the ghost up realistically — not to
+    an arbitrary or unbounded position."""
+    from aris.ghost import rank_ghost_by_gap
+
+    field_gap_now = {"LEAD": 0.0, "ANT": 1.1, "NOR": 4.5, "PIA": 9.0}
+    ghost_gap = max(0.0, 9.0 - 6.0)  # PIA's real gap, ghost 6s up
+    assert rank_ghost_by_gap(ghost_gap, field_gap_now, fallback_pos=4) == 3
+
+
+def test_rank_ghost_by_gap_no_field_falls_back():
+    from aris.ghost import rank_ghost_by_gap
+
+    assert rank_ghost_by_gap(5.0, None, fallback_pos=7) == 7
+    assert rank_ghost_by_gap(5.0, {}, fallback_pos=7) == 7
+
+
+def test_field_gap_snapshot_by_lap_excludes_dnf_and_missing_gaps():
+    """A retired car is dropped from later laps entirely, never frozen at
+    its last known gap (the legacy field_cumulative_by_lap bug)."""
+    from aris.ghost import field_gap_snapshot_by_lap
+
+    rows = [
+        {"driver": "ver", "lap": 1, "gap_to_leader_s": 0.0, "is_dnf": False},
+        {"driver": "nor", "lap": 1, "gap_to_leader_s": 1.5, "is_dnf": False},
+        {"driver": "ret", "lap": 1, "gap_to_leader_s": 3.0, "is_dnf": False},
+        {"driver": "ver", "lap": 2, "gap_to_leader_s": 0.0, "is_dnf": False},
+        {"driver": "nor", "lap": 2, "gap_to_leader_s": 1.6, "is_dnf": False},
+        {"driver": "ret", "lap": 2, "gap_to_leader_s": None, "is_dnf": True},
+    ]
+    snap = field_gap_snapshot_by_lap(rows)
+    assert snap[1] == {"VER": 0.0, "NOR": 1.5, "RET": 3.0}
+    assert snap[2] == {"VER": 0.0, "NOR": 1.6}
+
+
+def test_score_parallel_ghost_gap_anchor_deploys_from_lap1_matching_real():
+    """Ghost is deployed from lap 1 sitting on the driver's own real
+    classified position, regardless of whether ARIS's plan matches what the
+    driver actually did (delta stays 0 while there is no divergence).
+    Repro of the Miami 2026 ANT bug: real P2/P2/P1, ghost must not show P23.
+    """
+    from aris.ghost import GhostPlan, score_parallel_ghost
+
+    state = _make_state(
+        compound="MEDIUM", tyre_life=1, lap_number=1, total_laps=3,
+        position=2, driver_code="ANT",
+    )
+    plan = GhostPlan(pit_laps=[], pit_compounds=[], start_compound="MEDIUM", decision_lap=1)
+    rows = [
+        {"lap_number": 1, "compound": "MEDIUM", "tyre_life": 1, "real_action": "STAY_OUT",
+         "position": 2, "gap_to_leader_s": 1.15},
+        {"lap_number": 2, "compound": "MEDIUM", "tyre_life": 2, "real_action": "STAY_OUT",
+         "position": 2, "gap_to_leader_s": 2.02},
+        {"lap_number": 3, "compound": "MEDIUM", "tyre_life": 3, "real_action": "STAY_OUT",
+         "position": 1, "gap_to_leader_s": 0.0},
+    ]
+    field_gap_by_lap = {
+        1: {"LEAD": 0.0, "ANT": 1.15, "NOR": 4.59, "PIA": 9.0},
+        2: {"LEAD": 0.0, "ANT": 2.02, "NOR": 5.5, "PIA": 10.0},
+        3: {"ANT": 0.0, "NOR": 3.0, "PIA": 8.0},
+    }
+    ticks = score_parallel_ghost(
+        template_state=state, lap_rows=rows, plan=plan,
+        simulate_fn=_mock_simulate, typical_lap_s=95.0,
+        field_gap_by_lap=field_gap_by_lap,
+    )
+    assert ticks[1]["ghost_cumulative_delta"] == pytest.approx(0.0, abs=1e-6)
+    assert ticks[1]["ghost_position"] == 2
+    assert ticks[2]["ghost_position"] == 2
+    assert ticks[3]["ghost_position"] == 1
+
+
+def test_score_parallel_ghost_gap_anchor_reflects_divergence():
+    """When ARIS's plan genuinely differs from the real strategy, the
+    anchored position moves relative to the real driver's own actual
+    position by the model's predicted delta — proving the anchor isn't just
+    clamping the ghost to the real driver forever."""
+    from aris.ghost import GhostPlan, score_parallel_ghost
+
+    state = _make_state(
+        compound="HARD", tyre_life=20, lap_number=1, total_laps=1,
+        position=3, driver_code="VER",
+    )
+    plan = GhostPlan(pit_laps=[], pit_compounds=[], start_compound="SOFT", decision_lap=1)
+    rows = [
+        {"lap_number": 1, "compound": "HARD", "tyre_life": 20,
+         "real_action": "STAY_OUT", "position": 3, "gap_to_leader_s": 5.0},
+    ]
+    field_gap_by_lap = {1: {"VER": 5.0, "NOR": 0.0, "LEC": 10.0}}
+    ticks = score_parallel_ghost(
+        template_state=state, lap_rows=rows, plan=plan,
+        simulate_fn=_mock_simulate, typical_lap_s=93.0,
+        field_gap_by_lap=field_gap_by_lap,
+    )
+    # HARD @ tyre_life 20 (93 + 0.03*20 = 93.6) vs SOFT @ tyre_life 1
+    # (93 + 0.08*1 = 93.08) -> ghost is faster, positive cumulative delta.
+    assert ticks[1]["ghost_cumulative_delta"] > 0
+    # Ghost reacts to the divergence — at least as good as VER's real P3.
+    assert ticks[1]["ghost_position"] <= 3
+
+
+def test_score_parallel_ghost_gap_anchor_survives_retirement_in_field():
+    """Miami 2026 ANT regression: a car retiring elsewhere in the field must
+    not corrupt the ghost's ranking. The legacy cumulative-sum anchor froze
+    a retired car's cumulative time and mistook it for the race leader
+    forever, driving the ghost's rank past the end of the field (observed:
+    P23 in a 22-car field, gap_to_leader_s exploding to thousands of
+    seconds). field_gap_by_lap excludes DNFs per lap, so a retirement
+    elsewhere never corrupts the ghost's rank."""
+    from aris.ghost import GhostPlan, score_parallel_ghost
+
+    state = _make_state(
+        compound="MEDIUM", tyre_life=1, lap_number=1, total_laps=3,
+        position=2, driver_code="ANT",
+    )
+    plan = GhostPlan(pit_laps=[], pit_compounds=[], start_compound="MEDIUM", decision_lap=1)
+    rows = [
+        {"lap_number": 1, "compound": "MEDIUM", "tyre_life": 1, "real_action": "STAY_OUT",
+         "position": 2, "gap_to_leader_s": 1.0},
+        {"lap_number": 2, "compound": "MEDIUM", "tyre_life": 2, "real_action": "STAY_OUT",
+         "position": 2, "gap_to_leader_s": 1.2},
+        {"lap_number": 3, "compound": "MEDIUM", "tyre_life": 3, "real_action": "STAY_OUT",
+         "position": 2, "gap_to_leader_s": 1.4},
+    ]
+    # RET retires after lap 1 — excluded from laps 2-3, never frozen as leader.
+    field_gap_by_lap = {
+        1: {"LEAD": 0.0, "ANT": 1.0, "RET": 2.0, "MID": 5.0},
+        2: {"LEAD": 0.0, "ANT": 1.2, "MID": 5.5},
+        3: {"LEAD": 0.0, "ANT": 1.4, "MID": 6.0},
+    }
+    ticks = score_parallel_ghost(
+        template_state=state, lap_rows=rows, plan=plan,
+        simulate_fn=_mock_simulate, typical_lap_s=93.0,
+        field_gap_by_lap=field_gap_by_lap,
+    )
+    for lap in (1, 2, 3):
+        assert ticks[lap]["ghost_cumulative_delta"] == pytest.approx(0.0, abs=1e-6)
+        assert ticks[lap]["ghost_position"] == 2, f"lap {lap}: {ticks[lap]['ghost_position']}"
+
+

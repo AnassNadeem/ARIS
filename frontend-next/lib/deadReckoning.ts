@@ -1,6 +1,5 @@
 import {
   headingAtFraction,
-  lerpFrac,
   pointAtFraction,
   wrap01,
   type PathData,
@@ -99,31 +98,34 @@ function wrappedDelta(from: number, to: number): number {
 }
 
 export interface PathTickKinematics {
-  /** Speed in km/h; used only to cap / sign along-track velocity. */
+  /** Speed in km/h; unused for motion (kept for API compat). */
   speedKph?: number | null;
   headingRad?: number | null;
   /** Skip SEEK_JUMP snap (ghost grace after lights-out or a pit). */
   skipSeekJump?: boolean;
+  /** User scrub / session change — only then may we teleport. */
+  seek?: boolean;
+  playbackSpeed?: number;
 }
 
-const MAX_FRAC_PER_MS = 0.00012; // ~0.12 lap/s — well above race pace, below teleport
-const SEEK_JUMP = 0.22;
+export const GPS_HOLD_MS = 100;
+/** Catch-up cap at 1× (~0.08 lap/s). Scaled by playbackSpeed. */
+export const BASE_MAX_FRAC_PER_MS = 0.00008;
+export const SEEK_JUMP = 0.22;
 
 /** Interpolate along a circuit path so dots stay on the racing line. */
 export class PathCarAnimator {
   private lastFrac: number;
-  private prevFrac: number;
   private visFrac: number;
   private lastTickAt = 0;
   private lastVisAt = 0;
-  private vel = 0;
   private easeMs: number;
   private path: PathData;
+  private playbackSpeed = 1;
 
   constructor(path: PathData, initialFrac = 0, easeMs = 140) {
     this.path = path;
     this.lastFrac = wrap01(initialFrac);
-    this.prevFrac = this.lastFrac;
     this.visFrac = this.lastFrac;
     this.easeMs = easeMs;
   }
@@ -134,44 +136,41 @@ export class PathCarAnimator {
 
   onTick(frac: number, now: number, kinematics?: PathTickKinematics) {
     const target = wrap01(frac);
-    const d = wrappedDelta(this.lastFrac, target);
-    if (Math.abs(d) < 1e-5) return;
+    const d = wrappedDelta(this.visFrac, target);
+    if (Math.abs(d) < 1e-6 && Math.abs(wrappedDelta(this.lastFrac, target)) < 1e-6) return;
+
+    if (kinematics?.playbackSpeed != null && Number.isFinite(kinematics.playbackSpeed)) {
+      this.playbackSpeed = Math.max(0.25, kinematics.playbackSpeed);
+    }
 
     const jump = Math.abs(d);
-    if (jump > SEEK_JUMP && !kinematics?.skipSeekJump) {
-      // Seek / new session — snap onto the line instead of interpolating the long way.
+    const allowSeek = Boolean(kinematics?.seek) && !kinematics?.skipSeekJump;
+    if (jump > SEEK_JUMP && allowSeek) {
       this.lastFrac = target;
-      this.prevFrac = target;
       this.visFrac = target;
-      this.vel = 0;
       this.lastTickAt = now;
       this.lastVisAt = now;
       return;
     }
 
-    if (this.lastTickAt > 0 && now > this.lastTickAt) {
-      let v = d / (now - this.lastTickAt);
-      const speed = kinematics?.speedKph;
-      if (speed != null && speed < 8) v *= 0.15;
-      if (speed != null && speed > 8 && v < 0) v = Math.abs(v);
-      this.vel = Math.max(-MAX_FRAC_PER_MS, Math.min(MAX_FRAC_PER_MS, v));
-    }
-    this.prevFrac = this.lastFrac;
     this.lastFrac = target;
     this.lastTickAt = now;
   }
 
   currentFrac(now: number, playing = true): number {
-    const dt = playing ? Math.min(280, Math.max(0, now - this.lastTickAt)) : 0;
-    const step = wrappedDelta(this.prevFrac, this.lastFrac);
-    const maxExtra = Math.max(0.004, Math.abs(step) * 1.2);
-    const extra = Math.max(-maxExtra, Math.min(maxExtra, this.vel * dt));
-    const target = wrap01(this.lastFrac + extra);
     const frameDt = this.lastVisAt > 0 ? Math.max(1, now - this.lastVisAt) : 16.67;
     this.lastVisAt = now;
-    // 0.12 per 16.67ms (~8 frames to the target at 60fps). Time-scale so tests with large dt still catch up.
-    const ease = 1 - Math.pow(1 - 0.12, Math.min(frameDt, this.easeMs) / 16.67);
-    this.visFrac = lerpFrac(this.visFrac, target, Math.min(1, ease));
+    if (!playing) return this.visFrac;
+
+    const speed = Math.max(0.25, this.playbackSpeed);
+    const d = wrappedDelta(this.visFrac, this.lastFrac);
+    const ease = 1 - Math.pow(1 - 0.18, Math.min(frameDt, this.easeMs) / 16.67);
+    let step = d * Math.min(1, ease);
+    const maxStep = BASE_MAX_FRAC_PER_MS * speed * Math.min(frameDt, 48);
+    if (frameDt <= 48 && Math.abs(step) > maxStep) {
+      step = Math.sign(d) * maxStep;
+    }
+    this.visFrac = wrap01(this.visFrac + step);
     return this.visFrac;
   }
 

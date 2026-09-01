@@ -11,6 +11,7 @@ import {
 } from "recharts";
 import { usePanelHistory } from "@/lib/usePanelHistory";
 import { PanelEmpty, PanelSkeleton, usePanelFeedLoading } from "@/components/ui/PanelStates";
+import { AXIS_TICK, xAxisLabel, yAxisLabel } from "@/lib/chartAxis";
 
 export function PositionTrace() {
   const { laps, drivers } = usePanelHistory();
@@ -40,16 +41,16 @@ export function PositionTrace() {
             <XAxis
               dataKey="lap"
               stroke="#888888"
-              tick={{ fontFamily: "var(--font-jbmono)", fontSize: 10 }}
-              label={{ value: "Lap", position: "insideBottom", offset: -2, fill: "#888888", fontSize: 10 }}
+              tick={AXIS_TICK}
+              label={xAxisLabel("Lap")}
             />
             <YAxis
               reversed
-              domain={[1, 20]}
+              domain={[1, Math.max(20, codes.length || 20)]}
               stroke="#888888"
-              tick={{ fontFamily: "var(--font-jbmono)", fontSize: 10 }}
-              width={32}
-              label={{ value: "Position", angle: -90, position: "insideLeft", fill: "#888888", fontSize: 10 }}
+              tick={AXIS_TICK}
+              width={40}
+              label={yAxisLabel("Position")}
             />
             <Tooltip contentStyle={{ background: "#1a1a1a", border: "1px solid #2a2a2a", fontFamily: "var(--font-jbmono)", fontSize: 11 }} />
             {codes.map((code) => {

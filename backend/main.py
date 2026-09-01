@@ -60,6 +60,7 @@ from backend.models import (  # noqa: E402
     ConstructorStandingsResponse,
     CopilotChatRequest,
     CopilotChatResponse,
+    AskRequest,
     DebriefResponse,
     DriverSeasonResponse,
     DriverStandingsResponse,
@@ -1765,6 +1766,20 @@ async def api_chat(
 ) -> ChatResponse:
     return await run_sync(
         aris_api.chat, session_key, driver_code, question, year, round_number, current_lap
+    )
+
+
+@app.post("/api/ask", response_model=ChatResponse)
+async def api_ask(body: AskRequest) -> ChatResponse:
+    """Ask ARIS — factual questions hit field lookups via chat(); not a RAG dump."""
+    return await run_sync(
+        aris_api.chat,
+        None,
+        body.driver_code,
+        body.question,
+        body.year,
+        body.round_number,
+        body.current_lap,
     )
 
 

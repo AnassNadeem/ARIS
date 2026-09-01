@@ -224,6 +224,14 @@ describe("path interpolation", () => {
     expect(b.frac).toBeLessThan(0.2);
   });
 
+  it("caps per-frame motion so a GPS hole does not teleport", () => {
+    const path = buildPath([0, 10, 10, 0], [0, 0, 10, 10]);
+    const anim = new PathCarAnimator(path, 0, 140);
+    anim.onTick(0.5, 0, { playbackSpeed: 1 });
+    const a = anim.currentPosition(16, true);
+    expect(a.frac).toBeLessThan(0.05);
+  });
+
   it("fingerprints timing so unchanged SSE ticks can be skipped", () => {
     const row = {
       position: 1,
@@ -447,13 +455,13 @@ describe("onTrackCarCodes", () => {
     path_frac: 0.2,
   } satisfies CarState;
 
-  it("hides only pitted cars, not DNF", () => {
+  it("hides pitted and DNF/DNS cars from the map", () => {
     const cars = {
       VER: { ...base, is_pitted: false, is_dnf: false },
       HAM: { ...base, driver_code: "HAM", is_pitted: true, is_dnf: false },
       GAS: { ...base, driver_code: "GAS", is_pitted: false, is_dnf: true, status: "DNF" as const },
     };
-    expect(onTrackCarCodes(cars, "A_VER")).toBe("A_VER,GAS,VER");
+    expect(onTrackCarCodes(cars, "A_VER")).toBe("A_VER,VER");
   });
 });
 

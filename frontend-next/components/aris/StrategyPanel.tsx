@@ -14,6 +14,12 @@ export function StrategyPanel() {
   const isARISOn = useRaceStore((s) => s.isARISOn);
   const activeStrategy = useRaceStore((s) => s.activeStrategy);
   const currentLap = useRaceStore((s) => s.currentLap);
+  // The ghost's own simulated lap, not the real/leader lap — the ghost can
+  // run ahead or behind the field's pace, so highlighting "current stint"
+  // off the global currentLap can show a different tyre than the Timing
+  // Tower's ghost row (which reads the compound straight off the tick at
+  // the ghost's own lap). Fall back to currentLap before the ghost exists.
+  const ghostLap = useRaceStore((s) => s.ghostCar?.lap_number);
   const totalLaps = useRaceStore((s) => s.totalLaps);
   const revised = useRaceStore((s) => s.strategyRevisedAt);
 
@@ -21,7 +27,7 @@ export function StrategyPanel() {
 
   const segments = buildStintPlan(activeStrategy, totalLaps);
   if (!segments.length) return null;
-  const curIdx = currentStintIndex(segments, currentLap);
+  const curIdx = currentStintIndex(segments, ghostLap ?? currentLap);
 
   return (
     <div data-testid="strategy-panel" className="mb-2 rounded border border-border bg-surface/60 p-2">

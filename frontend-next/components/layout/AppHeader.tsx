@@ -32,8 +32,8 @@ export function AppHeader({
 
   return (
     <header
-      className={`relative z-30 flex shrink-0 items-center gap-2 overflow-visible border-b border-border bg-surface-2 px-4 ${
-        compact ? "h-11" : "h-14"
+      className={`relative z-30 flex shrink-0 items-center gap-2 overflow-visible border-b border-border bg-surface-2 px-3 sm:px-4 ${
+        compact ? "min-h-11 flex-wrap py-1 lg:h-11 lg:flex-nowrap lg:py-0" : "h-14"
       }`}
     >
       {showBack && (
@@ -51,6 +51,9 @@ export function AppHeader({
       >
         <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red" />
         ARIS
+        <span className="rounded bg-red/20 px-1.5 py-0.5 font-sans text-[9px] font-semibold uppercase tracking-wider text-red">
+          Beta
+        </span>
       </Link>
       <nav className="ml-1 flex items-center gap-1 overflow-x-auto sm:gap-2">
         {NAV_LINKS.map((l) => {

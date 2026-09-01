@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { formatLapHeader } from "@/lib/formatLap";
-import { isPersistedLayout } from "@/lib/layoutPersist";
+import { componentsFromLayoutJson, isPersistedLayout } from "@/lib/layoutPersist";
 
 describe("formatLapHeader", () => {
   it("omits the denominator when total laps are unknown", () => {
@@ -15,6 +15,20 @@ describe("formatLapHeader", () => {
 describe("isPersistedLayout", () => {
   it("accepts a flexlayout row root", () => {
     expect(isPersistedLayout({ layout: { type: "row", children: [] } })).toBe(true);
+  });
+
+  it("lists tab component ids from nested rows", () => {
+    expect(
+      componentsFromLayoutJson({
+        layout: {
+          type: "row",
+          children: [
+            { type: "tabset", children: [{ type: "tab", component: "tyredeg" }] },
+            { type: "tabset", children: [{ type: "tab", component: "analytics-add" }] },
+          ],
+        },
+      }),
+    ).toEqual(["tyredeg", "analytics-add"]);
   });
 
   it("rejects junk", () => {

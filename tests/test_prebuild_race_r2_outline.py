@@ -152,6 +152,27 @@ def test_mark_dnf_skips_classified_finisher_with_retired_status():
     assert by[("ALO", 22)] is True
 
 
+def test_mark_dnf_skips_dns_and_driver_is_dns():
+    mod = _load()
+    rec = SimpleNamespace(Status="Did not start", ClassifiedPosition="W")
+    assert mod._driver_is_dns(rec) is True
+    results = pd.DataFrame(
+        {
+            "Abbreviation": ["HUL", "MAG"],
+            "Status": ["Did not start", "Accident"],
+            "ClassifiedPosition": ["W", "R"],
+        }
+    )
+    laps = [
+        {"driver": "HUL", "lap": 1, "is_dnf": False},
+        {"driver": "MAG", "lap": 4, "is_dnf": False},
+    ]
+    mod._mark_dnf(laps, SimpleNamespace(results=results))
+    by = {r["driver"]: r["is_dnf"] for r in laps}
+    assert by["HUL"] is False
+    assert by["MAG"] is True
+
+
 def test_weather_joins_on_lap_start_not_row_index():
     mod = _load()
     # Two weather samples, five laps. Index interpolation would paint later

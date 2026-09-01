@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from aris.explain.ghost import clear_ghost_vs_real_cache, get_ghost_lap_ticks, get_ghost_vs_real
 from aris.explain.session import set_bundle_override
 from tests.fixtures.explain_zandvoort import zandvoort_2025_bundle
@@ -87,21 +89,33 @@ def test_ghost_and_real_pit_counts_match_sample_races():
     assert not failures, "\n".join(failures)
 
 
-def test_ver_zandvoort_lap20_tower_matches_aris_cumulative_rank():
-    """Lap-20 tower position is the rank of ARIS simulated cum vs real field."""
+def test_ver_zandvoort_ghost_position_anchored_to_real_and_delta():
+    """Tower position is anchored to VER's real classified state, offset only
+    by the model's ``ghost_cumulative_delta`` — never a raw independent
+    model cumulative time, and never unconditionally mirroring the real car.
+
+    - Lap 1 (delta == 0, ARIS has not diverged yet): the ghost is deployed
+      from lap 1 sitting exactly on VER's own real classified position —
+      this is required regardless of whether ARIS's plan matches what the
+      driver actually did.
+    - Lap 10 (delta far from 0 — ARIS's plan has diverged): the ghost's
+      position must move away from VER's real position, proving the ghost
+      reacts to the model's delta rather than always mirroring the real car.
+    """
     result = get_ghost_vs_real("VER", "2025-15-R")
     ticks = result["ticks"]
-    assert ticks.get(20) is not None
-    ghost_cum = sum(
-        float((ticks.get(lap) or {}).get("ghost_lap_s") or 0.0) for lap in range(1, 21)
-    )
-    assert ghost_cum > 0
-    idx = result["ghost"]["laps"].index(20)
-    assert ticks[20]["ghost_position"] == result["ghost"]["position"][idx]
+    assert ticks.get(1) is not None
+    assert ticks.get(10) is not None
+
+    idx1 = result["ghost"]["laps"].index(1)
+    assert ticks[1]["ghost_cumulative_delta"] == pytest.approx(0.0, abs=1e-6)
+    assert ticks[1]["ghost_position"] == result["ghost"]["position"][idx1]
+    assert ticks[1]["ghost_position"] == result["real"]["position"][idx1]
     assert abs(
-        float(ticks[20]["gap_to_leader_s"]) - float(result["ghost"]["gap_to_leader"][idx])
+        float(ticks[1]["gap_to_leader_s"]) - float(result["real"]["gap_to_leader"][idx1])
     ) < 0.05
-    # Must not be the GPS-offset classified rank of the real car (P1 in this fixture).
-    assert ticks[20]["ghost_position"] != result["real"]["position"][idx] or ticks[20][
-        "gap_to_leader_s"
-    ] != result["real"]["gap_to_leader"][idx]
+
+    idx10 = result["ghost"]["laps"].index(10)
+    assert ticks[10]["ghost_cumulative_delta"] != pytest.approx(0.0, abs=1e-6)
+    assert ticks[10]["ghost_position"] == result["ghost"]["position"][idx10]
+    assert ticks[10]["ghost_position"] != result["real"]["position"][idx10]

@@ -12,6 +12,7 @@ import {
 } from "recharts";
 import { usePanelHistory } from "@/lib/usePanelHistory";
 import { PanelEmpty, PanelSkeleton, usePanelFeedLoading } from "@/components/ui/PanelStates";
+import { AXIS_TICK, xAxisLabel, yAxisLabel } from "@/lib/chartAxis";
 
 export function PitStopTimeline() {
   const { pitStops, drivers, totalLaps } = usePanelHistory();
@@ -41,16 +42,18 @@ export function PitStopTimeline() {
               dataKey="lap"
               name="Lap"
               stroke="#888888"
-              tick={{ fontFamily: "var(--font-jbmono)", fontSize: 10 }}
+              tick={AXIS_TICK}
               domain={[1, distance]}
+              label={xAxisLabel("Lap")}
             />
             <YAxis
               type="number"
               dataKey="durationS"
               name="Duration (s)"
               stroke="#888888"
-              tick={{ fontFamily: "var(--font-jbmono)", fontSize: 10 }}
-              width={40}
+              tick={AXIS_TICK}
+              width={48}
+              label={yAxisLabel("Pit duration (s)")}
             />
             <ZAxis range={[60, 60]} />
             <Tooltip

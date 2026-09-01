@@ -67,14 +67,16 @@ async function startReplay(page: Page, year: number, round: number, driver = "VE
   await rec.click();
   await page.getByRole("button", { name: /Start Race/i }).click();
   await page.waitForURL(/\/replay\/console/, { timeout: 60_000 });
-  await waitForTower(page);
   // The console has its own lights-out "Start Race" gate (consolePlayState
-  // "ready"/"starting" -> "racing"); without clicking it the replay clock
-  // never advances, so seeks land but time never moves forward afterwards.
+  // "ready"/"starting" -> "racing"). No analytics — sector times, speed,
+  // timing tower rows — are populated before this click (clean pre-race
+  // state); click it before waiting for the tower, or without it the replay
+  // clock never advances and seeks land but time never moves afterwards.
   const consoleStart = page.getByRole("button", { name: /Start Race/i });
   if (await consoleStart.isVisible().catch(() => false)) {
     await consoleStart.click();
   }
+  await waitForTower(page);
 }
 
 async function dotPos(locator: Locator) {
@@ -119,7 +121,11 @@ async function seekToLap(page: Page, lap: number) {
 }
 
 test.describe("ghost regression", () => {
-  test("Ghost starts with real car", async ({ page }) => {
+  // Hidden by default (NEXT_PUBLIC_ARIS_GHOST_MAP is unset). The map ghost
+  // dot is gated until the backend GPS-projection / path_frac wrap bug is
+  // fixed — a misplaced ghost on the circuit undermines the demo. Re-enable
+  // this alignment check when ghostMapFeatureEnabled() ships on.
+  test.skip("Ghost starts with real car", async ({ page }) => {
     await startReplay(page, 2024, 1, "VER");
     const ghost = page.getByTestId("ghost-dot");
     const ver = page.getByTestId("car-dot-VER");
@@ -139,6 +145,12 @@ test.describe("ghost regression", () => {
     const vPos = await dotPos(ver);
     const dist = Math.hypot(gPos.x - vPos.x, gPos.y - vPos.y);
     expect(dist, `ghost ${JSON.stringify(gPos)} vs VER ${JSON.stringify(vPos)}`).toBeLessThanOrEqual(5);
+  });
+
+  test("Ghost map dot is hidden by default; tower ARIS row is present", async ({ page }) => {
+    await startReplay(page, 2024, 1, "VER");
+    await expect(page.getByTestId("ghost-dot")).toHaveCount(0);
+    await expect(page.getByTestId("ghost-tower-row")).toBeVisible({ timeout: 15_000 });
   });
 
   test("Ghost does not stay P1", async ({ page }) => {

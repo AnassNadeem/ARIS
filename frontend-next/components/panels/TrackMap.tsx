@@ -2,8 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRaceStore } from "@/store/raceStore";
-import { getCircuitCoords } from "@/lib/api";
-import { PathCarAnimator } from "@/lib/deadReckoning";
+import { getCircuitCoords, ghostMapFeatureEnabled } from "@/lib/api";
+import { PathCarAnimator, GPS_HOLD_MS } from "@/lib/deadReckoning";
+import { PIT_ENTRY_FRAC, ghostPlaybackAt } from "@/lib/ghostCar";
+import { replayDisplayFrac } from "@/lib/r2Replay";
 import {
   buildPath,
   fractionAtPoint,
@@ -13,7 +15,6 @@ import {
   sectorsAreUsable,
   viewBoxFor,
 } from "@/lib/trackGeometry";
-import { PIT_ENTRY_FRAC } from "@/lib/ghostCar";
 import { onTrackCarCodes } from "@/lib/mapCars";
 import { chequeredSfFlag, startFinishMarker } from "@/lib/replayFilter";
 import { PlaybackControls } from "@/components/ui/PlaybackControls";
@@ -105,8 +106,9 @@ export function TrackMap() {
   const circuitOutline = useRaceStore((s) => s.circuitOutline);
   const racePhase = useRaceStore((s) => s.racePhase);
   const isRedFlag = racePhase === "RED_FLAG";
+  const showGhostOnMap = ghostMapFeatureEnabled();
   const carCodesKey = useRaceStore((s) =>
-    onTrackCarCodes(s.cars, s.isARISOn && s.ghostCar ? s.ghostCar.driver_code : null),
+    onTrackCarCodes(s.cars, s.isARISOn && s.ghostCar && ghostMapFeatureEnabled() ? s.ghostCar.driver_code : null),
   );
   const playbackSpeed = useRaceStore((s) => s.playbackSpeed);
   const ghostInPits = useRaceStore((s) => Boolean(s.ghostCar?.ghost_in_pits));
@@ -115,7 +117,7 @@ export function TrackMap() {
     if (!g) return null;
     return g.ghost_pit_compound ?? g.compound;
   });
-  const showGhostLegend = useRaceStore((s) => Boolean(s.isARISOn && s.ghostCar));
+  const showGhostLegend = useRaceStore((s) => Boolean(s.isARISOn && s.ghostCar && ghostMapFeatureEnabled()));
   const speedRef = useRef(playbackSpeed);
   speedRef.current = playbackSpeed;
 
@@ -174,51 +176,88 @@ export function TrackMap() {
   //    payload (mapCars hardcodes 0). Cartesian dead-reckoning (2C) is skipped; along-track
   //    velocity from path_frac deltas is kept.
   const lastFrac = useRef<Map<string, number>>(new Map());
+  const displayElapsedRef = useRef(0);
+  const lastRafRef = useRef(0);
+  const lastPacketAtRef = useRef(0);
 
   useEffect(() => {
     function frame() {
       const now = performance.now();
+      const wallDt = lastRafRef.current ? Math.min(48, now - lastRafRef.current) : 16.67;
+      lastRafRef.current = now;
+      const store = useRaceStore.getState();
+      const racing = store.consoleMode === "live" || store.consolePlayState === "racing";
+      const playing = store.isPlaying && racing && store.racePhase !== "RED_FLAG";
+      const storeElapsed = store.replayElapsedS;
+      let seek = false;
+      if (!racing) {
+        displayElapsedRef.current = 0;
+      } else if (Math.abs(storeElapsed - displayElapsedRef.current) > 6) {
+        displayElapsedRef.current = storeElapsed;
+        seek = true;
+      } else if (storeElapsed > displayElapsedRef.current + 1.5) {
+        displayElapsedRef.current = storeElapsed;
+      } else if (playing) {
+        displayElapsedRef.current += (wallDt / 1000) * store.playbackSpeed;
+      }
+      const packetDue = seek || now - lastPacketAtRef.current >= GPS_HOLD_MS;
+      if (packetDue) lastPacketAtRef.current = now;
+
       const line = pathRef.current;
-      const playing = useRaceStore.getState().isPlaying;
       if (line) {
+        const field = store.r2RaceField;
         for (const code of codesRef.current) {
           const car = readCar(code);
           if (!car) continue;
-          if (car.is_pitted) continue;
+          if (car.is_pitted || car.is_dnf) continue;
           const prevKnown = lastFrac.current.get(code);
-          const frac =
-            car.path_frac != null && Number.isFinite(car.path_frac)
-              ? car.path_frac
-              : prevKnown != null && Number.isFinite(prevKnown)
-                ? prevKnown
-                : fractionAtPoint(line, car.x, car.y);
+          const isGhost = code.startsWith(GHOST_PREFIX);
+          let frac: number;
+          if (isGhost && store.ghostLapS.length > 1 && racing) {
+            const pb = ghostPlaybackAt({
+              elapsedS: displayElapsedRef.current,
+              ghostLapS: store.ghostLapS,
+              ghostCumulativeS: store.ghostCumulativeS.length > 1 ? store.ghostCumulativeS : [0, 90],
+              totalLaps: store.totalLaps || 1,
+              pitLaps: [],
+              pitLossS: store.pitLossS,
+            });
+            frac = pb.path_frac;
+          } else if (field && store.consoleMode === "replay") {
+            frac = replayDisplayFrac(field, code, displayElapsedRef.current);
+          } else if (car.path_frac != null && Number.isFinite(car.path_frac)) {
+            frac = car.path_frac;
+          } else if (prevKnown != null && Number.isFinite(prevKnown)) {
+            frac = prevKnown;
+          } else {
+            frac = fractionAtPoint(line, car.x, car.y);
+          }
           let animator = animators.current.get(code);
           if (!animator) {
             animator = new PathCarAnimator(line, frac, 140);
             animators.current.set(code, animator);
             lastFrac.current.set(code, frac);
+            animator.onTick(frac, now, { playbackSpeed: store.playbackSpeed, seek: true, skipSeekJump: true });
           } else {
             animator.setPath(line);
-            const prev = lastFrac.current.get(code);
-            let d = frac - (prev ?? frac);
-            if (d > 0.5) d -= 1;
-            if (d < -0.5) d += 1;
-            if (prev == null || Math.abs(d) > 1e-5) {
+            if (packetDue) {
               animator.onTick(frac, now, {
                 speedKph: car.speed_kph,
                 headingRad: car.heading_rad,
-                skipSeekJump: Boolean(car.ghost_skip_seek_jump),
+                skipSeekJump: Boolean(car.ghost_skip_seek_jump) || !seek,
+                seek,
+                playbackSpeed: store.playbackSpeed,
               });
               lastFrac.current.set(code, frac);
             }
           }
-          const pos = animator.currentPosition(now, playing);
+          const pos = animator.currentPosition(now, playing || !racing);
           const g = groupRefs.current.get(code);
           if (g) {
             g.setAttribute("transform", `translate(${pos.x}, ${pos.y})`);
             g.setAttribute("cx", String(pos.x));
             g.setAttribute("cy", String(pos.y));
-            if (!code.startsWith(GHOST_PREFIX)) {
+            if (!isGhost) {
               const circle = g.querySelector("circle");
               if (circle) {
                 (circle as SVGCircleElement).style.filter = speedGlowFilter(
@@ -299,7 +338,10 @@ export function TrackMap() {
             const isGhost = code.startsWith(GHOST_PREFIX);
             const isFocus = !isGhost && focusCode !== "" && code === focusCode;
             const r = isFocus ? 9 : isGhost ? 8 : 6;
-            const hideDot = Boolean(car.is_pitted) || (isGhost && (ghostInPits || Boolean(car.ghost_in_pits)));
+            const hideDot =
+              Boolean(car.is_pitted) ||
+              Boolean(car.is_dnf) ||
+              (isGhost && (ghostInPits || Boolean(car.ghost_in_pits)));
             return (
               <g
                 key={code}
@@ -352,7 +394,7 @@ export function TrackMap() {
               </g>
             );
           })}
-          {ghostInPits && pitAnchor && (
+          {showGhostOnMap && ghostInPits && pitAnchor && (
             <g transform={`translate(${pitAnchor.x}, ${pitAnchor.y})`}>
               <rect
                 x={-52}

@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRaceStore } from "@/store/raceStore";
-import { askARIS, copilotFeatureEnabled } from "@/lib/api";
+import { askARIS, copilotFeatureEnabled, getSessionResults } from "@/lib/api";
+import { answerFactualLive, classifyIntent, historyLookupHint } from "@/lib/copilotIntent";
 import { RecommendationCard } from "@/components/aris/RecommendationCard";
 import { CopilotPanel } from "@/components/aris/CopilotPanel";
 import { commsTabs } from "@/lib/sessionFlow";
@@ -10,7 +11,7 @@ import { useCommsNarration } from "@/lib/useCommsNarration";
 import { StrategyPanel } from "@/components/aris/StrategyPanel";
 import { PanelEmpty, PanelSkeleton, usePanelFeedLoading } from "@/components/ui/PanelStates";
 
-const CHIPS = ["Gap to Lando?", "Should we extend?", "What's the undercut window?"];
+const CHIPS = ["Gap to the leader?", "Should we extend?", "What's the undercut window?"];
 
 let commsSeq = 0;
 function nextCommsId(prefix: string): string {
@@ -56,6 +57,11 @@ function MainComms() {
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      {/* Pinned above the scroller (not inside it) so the current strategy
+       * and tyre stay visible no matter how far the comms feed is scrolled. */}
+      <div className="shrink-0 px-2 pt-2">
+        <StrategyPanel />
+      </div>
       <div
         ref={scrollerRef}
         onScroll={() => {
@@ -65,7 +71,6 @@ function MainComms() {
         }}
         className="min-h-0 flex-1 overflow-y-auto p-2 [overflow-anchor:none]"
       >
-        <StrategyPanel />
         {loading && commsLog.length === 0 && !pendingRecommendation ? (
           <PanelSkeleton rows={6} />
         ) : commsLog.length === 0 && !pendingRecommendation ? (
@@ -119,6 +124,12 @@ function AskARIS() {
   const pushComms = useRaceStore((s) => s.pushComms);
   const commsLog = useRaceStore((s) => s.commsLog);
   const currentLap = useRaceStore((s) => s.currentLap);
+  const session = useRaceStore((s) => s.session);
+  const arisDriver = useRaceStore((s) => s.arisDriver);
+  const cars = useRaceStore((s) => s.cars);
+  const racePhase = useRaceStore((s) => s.racePhase);
+  const rainfall = useRaceStore((s) => s.rainfall);
+  const totalLaps = useRaceStore((s) => s.totalLaps);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
   const askEntries = commsLog.filter((c) => c.source === "USER" || c.source === "ARIS_ANALYSIS");
@@ -135,13 +146,59 @@ function AskARIS() {
     setPending(true);
     pushComms({ id: nextCommsId("ask"), lap: currentLap, source: "USER", text: question, timestamp: nowTimestamp() });
     setInput("");
-    const { answer } = await askARIS(question);
+    const local = answerFactualLive(question, {
+      cars,
+      currentLap,
+      totalLaps,
+      racePhase,
+      rainfall,
+      focusDriver: arisDriver,
+      session,
+    });
+    if (local) {
+      pushComms({
+        id: nextCommsId("ans"),
+        lap: currentLap,
+        source: "ARIS_ANALYSIS",
+        text: local,
+        timestamp: nowTimestamp(),
+      });
+      setPending(false);
+      return;
+    }
+    if (classifyIntent(question) === "factual_history") {
+      const hint = historyLookupHint(question, session);
+      if (hint) {
+        const rows = await getSessionResults(hint.year, hint.round);
+        const winner = rows?.find((r) => r.position === 1);
+        if (winner) {
+          const circuit = session?.circuitName ?? "this circuit";
+          pushComms({
+            id: nextCommsId("ans"),
+            lap: currentLap,
+            source: "ARIS_ANALYSIS",
+            text: `${winner.driver_code} won the ${hint.year} ${circuit} race.`,
+            timestamp: nowTimestamp(),
+          });
+          setPending(false);
+          return;
+        }
+      }
+    }
+    const { answer, offline } = await askARIS(question, undefined, {
+      year: session?.year,
+      round: session?.round,
+      driver: arisDriver ?? undefined,
+      currentLap,
+    });
     pushComms({
       id: nextCommsId("ans"),
       lap: currentLap,
       source: "ARIS_ANALYSIS",
       text: answer,
       timestamp: nowTimestamp(),
+      // Never silently pass a canned fallback off as a live answer.
+      offlineAnswer: offline,
     });
     setPending(false);
   }
@@ -166,6 +223,11 @@ function AskARIS() {
           <div key={m.id} className="mb-2">
             <SourceLabel source={m.source} />
             <div className="mt-0.5 font-mono-data text-[11px] leading-relaxed text-white/90">{m.text}</div>
+            {m.offlineAnswer && (
+              <div className="mt-1 inline-block rounded bg-amber/15 px-1.5 py-0.5 font-mono-data text-[9px] text-amber">
+                ⚠ OFFLINE — backend unreachable, showing a cached local answer
+              </div>
+            )}
           </div>
         ))}
         {pending && <div className="font-mono-data text-[10px] text-muted">Thinking…</div>}
@@ -190,6 +252,12 @@ export function ARISComms() {
   const [tab, setTab] = useState<"main" | "chat">("main");
   const [threadId, setThreadId] = useState("c1");
   const [threadSeq, setThreadSeq] = useState(1);
+  // Canonical chat panel: Copilot (tool-calling, cites retrieved chunks,
+  // supports approve/deny/alter) is preferred over the plain Ask ARIS panel.
+  // `copilotFeatureEnabled()` is on by default outside production and off in
+  // production unless NEXT_PUBLIC_ARIS_COPILOT=1 is set at build time — so a
+  // production build shows Ask ARIS unless that flag is set. See
+  // docs/ASK_ARIS.md for the full wiring.
   const showCopilot = copilotFeatureEnabled();
   const isARISOn = useRaceStore((s) => s.isARISOn);
   const copilotDocked = useRaceStore((s) => s.copilotDocked);

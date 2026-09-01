@@ -121,9 +121,13 @@ export function TimingTower() {
   const isARISOn = useRaceStore((s) => s.isARISOn);
   const racePhase = useRaceStore((s) => s.racePhase);
   const currentLap = useRaceStore((s) => s.currentLap);
+  const consolePlayState = useRaceStore((s) => s.consolePlayState);
+  const consoleMode = useRaceStore((s) => s.consoleMode);
   const setFocusDriver = useRaceStore((s) => s.setFocusDriver);
   const focus = useFocusDriver("");
   const loading = usePanelFeedLoading();
+
+  const preRace = consoleMode !== "live" && consolePlayState !== "racing";
 
   const rows = useMemo(() => {
     const list = Object.values(cars);
@@ -167,7 +171,11 @@ export function TimingTower() {
             ) : rows.length === 0 ? (
               <PanelEmpty
                 title="Timing tower"
-                detail="Position, gap, last lap, and tyre for the field. Empty until the first timing frame arrives from replay or live."
+                detail={
+                  preRace && rows.length === 0
+                    ? "Grid order appears once the race pack loads. Last-lap and sector times stay blank until you click Start Race."
+                    : "Position, gap, last lap, and tyre for the field. Empty until the first timing frame arrives from replay or live."
+                }
               />
             ) : (
               rows.map((car) => (

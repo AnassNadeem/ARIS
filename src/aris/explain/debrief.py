@@ -86,6 +86,7 @@ def debrief_to_parquet_bytes(payload: dict[str, Any]) -> tuple[bytes, str, str]:
                 "type": d.get("type"),
                 "chosen_action": d.get("chosen_action"),
                 "explanation": d.get("explanation"),
+                "why": d.get("why"),
                 "top1_label": top.get("label"),
                 "top1_delta_s": top.get("delta_vs_stay_out_s"),
             }
@@ -101,6 +102,7 @@ def debrief_to_parquet_bytes(payload: dict[str, Any]) -> tuple[bytes, str, str]:
                 "type": "none",
                 "chosen_action": None,
                 "explanation": None,
+                "why": None,
                 "top1_label": None,
                 "top1_delta_s": None,
             }
@@ -273,6 +275,54 @@ def _collapse_laps(laps: list[int], *, kind: str) -> list[dict[str, Any]]:
     return out
 
 
+def _why_reasoning(rec: Any) -> str:
+    """Name the driving factor behind a recommendation for the debrief.
+
+    ``explanation`` (narrate_recommendation, use_llm=False) only states the
+    action and predicted delta ("recommend pit lap 28 for medium — expected
+    -18.3s"). This reads the same recommendation's ``narration_context`` —
+    already computed by recommend()/simulate() (undercut bonus, overcut
+    window, SC risk, tyre life) — to state *why*: undercut opportunity,
+    overcut window, elevated safety-car risk, or tyre degradation losing
+    time per lap. Does not change narrate_recommendation itself, which is
+    also used for the live radio call and is covered by its own tests.
+    """
+    ctx = getattr(rec, "narration_context", None) or {}
+    label = str(getattr(rec, "label", "") or "")
+    is_pit = "pit" in label.lower()
+    delta = ctx.get("delta_s", getattr(rec, "delta_vs_stay_out_s", None))
+    reasons: list[str] = []
+
+    undercut_bonus = ctx.get("undercut_bonus_s") or 0.0
+    undercut_source = ctx.get("undercut_source")
+    if abs(undercut_bonus) > 0.05 and undercut_source not in (None, "none"):
+        reasons.append(f"undercut opportunity vs {undercut_source} (worth {undercut_bonus:+.1f}s)")
+
+    overcut_rival = ctx.get("overcut_rival")
+    if overcut_rival:
+        window = ctx.get("overcut_window_delta_s")
+        window_note = f" ({window:+.1f}s)" if window is not None else ""
+        reasons.append(f"overcut window vs {overcut_rival}{window_note}")
+
+    sc5 = ctx.get("p_sc_next_5_laps")
+    if isinstance(sc5, (int, float)) and sc5 >= 0.15:
+        reasons.append(f"elevated safety-car risk in the next 5 laps ({sc5:.0%})")
+
+    if not reasons:
+        tyre_life = ctx.get("tyre_life")
+        compound = str(ctx.get("compound") or "current").lower()
+        if is_pit and isinstance(delta, (int, float)) and delta < 0:
+            life_note = f" at tyre life {int(tyre_life)}" if isinstance(tyre_life, (int, float)) else ""
+            reasons.append(
+                f"{compound} tyres{life_note} were predicted to keep losing time — "
+                f"staying out was {abs(delta):.1f}s slower over the remaining laps"
+            )
+        elif not is_pit:
+            reasons.append("the pit-stop time loss outweighed the fresh-tyre gain from stopping now")
+
+    return "; ".join(reasons) if reasons else "model-predicted delta vs stay-out (no single dominant factor)"
+
+
 def _decisions(
     data: ExplainBundle,
     focus: pd.DataFrame,
@@ -296,8 +346,11 @@ def _decisions(
         rec_result = recommend(state, top_k=3, mc_draws=0)
         top3 = [_rec_row(r) for r in rec_result.recommendations[:3]]
         explanation = ""
+        why = ""
         if rec_result.recommendations:
-            explanation = narrate_recommendation(rec_result.recommendations[0], use_llm=False)
+            top_rec = rec_result.recommendations[0]
+            explanation = narrate_recommendation(top_rec, use_llm=False)
+            why = _why_reasoning(top_rec)
         aris_action = top3[0]["label"] if top3 else "Stay out"
         decisions.append(
             {
@@ -307,6 +360,7 @@ def _decisions(
                 "chosen_action": chosen,
                 "aris_action": aris_action,
                 "explanation": explanation,
+                "why": why,
             }
         )
     return decisions

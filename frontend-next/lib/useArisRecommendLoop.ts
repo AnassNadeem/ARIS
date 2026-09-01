@@ -5,6 +5,14 @@ import { annotateVsActivePlan, autoDecisionStatement, fetchRecommendation, recom
 import { useRaceStore } from "@/store/raceStore";
 
 /**
+ * A resolved recommendation dispatched more than this many laps ago is
+ * stale — the replay clock moved on while the request was in flight, so
+ * showing/adopting it now would surface a decision (e.g. "pit now") for a
+ * lap that has already passed.
+ */
+const STALE_RECOMMEND_LAP_TOLERANCE = 2;
+
+/**
  * When ARIS strategy is on and the console is racing, call POST /api/aris/recommend
  * at lights-out, around pit windows, on driver change, and when the user clicks Get strategy.
  */
@@ -95,6 +103,16 @@ export function useArisRecommendLoop() {
       .then((rec) => {
         const store = useRaceStore.getState();
         if (!store.isARISOn) return;
+        const staleLaps = store.currentLap - lap;
+        if (staleLaps > STALE_RECOMMEND_LAP_TOLERANCE) {
+          // Dispatched at `lap`, but the replay clock has moved on well
+          // past it by the time this resolved — discard rather than show
+          // a "pit now" banner/comms line for a lap that already passed.
+          console.warn(
+            `[ARIS] discarding stale recommendation dispatched at lap ${lap}, now at lap ${store.currentLap}`,
+          );
+          return;
+        }
         store.setPendingRecommendation(rec);
         const active = store.activeStrategy;
         const recPit = rec.action.pit_lap ?? rec.action.pit_laps?.[0];

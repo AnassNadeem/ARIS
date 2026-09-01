@@ -105,3 +105,10 @@ def test_gap_to_nor_from_pia_is_interval():
     assert "1.3" in result.response or "1.3s" in low
     assert "1.8" not in result.response
     assert "cite:" not in low
+
+
+def test_factual_gap_skips_retrieval():
+    result = _run("What's the gap to NOR?")
+    assert result.retrieved_chunks == []
+    called = {c["name"] for c in result.tool_calls}
+    assert "get_gap" in called

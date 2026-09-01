@@ -1,6 +1,23 @@
 import type { IJsonModel, Model } from "flexlayout-react";
 
-export const LAYOUT_STORAGE_KEY = "aris_layout_v1";
+export const LAYOUT_STORAGE_KEY = "aris_layout_v3";
+
+export const ANALYTICS_ROW_ID = "analytics-dock-row";
+export const ANALYTICS_ADD_TABSET_ID = "analytics-add-tabset";
+export const ANALYTICS_ADD_TAB_ID = "analytics-add-tab";
+
+/** Component ids of tabs currently in a flexlayout JSON tree. */
+export function componentsFromLayoutJson(json: { layout?: unknown }): string[] {
+  const out: string[] = [];
+  const visit = (node: unknown) => {
+    if (!node || typeof node !== "object") return;
+    const rec = node as { type?: string; component?: string; children?: unknown[] };
+    if (rec.type === "tab" && typeof rec.component === "string") out.push(rec.component);
+    if (Array.isArray(rec.children)) rec.children.forEach(visit);
+  };
+  visit(json.layout);
+  return out;
+}
 
 function isJsonRow(value: unknown): value is IJsonModel["layout"] {
   return Boolean(value && typeof value === "object" && (value as { type?: string }).type === "row");

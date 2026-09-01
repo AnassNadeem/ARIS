@@ -113,7 +113,7 @@ export function LapTimesChart() {
         ) : data.length === 0 ? (
           <PanelEmpty
             title="Lap times"
-            detail="Lap-time traces for the field, with safety-car bands overlaid. Empty until completed laps arrive from the replay or live feed."
+            detail="Lap-time traces for the field, with safety-car bands overlaid. Empty until you click Start Race and completed laps arrive."
           />
         ) : (
         <ResponsiveContainer width="100%" height="100%">

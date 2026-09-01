@@ -153,12 +153,14 @@ def _compute_ghost_vs_real(data: ExplainBundle, code: str) -> dict[str, Any]:
         last = ghost_times[-1] if ghost_times else (real_times[-1] if real_times else 90.0)
         ghost_times = list(ghost_times) + [last] * (n - len(ghost_times))
     ghost_times = ghost_times[:n]
-    ghost_rank_times: list[float] = []
-    acc = 0.0
-    for t in ghost_times:
-        acc += float(t)
-        ghost_rank_times.append(acc)
-    ghost_pos, ghost_gap = _rank_extra_vs_field(ghost_rank_times, field_cum)
+    # Anchor position/gap to the real driver's own classified state + the
+    # model's cumulative delta for that lap — not a raw independent model
+    # cumulative sum (see _rank_ghost_by_gap).
+    deltas = [
+        float((ticks.get(int(lap)) or {}).get("ghost_cumulative_delta") or 0.0)
+        for lap in real_laps
+    ]
+    ghost_pos, ghost_gap = _rank_ghost_by_gap(real_gap, deltas, field_cum, code)
     ghost_compound = [
         str(
             (ticks.get(lap) or {}).get("ghost_compound")
@@ -375,6 +377,14 @@ def _rank_and_gap(
     *,
     fallback_pos: list[int | None],
 ) -> tuple[list[int], list[float]]:
+    """Real driver's classified position + gap-to-leader per lap.
+
+    Position prefers the ground-truth classified position from FastF1
+    (``fallback_pos``) over a recomputed cumulative-time rank, which drifts
+    once any car in the field retires. Gap is still derived from the
+    cumulative lap-time series (already forward-filled past retirements by
+    ``_aligned_times``) and used only as a magnitude, not for ranking.
+    """
     n = len(focus_cum)
     positions: list[int] = []
     gaps: list[float] = []
@@ -384,37 +394,54 @@ def _rank_and_gap(
             if i >= len(cum):
                 continue
             scores.append((float(cum[i]), str(code).upper()))
-        if not scores:
-            pos = fallback_pos[i] if i < len(fallback_pos) and fallback_pos[i] else 1
-            positions.append(int(pos))
-            gaps.append(0.0)
-            continue
-        scores.sort(key=lambda kv: kv[0])
-        leader = scores[0][0]
-        rank = next((j + 1 for j, (_t, c) in enumerate(scores) if c == focus), 1)
-        positions.append(rank)
+        leader = min((t for t, _c in scores), default=float(focus_cum[i]))
         gaps.append(max(0.0, float(focus_cum[i]) - leader))
+        raw_pos = fallback_pos[i] if i < len(fallback_pos) else None
+        if raw_pos:
+            positions.append(int(raw_pos))
+        elif scores:
+            scores.sort(key=lambda kv: kv[0])
+            rank = next((j + 1 for j, (_t, c) in enumerate(scores) if c == focus), 1)
+            positions.append(rank)
+        else:
+            positions.append(1)
     return positions, gaps
 
 
-def _rank_extra_vs_field(
-    extra_cum: list[float],
+def _rank_ghost_by_gap(
+    real_gap: list[float],
+    deltas: list[float],
     field_cum: dict[str, list[float]],
+    focus_code: str,
 ) -> tuple[list[int], list[float]]:
-    """Rank an extra (ghost) cumulative series against all real drivers."""
+    """Anchor the ghost to the real driver's own classified gap-to-leader and
+    move only by the model's predicted cumulative delta for that lap
+    (mirrors ``aris.ghost.rank_ghost_by_gap``). When ``deltas[i] == 0`` the
+    ghost's gap equals the real driver's own gap, so it ranks at the real
+    driver's own classified position — the ghost sits on the real driver
+    from lap 1 even when ARIS's plan has not diverged from what the driver
+    actually did. Unlike ranking a raw independent ghost cumulative-time sum
+    against the field (the previous approach), this never drifts to a
+    nonsensical position on a cold-start lap-1 prediction, because it is
+    anchored to the real driver's own gap rather than an absolute time.
+    """
+    n = len(real_gap)
     positions: list[int] = []
     gaps: list[float] = []
-    for i, g in enumerate(extra_cum):
-        scores: list[tuple[float, str]] = [(float(g), "__GHOST__")]
-        for code, cum in field_cum.items():
-            if i >= len(cum):
-                continue
-            scores.append((float(cum[i]), str(code).upper()))
-        scores.sort(key=lambda kv: kv[0])
-        leader = scores[0][0]
-        rank = next((j + 1 for j, (_t, c) in enumerate(scores) if c == "__GHOST__"), 1)
-        positions.append(int(rank))
-        gaps.append(max(0.0, float(g) - leader))
+    for i in range(n):
+        cums_at_i = [
+            (str(code).upper(), cum[i]) for code, cum in field_cum.items() if i < len(cum)
+        ]
+        leader = min((v for _c, v in cums_at_i), default=0.0)
+        delta = deltas[i] if i < len(deltas) else 0.0
+        ghost_gap = max(0.0, real_gap[i] - delta)
+        ahead = sum(
+            1
+            for code, v in cums_at_i
+            if code != focus_code and (v - leader) < ghost_gap
+        )
+        positions.append(ahead + 1)
+        gaps.append(round(ghost_gap, 3))
     return positions, gaps
 
 

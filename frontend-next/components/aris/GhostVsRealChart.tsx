@@ -52,20 +52,25 @@ export function GhostVsRealChart({
     };
   }, [sid, code]);
 
+  const currentLap = useRaceStore((s) => s.currentLap) || 1;
+
   const chart = useMemo(() => {
     if (!data) return [];
-    return data.real.laps.map((lap, i) => ({
-      lap,
-      ghostPos: data.ghost.position[i],
-      realPos: data.real.position[i],
-      ghostGap: data.ghost.gap_to_leader[i],
-      realGap: data.real.gap_to_leader[i],
-      posDelta: data.delta.position_delta[i],
-      gapDelta: data.delta.gap_delta[i],
-      ghostCompound: data.ghost.compound[i],
-      realCompound: data.real.compound[i],
-    }));
-  }, [data]);
+    const cap = Math.max(1, currentLap);
+    return data.real.laps
+      .map((lap, i) => ({
+        lap,
+        ghostPos: data.ghost.position[i],
+        realPos: data.real.position[i],
+        ghostGap: data.ghost.gap_to_leader[i],
+        realGap: data.real.gap_to_leader[i],
+        posDelta: data.delta.position_delta[i],
+        gapDelta: data.delta.gap_delta[i],
+        ghostCompound: data.ghost.compound[i],
+        realCompound: data.real.compound[i],
+      }))
+      .filter((row) => row.lap <= cap);
+  }, [data, currentLap]);
 
   return (
     <div className="flex h-full min-h-[280px] flex-col bg-carbon p-2">

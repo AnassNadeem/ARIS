@@ -94,6 +94,10 @@ class DebriefDecision(BaseModel):
     chosen_action: str
     aris_action: str | None = None
     explanation: str = ""
+    # Named driving factor (undercut / overcut / SC risk / tyre degradation)
+    # behind this decision, derived from the recommendation's narration
+    # context rather than the generic delta-vs-stay-out sentence above.
+    why: str = ""
 
 
 class DebriefMetadata(BaseModel):

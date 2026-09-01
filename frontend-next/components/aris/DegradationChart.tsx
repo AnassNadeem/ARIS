@@ -54,14 +54,20 @@ export function DegradationChart({
     };
   }, [sid, code, stintId]);
 
+  const currentLap = useRaceStore((s) => s.currentLap) || 1;
+
   const chart = useMemo(() => {
     if (!data) return [];
-    return data.tyre_age.map((age, i) => ({
-      age,
-      predicted: data.predicted_deg_s[i],
-      actual: data.actual_deg_s[i],
-    }));
-  }, [data]);
+    const cap = Math.max(1, currentLap);
+    return data.tyre_age
+      .map((age, i) => ({
+        age,
+        predicted: data.predicted_deg_s[i],
+        actual: data.actual_deg_s[i],
+        lap: data.lap_number[i],
+      }))
+      .filter((row) => row.lap == null || row.lap <= cap);
+  }, [data, currentLap]);
 
   const stints = data?.available_stints ?? [];
 

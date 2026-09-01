@@ -16,6 +16,7 @@ export function PanelWrapper({ children }: { children: ReactNode }) {
  */
 export function renderTabWithTearOff(node: TabNode, renderValues: ITabRenderValues) {
   const componentId = node.getComponent();
+  if (componentId === "analytics-add") return;
   renderValues.buttons.push(
     <button
       key="tearoff"

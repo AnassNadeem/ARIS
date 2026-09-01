@@ -52,7 +52,8 @@ def run_copilot(
     ctx = get_context()
     llm = ctx.use_llm if use_llm is None else bool(use_llm)
     question = (message or "").strip()
-    chunks = retrieve(question, k=10, top_n=5, use_llm_rewrite=llm)
+    skip_rag = _is_factual_query(question)
+    chunks = [] if skip_rag else retrieve(question, k=10, top_n=5, use_llm_rewrite=llm)
     planned = plan_tools(question, chunks, use_llm=llm)
     executed: list[dict[str, Any]] = []
     tool_results: dict[str, Any] = {}
@@ -94,6 +95,27 @@ def run_copilot(
         recommendations=recs,
         needs_approval=needs,
     )
+
+
+def _is_factual_query(question: str) -> bool:
+    """Live/history facts go through tools, not retrieved docs."""
+    q = (question or "").lower()
+    if _LEADER_RE.search(question) or _WON_RE.search(question):
+        return True
+    if any(
+        w in q
+        for w in (
+            "gap to",
+            "who's in p",
+            "who is in p",
+            "tyre life",
+            "tire life",
+            "who's leading",
+            "who is leading",
+        )
+    ) and "undercut" not in q and "recommend" not in q:
+        return True
+    return False
 
 
 def plan_tools(

@@ -14,6 +14,8 @@ import {
 import { useRaceStore } from "@/store/raceStore";
 import type { GhostDeltaPoint } from "@/lib/types";
 import { PanelEmpty, PanelSkeleton, usePanelFeedLoading } from "@/components/ui/PanelStates";
+import { useAnalyticsReady } from "@/lib/usePanelHistory";
+import { AXIS_TICK, xAxisLabel, yAxisLabel } from "@/lib/chartAxis";
 
 function formatDelta(v: number): string {
   if (v >= 0) return `+${v.toFixed(2)}s`;
@@ -64,17 +66,37 @@ function ghostEmptyCopy(isARISOn: boolean, reason: string | null): string {
 
 export function GhostDelta() {
   const ghostData = useRaceStore((s) => s.ghostData);
+  const ghostTicks = useRaceStore((s) => s.ghostTicksByLap);
+  const currentLap = useRaceStore((s) => s.currentLap);
   const isARISOn = useRaceStore((s) => s.isARISOn);
   const ghostReason = useRaceStore((s) => s.ghostReason);
   const loading = usePanelFeedLoading();
+  const ready = useAnalyticsReady();
 
   const chartData = useMemo(() => {
-    if (!ghostData) return [];
-    return ghostData.delta_history.map((pt: GhostDeltaPoint) => ({
-      lap: pt.lap,
-      delta: pt.delta,
-    }));
-  }, [ghostData]);
+    if (!ready) return [];
+    if (ghostData?.delta_history?.length) {
+      return ghostData.delta_history
+        .filter((pt: GhostDeltaPoint) => pt.lap <= Math.max(1, currentLap))
+        .map((pt: GhostDeltaPoint) => ({
+          lap: pt.lap,
+          delta: pt.delta,
+        }));
+    }
+    return Object.values(ghostTicks)
+      .filter((t) => t.lap <= Math.max(1, currentLap))
+      .sort((a, b) => a.lap - b.lap)
+      .map((t) => ({ lap: t.lap, delta: t.cumulative_delta_s }));
+  }, [ghostData, ghostTicks, currentLap, ready]);
+
+  if (!ready) {
+    return (
+      <PanelEmpty
+        title="Ghost delta"
+        detail="Time delta between the real driver and the ARIS ghost. Empty until you click Start Race."
+      />
+    );
+  }
 
   if (loading && (!isARISOn || !ghostData)) {
     return <PanelSkeleton />;
@@ -140,30 +162,18 @@ export function GhostDelta() {
             <ComposedChart data={chartData} margin={{ top: 8, right: 12, bottom: 8, left: 4 }}>
               <XAxis
                 dataKey="lap"
-                tick={{ fontSize: 9, fill: "#6b7280", fontFamily: "var(--font-jbmono)" }}
+                tick={AXIS_TICK}
                 tickLine={false}
                 axisLine={false}
-                label={{
-                  value: "Lap",
-                  position: "insideBottomRight",
-                  offset: -4,
-                  fontSize: 9,
-                  fill: "#6b7280",
-                }}
+                label={xAxisLabel("Lap")}
               />
               <YAxis
-                tick={{ fontSize: 9, fill: "#6b7280", fontFamily: "var(--font-jbmono)" }}
+                tick={AXIS_TICK}
                 tickLine={false}
                 axisLine={false}
                 tickFormatter={(v) => `${v > 0 ? "+" : ""}${v.toFixed(0)}s`}
-                width={38}
-                label={{
-                  value: "Gap to real driver (s)",
-                  angle: -90,
-                  position: "insideLeft",
-                  fontSize: 9,
-                  fill: "#6b7280",
-                }}
+                width={44}
+                label={yAxisLabel("Ghost Δ vs real (s)")}
               />
               <Tooltip content={<GhostTooltip />} />
 

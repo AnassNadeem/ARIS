@@ -16,6 +16,7 @@ import {
   lapToElapsed,
   plansMatch,
   elapsedToLap,
+  GRID_START_LAP_FRAC,
   pathFracAtLap,
   posSamplesFor,
   r2Configured,
@@ -107,6 +108,52 @@ function wantRefresh(): boolean {
 // stale freeze. `null` key means "not currently frozen".
 let redFlagFreezeKey: string | null = null;
 let redFlagFrozenCar: CarState | null = null;
+
+// Tracks the ghost's own in-pits state per session/driver so a routine pit
+// stop (already part of the adopted plan, not a new decision) still gets a
+// big, unmissable "boxing now" call — not just genuine strategy changes.
+let ghostPitsKey: string | null = null;
+let ghostWasInPits = false;
+
+function maybeAnnounceGhostBoxing(car: CarState, driver: string | null): void {
+  const store = useRaceStore.getState();
+  const key = `${store.session?.year}-${store.session?.round}-${driver}`;
+  const nowInPits = Boolean(car.ghost_in_pits);
+  if (key !== ghostPitsKey) {
+    ghostPitsKey = key;
+    ghostWasInPits = nowInPits;
+    return;
+  }
+  if (nowInPits && !ghostWasInPits) {
+    const compound = car.ghost_pit_compound ?? car.compound ?? "the next tyre";
+    const lap = car.lap_number || store.currentLap;
+    const entry = {
+      id: `ghost-boxing-${lap}-${Date.now()}`,
+      lap,
+      source: "ARIS" as const,
+      text: `L${lap} — ARIS is boxing now for ${compound}.`,
+      timestamp: Date.now(),
+      kind: "pit_now" as const,
+      big: true,
+    };
+    store.pushComms(entry);
+    store.setBigDecision(entry);
+  }
+  ghostWasInPits = nowInPits;
+}
+
+/** At lights-out the ghost shares the real driver's grid slot. */
+function pinGhostToGridAtStart(car: CarState, real: CarState | null): CarState {
+  if (!real?.position || real.position <= 0) return car;
+  const store = useRaceStore.getState();
+  const frac = store.r2RaceField
+    ? elapsedToLap(store.r2RaceField, store.replayElapsedS).lapFrac
+    : store.replayElapsedS <= 0
+      ? 0
+      : 1;
+  if (frac >= GRID_START_LAP_FRAC) return car;
+  return { ...car, position: real.position };
+}
 
 function applyGhost(payload: SsePayload) {
   const store = useRaceStore.getState();
@@ -206,7 +253,8 @@ function applyGhost(payload: SsePayload) {
         car.ghost_pit_compound = normalizeCompound(pitTick.compound);
       }
     }
-    store.setGhostCar(car);
+    maybeAnnounceGhostBoxing(car, driver);
+    store.setGhostCar(pinGhostToGridAtStart(car, real));
     store.setGhostReason(null);
     return;
   }
@@ -218,13 +266,17 @@ function applyGhost(payload: SsePayload) {
   const tick = asGhostTick(patched);
   if (tick) {
     store.setGhostData(tick);
-    store.setGhostCar(ghostCarFromTick(tick, real, ghostLap, store.totalLaps, playback));
+    const car = ghostCarFromTick(tick, real, ghostLap, store.totalLaps, playback);
+    maybeAnnounceGhostBoxing(car, driver);
+    store.setGhostCar(pinGhostToGridAtStart(car, real));
     store.setGhostReason(null);
     return;
   }
   const rec = store.pendingRecommendation ?? store.lastRecommendation;
   if (rec && real && driver) {
-    store.setGhostCar(syntheticGhostCar(rec, real, store.currentLap, store.totalLaps, playback));
+    const car = syntheticGhostCar(rec, real, store.currentLap, store.totalLaps, playback);
+    maybeAnnounceGhostBoxing(car, driver);
+    store.setGhostCar(pinGhostToGridAtStart(car, real));
     store.setGhostData(syntheticGhostTick(rec, driver, store.currentLap));
     store.setGhostReason(null);
     return;
@@ -520,7 +572,24 @@ export class ReplayFrameFeed {
             compounds: plan.pit_compounds,
             label: plan.name,
           });
-          if (recomputed?.ticks) store.mergeGhostTicksFrom(1, recomputed.ticks);
+          if (recomputed?.ticks) {
+            store.mergeGhostTicksFrom(1, recomputed.ticks);
+          } else {
+            // Recompute failed — the loaded R2 ghost ticks stay on their
+            // own baked-in plan regardless of what the user picked
+            // pre-race. Fall activeStrategy back to that baked-in plan so
+            // the Strategy Panel shows what the ghost is actually
+            // simulating (matches the Timing Tower/map), instead of an
+            // unfulfilled pick that was never actually resimulated — the
+            // "Main Comms says MEDIUM, the tower says HARD" sync bug.
+            store.setActiveStrategy({
+              id: `r2-ghost-${driver}`,
+              name: ghost.strategy.label || plan.name,
+              pit_laps: ghost.strategy.pit_laps,
+              pit_compounds: ghost.strategy.compounds,
+              start_compound: plan.start_compound,
+            });
+          }
         }
       }
       this.r2DurationS = Math.max(60, raceDurationS(field));

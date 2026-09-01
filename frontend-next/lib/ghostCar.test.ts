@@ -108,7 +108,7 @@ describe("ghostPlaybackAt", () => {
     expect(later.skipSeekJump).toBe(false);
   });
 
-  it("offsets lap-1 path_frac by ghostStartFrac at lights-out", () => {
+  it("sits on the start/finish line at lights-out, ignoring GPS wrap", () => {
     const pb = ghostPlaybackAt({
       elapsedS: 0,
       ghostLapS: laps,
@@ -120,10 +120,10 @@ describe("ghostPlaybackAt", () => {
     });
     expect(pb.lap).toBe(1);
     expect(pb.progress_within_lap).toBe(0);
-    expect(pb.path_frac).toBeCloseTo(0.97487, 5);
+    expect(pb.path_frac).toBeCloseTo(0, 5);
   });
 
-  it("matches the real car's first pos_sample at elapsedS=0", () => {
+  it("does not inherit a wrapped GPS sample at elapsedS=0", () => {
     const samples = [
       { lap_frac: 0, path_frac: 0.97487 },
       { lap_frac: 0.5, path_frac: 0.4 },
@@ -138,7 +138,7 @@ describe("ghostPlaybackAt", () => {
       posSamples: samples,
       ghostStartFrac: 0.97487,
     });
-    expect(pb.path_frac).toBeCloseTo(0.97487, 5);
+    expect(pb.path_frac).toBeCloseTo(0, 5);
   });
 
   it("maps circuit progress 0→1 per lap even when pos_samples exist", () => {
@@ -156,8 +156,7 @@ describe("ghostPlaybackAt", () => {
       pitLossS: 22,
       posSamples: samples,
     });
-    // startFrac 0.1 + progress 0.5 — independent clock, not GPS at lap_frac 0.5
-    expect(pb.path_frac).toBeCloseTo(0.6, 5);
+    expect(pb.path_frac).toBeCloseTo(0.5, 5);
   });
 
   it("does not use real-car GPS when it would disagree with the ghost clock", () => {
@@ -178,7 +177,7 @@ describe("ghostPlaybackAt", () => {
     });
     expect(pb.lap).toBe(1);
     expect(pb.progress_within_lap).toBeCloseTo(0.5, 5);
-    expect(pb.path_frac).toBeCloseTo(0.47487, 5);
+    expect(pb.path_frac).toBeCloseTo(0.5, 5);
     expect(pb.path_frac).not.toBeCloseTo(0.05, 2);
     expect(pb.path_frac).not.toBeCloseTo(0.9, 2);
   });
@@ -259,18 +258,28 @@ describe("PathCarAnimator SEEK_JUMP grace", () => {
     const path = buildPath([0, 10, 10, 0], [0, 0, 10, 10]);
     const anim = new PathCarAnimator(path, 0, 140);
     anim.onTick(0.01, 0);
-    anim.onTick(0.4, 16, { skipSeekJump: true });
+    anim.onTick(0.4, 16, { skipSeekJump: true, seek: true });
     const frac = anim.currentFrac(32);
-    expect(frac).toBeGreaterThan(0.01);
-    expect(frac).toBeLessThan(0.4);
+    expect(frac).toBeGreaterThan(0);
+    expect(frac).toBeLessThan(0.05);
   });
 
-  it("still snaps a >0.22 jump without skipSeekJump", () => {
+  it("snaps a >0.22 jump only when seek is set", () => {
+    const path = buildPath([0, 10, 10, 0], [0, 0, 10, 10]);
+    const anim = new PathCarAnimator(path, 0, 140);
+    anim.onTick(0.01, 0);
+    anim.onTick(0.4, 16, { seek: true });
+    const frac = anim.currentFrac(32);
+    expect(frac).toBeGreaterThan(0.3);
+  });
+
+  it("crawls a >0.22 racing jump instead of teleporting", () => {
     const path = buildPath([0, 10, 10, 0], [0, 0, 10, 10]);
     const anim = new PathCarAnimator(path, 0, 140);
     anim.onTick(0.01, 0);
     anim.onTick(0.4, 16);
     const frac = anim.currentFrac(32);
-    expect(frac).toBeGreaterThan(0.3);
+    expect(frac).toBeGreaterThan(0);
+    expect(frac).toBeLessThan(0.05);
   });
 });

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCountdown } from "@/lib/useCountdown";
-import { isArisCapableSession, sessionLabel } from "@/lib/sessionFlow";
+import { sessionLabel } from "@/lib/sessionFlow";
 import type { HubSession, LiveHub } from "@/lib/types";
 
 function UpcomingCountdown({ iso }: { iso: string }) {
@@ -71,15 +71,14 @@ export function LiveSessionPicker({
       })
     : "";
   const selectedLabel = selected ? sessionLabel(selected.session_type) : "";
-  const arisAllowed = isArisCapableSession(selected?.session_type);
 
   return (
     <section className="flex flex-col gap-5">
       <div>
         <div className="font-mono-data text-[10px] uppercase tracking-[0.22em] text-red">ARIS</div>
-        <h2 className="mt-1 text-xl font-bold tracking-wide text-white uppercase sm:text-2xl">Live with ARIS</h2>
+        <h2 className="mt-1 text-xl font-bold tracking-wide text-white uppercase sm:text-2xl">Live timing</h2>
         <p className="mt-1 font-mono-data text-[11px] text-muted">
-          ARIS is Race-only. Pick this weekend&apos;s session — the console starts when live data arrives.
+          Watch this weekend&apos;s session. ARIS live strategist is coming soon — pick a session to open the console.
         </p>
         <div className="mt-3 inline-flex w-fit overflow-hidden rounded-[8px] border border-border bg-obsidian" role="group" aria-label="ARIS toggle">
           <button
@@ -94,24 +93,15 @@ export function LiveSessionPicker({
           </button>
           <button
             type="button"
-            aria-pressed={arisEnabled}
-            disabled={!arisAllowed}
-            title={!arisAllowed ? "ARIS runs on Race sessions only." : undefined}
-            onClick={() => arisAllowed && onArisChange(true)}
-            className={`px-5 py-2.5 font-mono-data text-[12px] uppercase tracking-widest ${
-              !arisAllowed
-                ? "cursor-not-allowed text-muted-2 opacity-50"
-                : arisEnabled
-                  ? "bg-safety/20 text-safety"
-                  : "text-muted hover:text-white"
-            }`}
+            aria-pressed={false}
+            disabled
+            title="ARIS live strategist — coming soon"
+            className="cursor-not-allowed px-5 py-2.5 font-mono-data text-[12px] uppercase tracking-widest text-muted-2 opacity-50"
           >
             On
           </button>
         </div>
-        {!arisAllowed && (
-          <p className="mt-2 font-mono-data text-[11px] text-muted">Select Race to enable ARIS.</p>
-        )}
+        <p className="mt-2 font-mono-data text-[11px] text-muted">ARIS live strategist — coming soon</p>
       </div>
 
       <div>
@@ -162,7 +152,7 @@ export function LiveSessionPicker({
           onClick={onContinue}
           className="self-start rounded-[8px] border border-red bg-red/10 px-5 py-2.5 font-mono-data text-[11px] uppercase tracking-widest text-red hover:bg-red/20"
         >
-          {arisEnabled && arisAllowed ? `Continue with ${selectedLabel} →` : `Go Live · ${selectedLabel} →`}
+          {`Go Live · ${selectedLabel} →`}
         </button>
       )}
 

@@ -52,14 +52,19 @@ export function RaceDebriefView({
     };
   }, [sid, code]);
 
+  const currentLap = useRaceStore((s) => s.currentLap) || 1;
+  const cap = Math.max(1, currentLap);
+
   const pits = useMemo(() => {
-    return (data?.timeline.pit_stops ?? []).map((p) => ({
-      lap: p.lap,
-      y: 1,
-      compound: (p.compound_out ?? "HARD") as Compound,
-      label: `${p.compound_in ?? "?"}→${p.compound_out ?? "?"}`,
-    }));
-  }, [data]);
+    return (data?.timeline.pit_stops ?? [])
+      .filter((p) => p.lap <= cap)
+      .map((p) => ({
+        lap: p.lap,
+        y: 1,
+        compound: (p.compound_out ?? "HARD") as Compound,
+        label: `${p.compound_in ?? "?"}→${p.compound_out ?? "?"}`,
+      }));
+  }, [data, cap]);
 
   const storeTotal = useRaceStore((s) => s.totalLaps);
   const total = data?.metadata.total_laps ?? (storeTotal > 0 ? storeTotal : 1);
@@ -103,20 +108,24 @@ export function RaceDebriefView({
                 <CartesianGrid stroke="#2a2a2a" strokeDasharray="2 4" />
                 <XAxis type="number" dataKey="lap" domain={[1, total]} stroke="#888888" tick={{ fontFamily: "var(--font-jbmono)", fontSize: 10 }} />
                 <YAxis type="number" dataKey="y" domain={[0, 2]} hide />
-                {(data?.timeline.sc_vsc_periods ?? []).map((p) => (
+                {(data?.timeline.sc_vsc_periods ?? [])
+                  .filter((p) => p.start_lap <= cap)
+                  .map((p) => (
                   <ReferenceArea
                     key={`sc-${p.start_lap}-${p.end_lap}`}
                     x1={p.start_lap}
-                    x2={p.end_lap}
+                    x2={Math.min(p.end_lap, cap)}
                     fill={p.kind === "VSC" ? "#FF8700" : "#FF8700"}
                     fillOpacity={p.kind === "VSC" ? 0.2 : 0.35}
                   />
                 ))}
-                {(data?.timeline.rain_periods ?? []).map((p) => (
+                {(data?.timeline.rain_periods ?? [])
+                  .filter((p) => p.start_lap <= cap)
+                  .map((p) => (
                   <ReferenceArea
                     key={`rain-${p.start_lap}-${p.end_lap}`}
                     x1={p.start_lap}
-                    x2={p.end_lap}
+                    x2={Math.min(p.end_lap, cap)}
                     fill="#1E90FF"
                     fillOpacity={0.2}
                   />
@@ -145,7 +154,9 @@ export function RaceDebriefView({
             </ResponsiveContainer>
           </div>
           <div className="mt-2 space-y-2">
-            {(data?.decisions ?? []).map((d) => (
+            {(data?.decisions ?? [])
+              .filter((d) => d.lap <= cap)
+              .map((d) => (
               <div key={`${d.lap}-${d.type}`} className="rounded border border-border bg-surface p-2">
                 <div className="flex flex-wrap items-baseline gap-2 font-mono-data text-[10px]">
                   <span className="text-red">L{d.lap}</span>
@@ -177,8 +188,14 @@ export function RaceDebriefView({
                     ))}
                   </tbody>
                 </table>
+                {d.why && (
+                  <p className="mt-1 font-mono-data text-[11px] leading-relaxed text-white">
+                    <span className="uppercase text-red">Why: </span>
+                    {d.why}
+                  </p>
+                )}
                 {d.explanation && (
-                  <p className="mt-1 font-mono-data text-[11px] leading-relaxed text-white/80">{d.explanation}</p>
+                  <p className="mt-0.5 font-mono-data text-[10px] leading-relaxed text-white/60">{d.explanation}</p>
                 )}
               </div>
             ))}

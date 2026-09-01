@@ -14,6 +14,7 @@ import {
 import { usePanelHistory } from "@/lib/usePanelHistory";
 import { useFocusDriver } from "@/lib/useFocusDriver";
 import { PanelEmpty, PanelSkeleton, usePanelFeedLoading } from "@/components/ui/PanelStates";
+import { AXIS_TICK, xAxisLabel, yAxisLabel } from "@/lib/chartAxis";
 
 export function SectorTimes() {
   const focused = useFocusDriver();
@@ -77,8 +78,8 @@ export function SectorTimes() {
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: -12 }}>
             <CartesianGrid stroke="#2a2a2a" strokeDasharray="2 4" />
-            <XAxis dataKey="lap" stroke="#888888" tick={{ fontFamily: "var(--font-jbmono)", fontSize: 9 }} />
-            <YAxis stroke="#888888" tick={{ fontFamily: "var(--font-jbmono)", fontSize: 9 }} width={40} />
+            <XAxis dataKey="lap" stroke="#888888" tick={AXIS_TICK} label={xAxisLabel("Lap")} />
+            <YAxis stroke="#888888" tick={AXIS_TICK} width={44} label={yAxisLabel("Sector time (s)")} />
             <Tooltip
               contentStyle={{ background: "#1a1a1a", border: "1px solid #2a2a2a", fontFamily: "var(--font-jbmono)", fontSize: 11 }}
             />

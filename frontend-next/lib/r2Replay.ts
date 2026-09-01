@@ -1,4 +1,4 @@
-import { buildPath, pointAtFraction, wrap01 } from "@/lib/trackGeometry";
+import { buildPath, lerpFrac, pointAtFraction, wrap01 } from "@/lib/trackGeometry";
 import type {
   ApiLapRow,
   ApiStintRow,
@@ -42,6 +42,42 @@ const R2_BASE = normalizeR2Base(process.env.NEXT_PUBLIC_R2_BASE_URL);
 const R2_ASSET_V = "4";
 const DEFAULT_TRACK_M = 5000;
 const SPEED_DT_LAP = 0.04;
+/** lapFrac below this is still "on the grid": prefer qualifying grid_position
+ * over FastF1's lap-1 classified position (which is end-of-lap-1). */
+export const GRID_START_LAP_FRAC = 0.02;
+/** Grid slot stagger behind the S/F line so cars are not a single stacked blob. */
+export const GRID_SLOT_FRAC = 0.0035;
+/** Blend grid → GPS over this many laps (~3 s of a 90 s lap). */
+export const GRID_BLEND_LAPS = 0.035;
+
+export function gridPathFrac(gridPosition: number | null | undefined): number {
+  const slot = gridPosition != null && gridPosition > 0 ? gridPosition : 1;
+  return wrap01(0 - (slot - 1) * GRID_SLOT_FRAC);
+}
+
+/** Hold the staggered S/F grid, then lerp onto GPS so lights-out does not teleport. */
+export function blendedPathFrac(
+  gpsFrac: number,
+  gridPosition: number | null | undefined,
+  lapFrac: number,
+): number {
+  const gridFrac = gridPathFrac(gridPosition);
+  if (!Number.isFinite(lapFrac) || lapFrac < GRID_START_LAP_FRAC) return gridFrac;
+  const blendEnd = GRID_START_LAP_FRAC + GRID_BLEND_LAPS;
+  if (lapFrac >= blendEnd) return gpsFrac;
+  const t = (lapFrac - GRID_START_LAP_FRAC) / GRID_BLEND_LAPS;
+  return lerpFrac(gridFrac, gpsFrac, t);
+}
+
+/** Along-track fraction for a driver at a replay clock instant (rAF display path). */
+export function replayDisplayFrac(field: RaceField, code: string, elapsedS: number): number {
+  const { lapFrac } = elapsedToLap(field, elapsedS);
+  const samples = posSamplesFor(field, code);
+  const gps = pathFracAtLap(samples, lapFrac, field.meta.total_laps);
+  const drv = field.drivers.find((d) => d.code === code);
+  const gpsSafe = Number.isFinite(gps) ? gps : 0;
+  return blendedPathFrac(gpsSafe, drv?.grid_position, lapFrac);
+}
 
 export function r2BaseUrl(): string {
   return R2_BASE;
@@ -132,6 +168,15 @@ export function ghostTicksMap(ghost: GhostData | null): Record<number, GhostR2Ti
 }
 
 export function r2TickToGhostTick(tick: GhostR2Tick, driver: string, ghost: GhostData | null): GhostTickData {
+  const history = (ghost?.ticks || [])
+    .filter((t) => t.lap > 0 && t.lap <= tick.lap)
+    .sort((a, b) => a.lap - b.lap)
+    .map((t) => ({
+      lap: t.lap,
+      delta: t.cumulative_delta_s,
+      ghost_pos: t.position,
+      real_pos: 0,
+    }));
   return {
     driver_code: driver,
     divergence_lap: 1,
@@ -144,7 +189,7 @@ export function r2TickToGhostTick(tick: GhostR2Tick, driver: string, ghost: Ghos
     gap_to_leader_s: tick.gap_to_leader_s,
     active: true,
     outcome: (ghost?.outcome.verdict as GhostTickData["outcome"]) ?? null,
-    delta_history: [],
+    delta_history: history,
     ghost_compound: (tick.compound as GhostTickData["ghost_compound"]) || "HARD",
     from_lap_one: true,
     plan_pit_laps: ghost?.strategy.pit_laps,
@@ -653,6 +698,16 @@ export function posSamplesFor(field: RaceField, code: string): RaceFieldPosSampl
   return [];
 }
 
+function flagFromTrackStatus(status: string | null | undefined): string | null {
+  const s = String(status || "");
+  if (!s || s === "None" || s === "nan") return null;
+  if (s.includes("5")) return "RED";
+  if (s.includes("4")) return "SC";
+  if (s.includes("6") || s.includes("7")) return "VSC";
+  if (s.includes("1") || s.includes("2")) return "GREEN";
+  return null;
+}
+
 export function r2FrameAt(
   field: RaceField,
   elapsedS: number,
@@ -675,6 +730,8 @@ export function r2FrameAt(
     if (row.lap <= lap) byDriver.set(row.driver, row);
   }
   const colour = new Map(field.drivers.map((d) => [d.code, d.colour]));
+  const gridByDriver = new Map(field.drivers.map((d) => [d.code, d.grid_position]));
+  const useGrid = lapFrac < GRID_START_LAP_FRAC;
   const pitCount = new Map<string, number>();
   const prevByDriver = new Map<string, (typeof field.laps)[0]>();
   const prevLap = lap - 1;
@@ -687,31 +744,34 @@ export function r2FrameAt(
   for (const [code, row] of byDriver) {
     const samples = posSamplesFor(field, code);
     const fracRaw = pathFracAtLap(samples, lapFrac, field.meta.total_laps);
-    const frac = Number.isFinite(fracRaw) ? fracRaw : samples.length ? samples[samples.length - 1].path_frac : 0;
+    let frac = Number.isFinite(fracRaw) ? fracRaw : samples.length ? samples[samples.length - 1].path_frac : 0;
+    const grid = gridByDriver.get(code);
+    frac = blendedPathFrac(frac, grid, lapFrac);
     const xy = pointAtFraction(path, frac);
     const prev = prevByDriver.get(code);
-    const kph = speedKphFromPath(samples, lapFrac, lapDurS, field.meta.total_laps);
+    const kph = useGrid ? 0 : speedKphFromPath(samples, lapFrac, lapDurS, field.meta.total_laps);
     let sectors = sectorMsFromLap(prev, samples, prevLap, field.meta.total_laps);
     if (sectors.sector1_ms == null && sectors.sector2_ms == null && sectors.sector3_ms == null) {
       sectors = sectorMsFromLap(row, samples, row.lap, field.meta.total_laps);
     }
+    const towerPos = useGrid && grid != null && grid > 0 ? grid : (row.position ?? 0);
     timing.push({
-      position: row.position ?? 0,
+      position: towerPos,
       driver_code: code,
-      gap_to_leader_s: row.gap_to_leader_s,
-      gap_to_ahead_s: row.gap_ahead_s,
-      last_lap_ms: row.lap_time_s != null ? Math.round(row.lap_time_s * 1000) : null,
+      gap_to_leader_s: useGrid ? (grid === 1 ? 0 : null) : row.gap_to_leader_s,
+      gap_to_ahead_s: useGrid ? null : row.gap_ahead_s,
+      last_lap_ms: useGrid ? null : row.lap_time_s != null ? Math.round(row.lap_time_s * 1000) : null,
       compound: row.compound,
-      tyre_life: row.tyre_life,
+      tyre_life: useGrid ? (row.tyre_life ?? 1) : row.tyre_life,
       pit_count: pitCount.get(code) || 0,
       team_colour: colour.get(code) ?? null,
       in_pit: row.pit_this_lap && row.lap === lap,
-      lap_number: row.lap,
+      lap_number: useGrid ? 0 : row.lap,
       speed_kph: kph > 1 ? Math.round(kph) : null,
       status: row.is_dnf ? "DNF" : "RUNNING",
-      sector1_ms: sectors.sector1_ms,
-      sector2_ms: sectors.sector2_ms,
-      sector3_ms: sectors.sector3_ms,
+      sector1_ms: useGrid ? null : sectors.sector1_ms,
+      sector2_ms: useGrid ? null : sectors.sector2_ms,
+      sector3_ms: useGrid ? null : sectors.sector3_ms,
     });
     positions.push({
       driver_code: code,
@@ -724,8 +784,39 @@ export function r2FrameAt(
       speed_ms: kph > 1 ? kph / 3.6 : null,
     });
   }
+  const seen = new Set(timing.map((t) => t.driver_code));
+  for (const drv of field.drivers) {
+    if (seen.has(drv.code)) continue;
+    const dns = drv.is_dns !== false;
+    const grid = drv.grid_position;
+    timing.push({
+      position: grid != null && grid > 0 ? grid : 99,
+      driver_code: drv.code,
+      gap_to_leader_s: null,
+      gap_to_ahead_s: null,
+      last_lap_ms: null,
+      compound: null,
+      tyre_life: null,
+      pit_count: 0,
+      team_colour: drv.colour ?? null,
+      in_pit: false,
+      lap_number: 0,
+      speed_kph: null,
+      status: "DNS",
+    });
+    // DNS cars stay off the map (is_dnf hides the dot).
+    if (!dns) continue;
+  }
   timing.sort((a, b) => (a.position || 99) - (b.position || 99));
   let flag = "GREEN";
+  for (const row of field.laps) {
+    if (row.lap !== lap) continue;
+    const fromTrack = flagFromTrackStatus(row.track_status);
+    if (fromTrack && fromTrack !== "GREEN") {
+      flag = fromTrack;
+      break;
+    }
+  }
   for (const msg of field.race_control) {
     if (msg.lap != null && msg.lap > lap) continue;
     const blob = `${msg.flag || ""} ${msg.message || ""} ${msg.category || ""}`.toUpperCase();

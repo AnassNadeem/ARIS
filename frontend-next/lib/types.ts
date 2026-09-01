@@ -140,6 +140,7 @@ export interface RaceFieldDriver {
   colour: string;
   grid_position: number | null;
   number?: number | null;
+  is_dns?: boolean;
 }
 
 export interface RaceFieldLap {
@@ -229,10 +230,14 @@ export interface CommsEntry {
   text: string;
   timestamp: number;
   wetHeuristic?: boolean;
+  /** Answer came from the local keyword-mock fallback, not the live backend
+   * (ARIS_BACKEND_ORIGIN unreachable) — shown as a visible badge instead of
+   * silently passing off a canned answer as a real one. */
+  offlineAnswer?: boolean;
   recommendationId?: string;
   /** Marks a material strategy decision (auto-adopted pit/tyre/reset call) that
    * must be surfaced in a visibly bigger box, not a normal scrolling comms line. */
-  kind?: "strategy_change" | "sc_window" | "red_flag_reset" | "wet_switch";
+  kind?: "strategy_change" | "sc_window" | "red_flag_reset" | "wet_switch" | "pit_now";
   big?: boolean;
   detail?: string;
 }
@@ -533,6 +538,9 @@ export interface CopilotChatResponse {
   retrieved_chunks: CopilotRetrievedChunk[];
   recommendations: CopilotRecommendationRow[];
   needs_approval: boolean;
+  /** True when this came from the local keyword-mock fallback because the
+   * live Copilot backend was unreachable, not from a real tool-calling run. */
+  offline?: boolean;
 }
 
 export interface ExplainStintMeta {
@@ -600,6 +608,9 @@ export interface DebriefDecision {
   chosen_action: string;
   aris_action?: string | null;
   explanation: string;
+  /** Named driving factor (undercut / overcut / SC risk / tyre degradation)
+   * behind this decision — distinct from `explanation`'s generic delta text. */
+  why?: string;
 }
 
 export interface RaceDebriefResponse {

@@ -165,6 +165,13 @@ body {
   color: #888888;
 }
 
+@media (max-width: 767px) {
+  .flexlayout__splitter {
+    display: none;
+    pointer-events: none;
+  }
+}
+
 @keyframes panel-shimmer {
   0% {
     background-position: -200% 0;

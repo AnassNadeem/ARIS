@@ -200,7 +200,7 @@ export function timingEqual(a: CarState, b: CarState): boolean {
 
 export function onTrackCarCodes(cars: Record<string, CarState>, ghostCode?: string | null): string {
   const ids = Object.values(cars)
-    .filter((c) => !c.is_pitted)
+    .filter((c) => !c.is_pitted && !c.is_dnf)
     .map((c) => c.driver_code);
   if (ghostCode) ids.push(ghostCode);
   return ids.sort().join(",");

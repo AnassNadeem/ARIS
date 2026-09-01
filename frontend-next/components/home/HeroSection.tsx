@@ -41,6 +41,9 @@ export function HeroSection() {
         >
           ARIS
         </h1>
+        <p className="mt-2 inline-block rounded bg-red/20 px-2 py-0.5 font-mono-data text-[10px] uppercase tracking-[0.2em] text-red">
+          Beta
+        </p>
         <p className="mt-5 font-mono-data text-[13px] uppercase tracking-[0.15em] text-muted sm:text-sm">
           Always On Race Intelligence System
         </p>

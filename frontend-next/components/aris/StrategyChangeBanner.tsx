@@ -10,6 +10,7 @@ const KIND_LABEL: Record<string, string> = {
   sc_window: "SC PIT WINDOW",
   red_flag_reset: "RED FLAG RESTART",
   wet_switch: "WEATHER TYRE CALL",
+  pit_now: "BOXING NOW",
 };
 
 /**

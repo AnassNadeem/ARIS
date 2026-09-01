@@ -13,9 +13,9 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ARIS — Always On Race Intelligence System",
+  title: "ARIS Beta — Always On Race Intelligence System",
   description:
-    "F1 race strategy decision-support: classical decision support stitched with modern ML, not end-to-end black-box AI.",
+    "F1 race strategy decision-support: classical decision support stitched with modern ML, not end-to-end black-box AI. Beta.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

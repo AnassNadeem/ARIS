@@ -21,8 +21,8 @@ export function asGhostTick(raw: unknown): GhostTickData | null {
         const row = (pt ?? {}) as Record<string, unknown>;
         return {
           lap: Number(row.lap) || 0,
-          delta: Number(row.delta) || 0,
-          ghost_pos: Number(row.ghost_pos) || 0,
+          delta: Number(row.delta ?? row.cumulative_delta_s) || 0,
+          ghost_pos: Number(row.ghost_pos ?? row.position) || 0,
           real_pos: Number(row.real_pos) || 0,
         };
       })
@@ -159,12 +159,10 @@ export function ghostPlaybackAt(input: GhostPlaybackInput): GhostPlayback {
     progress = 1;
   }
 
-  // Circuit progress within the current lap — never race progress, never real-car GPS.
-  const startFrac = input.ghostStartFrac ?? ghostStartFracFromSamples(input.posSamples);
-  let pathFrac = wrapFrac(progress);
-  if (L === 1 && progress < 1 && startFrac) {
-    pathFrac = wrapFrac(progress + startFrac);
-  }
+  // Circuit progress within the current lap. Lights-out sits on the S/F line
+  // (path_frac 0) — GPS samples often wrap to ~0.97 and must not place the
+  // ghost off the grid before Start Race.
+  const pathFrac = wrapFrac(progress);
 
   let inPits = false;
   let pitCompound: Compound | null = null;
@@ -357,7 +355,8 @@ export function ghostLastLapS(ghostLapS: number[], lastCompletedLap: number): nu
 const DIAG_LAPS = [1, 3, 5, 10, 15] as const;
 let ghostDiagKey = "";
 
-/** One-shot console dump of ghost_lap_s / cumulative / path_frac vs the real car. */
+/** One-shot console dump of ghost_lap_s / cumulative / path_frac vs the real car.
+ * Off unless NEXT_PUBLIC_ARIS_DEBUG=1 — not for production recruiter visits. */
 export function maybeLogGhostDiagnostics(opts: {
   key: string;
   ghostLapS: number[];
@@ -369,6 +368,7 @@ export function maybeLogGhostDiagnostics(opts: {
   ghostStartFrac?: number;
   realPathFracAtElapsed?: (elapsedS: number) => number | undefined;
 }): void {
+  if (process.env.NEXT_PUBLIC_ARIS_DEBUG !== "1") return;
   if (ghostDiagKey === opts.key) return;
   ghostDiagKey = opts.key;
   const rows: Record<string, unknown>[] = [];

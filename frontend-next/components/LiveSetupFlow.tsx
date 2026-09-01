@@ -79,6 +79,10 @@ export function LiveSetupFlow({
   }, [driver, setARISDriver, setFocusDriver]);
 
   useEffect(() => {
+    setARISOn(false);
+  }, [setARISOn]);
+
+  useEffect(() => {
     if (picked && !isArisCapableSession(picked.session_type) && arisEnabled) {
       setARISOn(false);
     }

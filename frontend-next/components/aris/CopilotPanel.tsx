@@ -1,14 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { chatCopilot, copilotFeatureEnabled, sendARISAction } from "@/lib/api";
+import { chatCopilot, copilotFeatureEnabled, getSessionResults, sendARISAction } from "@/lib/api";
+import { answerFactualLive, classifyIntent, historyLookupHint } from "@/lib/copilotIntent";
 import { useRaceStore } from "@/store/raceStore";
 import type { Compound, CopilotChatResponse, CopilotRecommendationRow } from "@/lib/types";
 
 const CHIPS = [
-  "What's the gap to NOR?",
+  "What's the gap to the driver ahead?",
   "What's the best strategy from here?",
-  "What's the undercut window for VER vs NOR?",
+  "What's the undercut window vs my nearest rival?",
   "Do drivers have to use two compounds in a dry race?",
 ];
 
@@ -31,6 +32,10 @@ export function CopilotPanel({ threadId = "default" }: { threadId?: string }) {
   const arisDriver = useRaceStore((s) => s.arisDriver);
   const copilotEnabled = useRaceStore((s) => s.copilotEnabled);
   const setCopilotEnabled = useRaceStore((s) => s.setCopilotEnabled);
+  const cars = useRaceStore((s) => s.cars);
+  const racePhase = useRaceStore((s) => s.racePhase);
+  const rainfall = useRaceStore((s) => s.rainfall);
+  const totalLaps = useRaceStore((s) => s.totalLaps);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
   const [items, setItems] = useState<ChatItem[]>([]);
@@ -54,6 +59,40 @@ export function CopilotPanel({ threadId = "default" }: { threadId?: string }) {
     setPending(true);
     setItems((prev) => [...prev, { id: nextId("u"), role: "user", text: question }]);
     setInput("");
+    const local = answerFactualLive(question, {
+      cars,
+      currentLap,
+      totalLaps,
+      racePhase,
+      rainfall,
+      focusDriver: arisDriver,
+      session,
+    });
+    if (local) {
+      setItems((prev) => [...prev, { id: nextId("c"), role: "copilot", text: local }]);
+      setPending(false);
+      return;
+    }
+    if (classifyIntent(question) === "factual_history") {
+      const hint = historyLookupHint(question, session);
+      if (hint) {
+        const rows = await getSessionResults(hint.year, hint.round);
+        const winner = rows?.find((r) => r.position === 1);
+        if (winner) {
+          const circuit = session?.circuitName ?? "this circuit";
+          setItems((prev) => [
+            ...prev,
+            {
+              id: nextId("c"),
+              role: "copilot",
+              text: `${winner.driver_code} won the ${hint.year} ${circuit} race.`,
+            },
+          ]);
+          setPending(false);
+          return;
+        }
+      }
+    }
     const payload = await chatCopilot({
       message: question,
       session_id: session ? `${session.year}-${session.round}` : undefined,
@@ -133,6 +172,11 @@ export function CopilotPanel({ threadId = "default" }: { threadId?: string }) {
                 >
                   {m.text}
                 </div>
+                {m.payload?.offline && (
+                  <div className="mt-1 inline-block rounded bg-amber/15 px-1.5 py-0.5 font-mono-data text-[9px] text-amber">
+                    ⚠ OFFLINE — backend unreachable, showing a cached local answer
+                  </div>
+                )}
                 {m.payload && m.payload.recommendations.length > 0 && (
                   <Top3Table rows={m.payload.recommendations} />
                 )}

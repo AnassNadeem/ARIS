@@ -14,6 +14,11 @@ import { WeatherForecast } from "@/components/panels/WeatherForecast";
 import { ARISComms } from "@/components/aris/ARISComms";
 import { ExplainPanel } from "@/components/aris/ExplainPanel";
 import { GhostDelta } from "@/components/panels/GhostDelta";
+import { SpeedTrace } from "@/components/panels/SpeedTrace";
+import { ThrottleBrake } from "@/components/panels/ThrottleBrake";
+import { CornerAnalysis } from "@/components/panels/CornerAnalysis";
+import { DirtyAir } from "@/components/panels/DirtyAir";
+import { UndercutWindow } from "@/components/panels/UndercutWindow";
 
 export type PanelCategory = "core" | "analytics";
 
@@ -39,12 +44,12 @@ export const PANEL_CATALOGUE: PanelCatalogueEntry[] = [
   { componentId: "stintsummary", label: "Stint summary", status: "built", category: "analytics", description: "Table: stint number, compound, start lap, end lap, avg lap time." },
   { componentId: "tyrestrategy", label: "Tyre strategy comparison", status: "built", category: "analytics", description: "All drivers' tyre strategies as coloured stint bars." },
   { componentId: "pitstoptimeline", label: "Pit stop timeline", status: "built", category: "analytics", description: "All pit stops as a scatter plot, lap vs duration." },
-  { componentId: "speedtrace", label: "Speed trace", status: "coming-soon", category: "analytics", description: "Speed vs track distance for a selected lap. Requires per-lap telemetry data from FastF1." },
-  { componentId: "throttlebrake", label: "Throttle / brake", status: "coming-soon", category: "analytics", description: "Throttle and brake trace vs track distance." },
-  { componentId: "corneranalysis", label: "Corner analysis", status: "coming-soon", category: "analytics", description: "Mini-sector times per corner." },
-  { componentId: "weatheroverlay", label: "Weather forecast", status: "built", category: "analytics", description: "Session-by-session forecast plus track/air temp and rain probability over race distance." },
-  { componentId: "dirtyair", label: "Dirty air zone", status: "coming-soon", category: "analytics", description: "Laps where gap to car ahead < 1.0 s." },
-  { componentId: "undercutwindow", label: "Undercut window", status: "coming-soon", category: "analytics", description: "ARIS undercut probability over race distance." },
+  { componentId: "speedtrace", label: "Speed trace", status: "built", category: "analytics", description: "Speed vs track distance for a selected lap, from GPS samples." },
+  { componentId: "throttlebrake", label: "Throttle / brake", status: "built", category: "analytics", description: "Throttle and brake vs track distance, derived from speed samples." },
+  { componentId: "corneranalysis", label: "Corner analysis", status: "built", category: "analytics", description: "Minimum speed at each detected corner for a selected lap." },
+  { componentId: "weatheroverlay", label: "Weather forecast", status: "built", category: "analytics", description: "Track/air temp and rainfall over race distance from session weather." },
+  { componentId: "dirtyair", label: "Dirty air zone", status: "built", category: "analytics", description: "Laps where gap to car ahead is under 1.0 s." },
+  { componentId: "undercutwindow", label: "Undercut window", status: "built", category: "analytics", description: "Laps where the gap ahead sits inside a typical undercut window." },
   { componentId: "ghostdelta", label: "Ghost delta", status: "built", category: "analytics", description: "Time delta between real driver and ARIS ghost driver." },
   { componentId: "explain", label: "Explain", status: "built", category: "analytics", description: "Degradation curves, ARIS ghost vs real, and race debrief with recommend() top-3." },
 ];
@@ -68,6 +73,11 @@ const BUILT_COMPONENTS: Record<string, ComponentType> = {
   weatheroverlay: WeatherForecast,
   ghostdelta: GhostDelta,
   explain: ExplainPanel,
+  speedtrace: SpeedTrace,
+  throttlebrake: ThrottleBrake,
+  corneranalysis: CornerAnalysis,
+  dirtyair: DirtyAir,
+  undercutwindow: UndercutWindow,
 };
 
 /** Renders a panel's content directly, so callers never create a component during render. */

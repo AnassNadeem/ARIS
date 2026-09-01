@@ -12,17 +12,41 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { COMPOUND_COLOUR } from "@/lib/mockData";
-import { usePanelHistory } from "@/lib/usePanelHistory";
+import { usePanelHistory, useAnalyticsReady } from "@/lib/usePanelHistory";
 import { useFocusDriver } from "@/lib/useFocusDriver";
+import { AXIS_TICK, xAxisLabel, yAxisLabel } from "@/lib/chartAxis";
 import { PanelEmpty, PanelSkeleton, usePanelFeedLoading } from "@/components/ui/PanelStates";
 import type { Compound } from "@/lib/types";
 
-const COMPOUNDS: Compound[] = ["SOFT", "MEDIUM", "HARD"];
+const COMPOUNDS: Compound[] = ["SOFT", "MEDIUM", "HARD", "INTERMEDIATE", "WET"];
+
+/** Shifted compound colours so a compare driver does not share the same fill. */
+const COMPARE_COLOUR: Record<Compound, string> = {
+  SOFT: "#7C3AED",
+  MEDIUM: "#0EA5E9",
+  HARD: "#9CA3AF",
+  INTERMEDIATE: "#86EFAC",
+  WET: "#93C5FD",
+};
+
+function Diamond(props: { cx?: number; cy?: number; fill?: string }) {
+  const { cx = 0, cy = 0, fill = "#fff" } = props;
+  const s = 5;
+  return (
+    <polygon
+      points={`${cx},${cy - s} ${cx + s},${cy} ${cx},${cy + s} ${cx - s},${cy}`}
+      fill={fill}
+      stroke="#0a0a0a"
+      strokeWidth={1}
+    />
+  );
+}
 
 export function TyreDegradation() {
   const focused = useFocusDriver();
   const [driver, setDriver] = useState(focused);
   const [compareDriver, setCompareDriver] = useState<string>("");
+  const ready = useAnalyticsReady();
 
   const { stints, laps: allLaps, drivers } = usePanelHistory();
   const loading = usePanelFeedLoading();
@@ -55,6 +79,15 @@ export function TyreDegradation() {
   );
   const hasPoints = series.some((s) => s.pts.length > 0);
 
+  if (!ready) {
+    return (
+      <PanelEmpty
+        title="Tyre degradation"
+        detail="Lap-time delta versus tyre age, per compound. Empty until you click Start Race."
+      />
+    );
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-carbon p-2 [overflow-anchor:none]">
       <div className="mb-2 flex flex-wrap items-center gap-2 font-sans text-xs">
@@ -79,6 +112,11 @@ export function TyreDegradation() {
             <option key={d.driver_code} value={d.driver_code}>{d.driver_code}</option>
           ))}
         </select>
+        {compareDriver && (
+          <span className="font-mono-data text-[10px] text-muted">
+            Circles = {driver} (compound colour) · Diamonds = {compareDriver} (shifted colour)
+          </span>
+        )}
       </div>
       <div className="relative min-h-0 flex-1">
         {!hasPoints && loading ? (
@@ -90,48 +128,59 @@ export function TyreDegradation() {
           />
         ) : (
         <ResponsiveContainer width="100%" height="100%">
-          <ScatterChart margin={{ top: 4, right: 8, bottom: 0, left: -12 }}>
+          <ScatterChart margin={{ top: 8, right: 8, bottom: 8, left: 8 }}>
             <CartesianGrid stroke="#2a2a2a" strokeDasharray="2 4" />
             <XAxis
               type="number"
               dataKey="age"
               name="Tyre age"
               stroke="#888888"
-              tick={{ fontFamily: "var(--font-jbmono)", fontSize: 10 }}
-              label={{ value: "Tyre age (laps)", position: "insideBottom", offset: -2, fill: "#888888", fontSize: 10 }}
+              tick={AXIS_TICK}
+              label={xAxisLabel("Tyre age (laps)")}
             />
             <YAxis
               type="number"
               dataKey="delta"
               name="Δ vs stint avg"
               stroke="#888888"
-              tick={{ fontFamily: "var(--font-jbmono)", fontSize: 10 }}
-              width={40}
+              tick={AXIS_TICK}
+              width={48}
+              label={yAxisLabel("Δ vs stint avg (s)")}
             />
             <Tooltip
               cursor={{ strokeDasharray: "3 3" }}
               contentStyle={{ background: "#1a1a1a", border: "1px solid #2a2a2a", fontFamily: "var(--font-jbmono)", fontSize: 11 }}
+              formatter={(value, name) => {
+                const n = typeof value === "number" ? value : Number(value);
+                if (name === "age" || String(name).includes("age")) return [`${n} laps`, "Tyre age"];
+                return [`${n >= 0 ? "+" : ""}${n.toFixed(3)}s`, "Δ vs stint avg"];
+              }}
             />
-            {series.map((s) => (
-              <Scatter
-                key={s.compound}
-                name={`${driver} ${s.compound}`}
-                data={s.pts}
-                fill={COMPOUND_COLOUR[s.compound]}
-                isAnimationActive={false}
-              />
-            ))}
-            {compareSeries?.map((s) => (
-              <Scatter
-                key={`cmp-${s.compound}`}
-                name={`${compareDriver} ${s.compound}`}
-                data={s.pts}
-                fill={COMPOUND_COLOUR[s.compound]}
-                fillOpacity={0.35}
-                shape="cross"
-                isAnimationActive={false}
-              />
-            ))}
+            {series.map((s) =>
+              s.pts.length ? (
+                <Scatter
+                  key={s.compound}
+                  name={`${driver} ${s.compound}`}
+                  data={s.pts}
+                  fill={COMPOUND_COLOUR[s.compound]}
+                  isAnimationActive={false}
+                />
+              ) : null,
+            )}
+            {compareSeries?.map((s) =>
+              s.pts.length ? (
+                <Scatter
+                  key={`cmp-${s.compound}`}
+                  name={`${compareDriver} ${s.compound}`}
+                  data={s.pts}
+                  fill={COMPARE_COLOUR[s.compound]}
+                  shape={(props: { cx?: number; cy?: number }) => (
+                    <Diamond cx={props.cx} cy={props.cy} fill={COMPARE_COLOUR[s.compound]} />
+                  )}
+                  isAnimationActive={false}
+                />
+              ) : null,
+            )}
             <Legend wrapperStyle={{ fontFamily: "var(--font-jbmono)", fontSize: 9 }} />
           </ScatterChart>
         </ResponsiveContainer>

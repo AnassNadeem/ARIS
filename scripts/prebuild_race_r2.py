@@ -383,6 +383,7 @@ def _drivers(sess: Any) -> list[dict[str, Any]]:
                 "colour": colour,
                 "grid_position": grid_n,
                 "number": number,
+                "is_dns": _driver_is_dns(rec),
             }
         )
     return out
@@ -493,6 +494,15 @@ def _fill_gaps(laps: list[dict[str, Any]]) -> None:
         row.pop("_cum", None)
 
 
+def _driver_is_dns(rec: Any) -> bool:
+    status = str(getattr(rec, "Status", "") or "").upper()
+    classified = str(getattr(rec, "ClassifiedPosition", "") or "").strip().upper()
+    tokens = ("DID NOT START", "DID NOT QUALIFY", "DNS", "DNQ")
+    if any(tok in status for tok in tokens) or classified == "W":
+        return True
+    return False
+
+
 def _classified_is_integer(classified: Any) -> bool:
     """True when FastF1 ClassifiedPosition is a real finishing place."""
     if classified is None:
@@ -525,6 +535,10 @@ def _mark_dnf(laps: list[dict[str, Any]], sess: Any) -> None:
         classified = getattr(rec, "ClassifiedPosition", None)
         finished = status in {"FINISHED", "FINISHED LAP", ""} or "+" in status
         if not code or not status or finished:
+            continue
+        if any(tok in status for tok in ("DID NOT START", "DID NOT QUALIFY", "DNS", "DNQ")):
+            continue
+        if str(classified).strip().upper() == "W":
             continue
         # Cool-down-lap "Retired" with a numeric classified place is a finisher.
         if _classified_is_integer(classified):
@@ -949,6 +963,7 @@ def build_ghost(
 ) -> dict[str, Any]:
     from aris.ghost import (
         field_cumulative_by_lap,
+        field_gap_snapshot_by_lap,
         pick_strategy_recommendation,
         plan_from_pits,
         r2_ghost_tick,
@@ -1024,6 +1039,9 @@ def build_ghost(
                 "position": int(row.get("position") or 10),
                 "lap_time_s": row.get("lap_time_s"),
                 "track_status": str(row.get("track_status") or "1"),
+                # Real classified gap-to-leader this lap — anchors the ghost's
+                # timing-tower position/gap (see score_parallel_ghost).
+                "gap_to_leader_s": row.get("gap_to_leader_s"),
             }
         )
     times: dict[str, dict[int, float]] = {}
@@ -1032,7 +1050,11 @@ def build_ghost(
         if not t:
             continue
         times.setdefault(str(row["driver"]).upper(), {})[int(row["lap"])] = float(t)
+    # Legacy cumulative anchor — kept as a fallback for laps field_gap misses.
     field_cum = field_cumulative_by_lap(times)
+    # Preferred anchor: real classified gap-to-leader per lap, excluding DNFs.
+    # Robust to retirements/SC, unlike field_cum (see field_gap_snapshot_by_lap).
+    field_gap = field_gap_snapshot_by_lap(field["laps"])
     typical = 90.0
     raw_times = [float(r["lap_time_s"]) for r in focus_laps if r.get("lap_time_s")]
     if raw_times:
@@ -1045,6 +1067,7 @@ def build_ghost(
         plan=plan,
         typical_lap_s=typical,
         field_cum_by_lap=field_cum,
+        field_gap_by_lap=field_gap,
     )
     ticks = [
         r2_ghost_tick(int(lap), tick, plan.pit_laps)
