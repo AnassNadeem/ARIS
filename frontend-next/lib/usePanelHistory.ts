@@ -11,9 +11,9 @@ import {
 } from "@/lib/panelData";
 import { useRaceStore } from "@/store/raceStore";
 
-/** Replay analytics stay empty until Start Race. Live starts as soon as cars arrive. */
+/** Lap-data analytics stay empty until lights-out. Live calls startRacing() when cars arrive. */
 export function useAnalyticsReady(): boolean {
-  return useRaceStore((s) => s.consoleMode === "live" || s.consolePlayState === "racing");
+  return useRaceStore((s) => s.consolePlayState === "racing");
 }
 
 /**

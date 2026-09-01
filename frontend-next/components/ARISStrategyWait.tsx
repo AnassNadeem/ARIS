@@ -24,7 +24,7 @@ export function ARISStrategyWait({ pending }: { pending: boolean }) {
   if (!pending) return null;
 
   return (
-    <div className="mx-auto flex w-full max-w-lg flex-col items-center gap-6 py-4">
+    <div className="mx-auto flex w-full max-w-lg flex-col items-center gap-6 py-4 md:max-w-5xl">
       <div className="relative h-16 w-16">
         <span className="absolute inset-0 rounded-full border border-red/30" />
         <span className="absolute inset-1 animate-spin rounded-full border-2 border-transparent border-t-red" />
@@ -34,14 +34,14 @@ export function ARISStrategyWait({ pending }: { pending: boolean }) {
       </div>
 
       {!animDone && (
-        <ol className="flex w-full flex-col gap-2">
+        <ol className="flex w-full flex-col gap-2 md:flex-row md:items-stretch md:gap-3">
           {STEPS.map((s, i) => {
             const active = i === step;
             const done = i < step;
             return (
               <li
                 key={s.title}
-                className={`rounded-[8px] border px-4 py-3 transition-colors ${
+                className={`rounded-[8px] border px-4 py-3 transition-colors md:min-w-0 md:flex-1 ${
                   active
                     ? "border-red bg-red/10 replay-glow-red"
                     : done
@@ -61,8 +61,7 @@ export function ARISStrategyWait({ pending }: { pending: boolean }) {
       )}
 
       {animDone && (
-        <div className="flex flex-col items-center gap-3 text-center">
-          <span className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-red" />
+        <div className="flex flex-col items-center gap-2 text-center">
           <p className="font-mono-data text-[12px] uppercase tracking-widest text-white">
             Hang on a second
           </p>

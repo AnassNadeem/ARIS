@@ -2,9 +2,10 @@
 
 import { useRaceStore } from "@/store/raceStore";
 
-/** True while the live/replay feed has not delivered a first car frame. */
+/** True while the live/replay feed has not delivered a first car frame. Pre-race stays empty, not a spinner. */
 export function usePanelFeedLoading(): boolean {
   return useRaceStore((s) => {
+    if (s.consolePlayState !== "racing") return false;
     if (s.waitingForRace) return true;
     const noCars = Object.keys(s.cars).length === 0;
     if (noCars && (s.connectionStatus === "connecting" || s.connectionStatus === "reconnecting")) {

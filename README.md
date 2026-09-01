@@ -8,20 +8,17 @@
 > team or rights holder. “Formula 1”, “F1”, and related marks are
 > trademarks of their respective owners.
 
-**An always-on race-strategy software system that watches a live race,
-predicts what's about to happen, and proposes the next decision with a
-quantified lap-time delta and a calibrated confidence interval — built
-on real F1 telemetry, validated end-to-end on held-out races.**
+ARIS (Always On Race Intelligence System) is a race-strategy decision-support
+console: it watches a live or replayed Grand Prix, scores stay-out vs pit
+calls against real telemetry, and races an ARIS ghost against the field so
+every recommendation comes with a quantified lap-time delta — classical
+decision support stitched with modern ML, not a black box.
 
-### ▶ Live demo — [**aris-f1.streamlit.app**](https://aris-f1.streamlit.app)
+### ▶ Live — [**arisf1.tech**](https://arisf1.tech)
 
-Pick a season, race, and driver and you get that driver's lap-time trace, a
-per-sector breakdown, and the **MA(2) baseline floor a model has to beat** —
-served live from an idempotent FastF1 → Postgres ingest of the 2024 season,
-cross-checked against the pandas baseline at machine epsilon. No build to run,
-no notebook to open: the pipeline is the page.
-
-[![ARIS Phase 2 dashboard — Bahrain 2024 race, Max Verstappen: lap-time trace, per-sector breakdown, and the MA(2) baseline floor](assets/screenshots/wk4-streamlit-hero.png)](https://aris-f1.streamlit.app)
+Replay any 2024–2025 race, turn ARIS on, and watch the timing tower, track
+map, and strategy comms run from lights-out. Pick a driver and a plan; the
+ghost follows that strategy against the real race.
 
 **Where it stands today** (every figure is aimed vs actual; full account in
 [`docs/model-status.md`](./docs/model-status.md)):
@@ -60,7 +57,7 @@ a headline. T3-B/C field undercut / overcut arcs are formally closed
 | **Started** | 2026-05-04 |
 | **Ship target** | 2026-08-31 (`v1.0-shipped`); Dutch GP demo **21–23 August 2026** |
 | **Current phase** | Public-facing refresh, T−4 to Zandvoort. Predictor / match-rate / ranking numbers in [`docs/model-status.md`](./docs/model-status.md). Strategy demo on `main`, untagged past `v0.2` |
-| **Live demo** | [aris-f1.streamlit.app](https://aris-f1.streamlit.app) |
+| **Live** | [arisf1.tech](https://arisf1.tech) |
 | **Last tag** | [`v0.2-pipeline`](https://github.com/AnassNadeem/ARIS/releases/tag/v0.2-pipeline) — Postgres ingest + live lap explorer; ingest canary **0.460 s MAE** on green-flag laps across 8 races / 6383 laps |
 | **Held-out predictor MAE** | E3 2024 calendar blend **0.583 s** vs aimed ≤ **0.783** (1.5× MA(2) **0.522**). Does **not** beat MA(2). China is the 1.5× miss (**0.596** vs aimed **0.563**) |
 | **Mid-race match-rate** | **0.322** (28/87) vs stay-out **0.276** (24/87) |
@@ -199,8 +196,8 @@ beats the dry 87-event physics walk. Default `recommend()` scoring stays
 
 ## Getting started
 
-The fastest way to see ARIS is the [live dashboard](https://aris-f1.streamlit.app) —
-nothing to install. To run it yourself, clone and set up the environment (uv is the
+The fastest way to see ARIS is the live console at [arisf1.tech](https://arisf1.tech).
+To run it yourself, clone and set up the environment (uv is the
 recommended path; a plain-pip fallback is in `requirements.txt`):
 
 ```powershell

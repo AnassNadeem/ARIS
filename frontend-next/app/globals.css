@@ -181,8 +181,49 @@ body {
   }
 }
 
-.panel-skeleton-bar {
-  background: linear-gradient(90deg, #131313 0%, #2a2a2a 40%, #131313 80%);
-  background-size: 200% 100%;
-  animation: panel-shimmer 1.4s ease-in-out infinite;
+@keyframes tower-flash-gain {
+  0% {
+    background-color: rgba(57, 255, 20, 0.38);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+@keyframes tower-flash-loss {
+  0% {
+    background-color: rgba(232, 0, 45, 0.38);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+@keyframes tower-flash-pit {
+  0% {
+    background-color: rgba(245, 166, 35, 0.45);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.tower-flash-gain,
+.tower-flash-loss,
+.tower-flash-pit {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+}
+
+.tower-flash-gain {
+  animation: tower-flash-gain 0.7s ease-out forwards;
+}
+
+.tower-flash-loss {
+  animation: tower-flash-loss 0.7s ease-out forwards;
+}
+
+.tower-flash-pit {
+  animation: tower-flash-pit 0.7s ease-out forwards;
 }

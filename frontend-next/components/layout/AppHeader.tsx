@@ -3,13 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
-
-const NAV_LINKS = [
-  { href: "/", label: "Home" },
-  { href: "/live", label: "Live" },
-  { href: "/replay", label: "Replay" },
-  { href: "/standings", label: "Standings" },
-];
+import { NAV_LINKS } from "@/lib/navLinks";
 
 /**
  * Shared top navigation bar. Used standalone on marketing/selector pages and

@@ -2,8 +2,12 @@
 
 import { useEffect, useRef } from "react";
 import { useRaceStore } from "@/store/raceStore";
+import { R2_RACE_UNAVAILABLE } from "@/lib/r2Replay";
 
 function statusCopy(stage: string, ready: boolean, error: string | null): { title: string; detail: string } {
+  if (error === R2_RACE_UNAVAILABLE) {
+    return { title: error, detail: "This session has not been published yet. Try another race, or check back later." };
+  }
   if (error) {
     return { title: error, detail: "The replay files could not be fetched. Check NEXT_PUBLIC_R2_BASE_URL and retry." };
   }

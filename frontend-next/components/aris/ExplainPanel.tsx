@@ -7,6 +7,7 @@ import { RaceDebriefView } from "@/components/aris/RaceDebriefView";
 import { explainFeatureEnabled } from "@/lib/api";
 import { useRaceStore } from "@/store/raceStore";
 import { PanelEmpty } from "@/components/ui/PanelStates";
+import { useAnalyticsReady } from "@/lib/usePanelHistory";
 
 type SubTab = "deg" | "ghost" | "debrief";
 
@@ -18,6 +19,7 @@ export function ExplainPanel() {
   const debriefDismissed = useRaceStore((s) => s.debriefDismissed);
   const setDebriefOpen = useRaceStore((s) => s.setDebriefOpen);
   const raceFinished = useRaceStore((s) => s.raceFinished);
+  const ready = useAnalyticsReady();
 
   useEffect(() => {
     if (!tabRequest) return;
@@ -30,6 +32,15 @@ export function ExplainPanel() {
       <PanelEmpty
         title="Explain"
         detail="Degradation curves, ARIS ghost vs real, and race debrief. Set NEXT_PUBLIC_ARIS_EXPLAIN=1 to enable this panel."
+      />
+    );
+  }
+
+  if (!ready) {
+    return (
+      <PanelEmpty
+        title="Explain"
+        detail="Degradation curves, ARIS ghost vs real, and race debrief. Empty until you click Start Race."
       />
     );
   }

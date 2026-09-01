@@ -141,11 +141,11 @@ export function TyreDegradation() {
             <YAxis
               type="number"
               dataKey="delta"
-              name="Δ vs stint avg"
+              name="Lap time"
               stroke="#888888"
               tick={AXIS_TICK}
-              width={48}
-              label={yAxisLabel("Δ vs stint avg (s)")}
+              width={56}
+              label={yAxisLabel("Lap time (s)")}
             />
             <Tooltip
               cursor={{ strokeDasharray: "3 3" }}

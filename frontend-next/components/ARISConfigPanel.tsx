@@ -200,9 +200,9 @@ export function ARISConfigPanel({
 
           {!analysisPending && (
             <div className="flex w-full flex-col gap-4">
-              <div className="flex gap-3 overflow-x-auto pb-1">
+              <div className="flex flex-col gap-3 md:flex-row md:overflow-x-auto md:pb-1">
                 {plans.map((p, i) => (
-                  <div key={p.id} className="min-w-[220px] flex-1">
+                  <div key={p.id} className="w-full md:min-w-[220px] md:flex-1">
                     <PlanCard
                       plan={p}
                       index={i}
