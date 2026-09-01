@@ -1,17 +1,31 @@
-# Publish the localhost ARIS app on Cloudflare
+# Cloudflare hosting notes
 
-This is the Vite React UI plus the FastAPI broker. Not a Streamlit remake.
+Canonical production is **not** this Worker:
 
-## What Cloudflare can host
+- **UI:** Cloudflare Pages, `frontend-next/` static export, custom domain `https://arisf1.tech`
+- **API:** Heroku (`Procfile` → `uvicorn backend.main:app`)
+- **Replay packs:** Cloudflare R2 (`prebuild_race.yml`)
+- **Postgres:** Neon, via Heroku `DATABASE_URL`
 
-- The React app: Workers static assets. `npm run deploy`
-- The FastAPI broker: a Container running the same `uvicorn backend.main:app`. That needs the **Workers Paid** plan.
+See [`DEPLOY.md`](../../DEPLOY.md) for the runbook.
 
-This account is on the free Workers plan, so `npm run deploy` publishes the UI. `/api` stays dark until you either:
+## What this folder is for
 
-1. Upgrade at https://dash.cloudflare.com/?to=/:account/workers/plans then run `npm run deploy:container` and  
-   `npx wrangler secret put OPENF1_USERNAME` / `OPENF1_PASSWORD`
-2. Or leave this PC on and run `powershell -File scripts/aris-home-tunnel.ps1`
-   (free Cloudflare quick tunnel → Worker `API_ORIGIN`)
+`worker.ts` + `wrangler.jsonc` can still publish the Next static export as Workers
+assets (`frontend-next/out`) if you want a Worker URL. `/api` on that Worker is a
+proxy: in production it is unused (the browser calls Heroku via
+`NEXT_PUBLIC_API_BASE`). `API_ORIGIN` is only for **local-dev tunneling**.
 
-Local is unchanged: uvicorn on 8765, `npm run dev` in `frontend/`. The UI calls `/api` on the same origin; Vite proxies to 8765.
+## Local-dev tunnel (not production)
+
+`powershell -File scripts/aris-home-tunnel.ps1` is a laptop convenience. It is
+not the production API. Production FastAPI runs on Heroku.
+
+Local UI: `npm run dev` in `frontend-next/`. Vite is gone from this tree
+(`legacy-vite-frontend` branch). uvicorn on 8765; Next rewrites `/api` there.
+
+## Future option — Workers Paid + Container
+
+`wrangler.containers.jsonc` + `worker.container.ts` + `npm run deploy:container`
+would run FastAPI inside a Cloudflare Container. That needs the **Workers Paid**
+plan. It is **not** the current host. Keep the files; do not treat them as live.

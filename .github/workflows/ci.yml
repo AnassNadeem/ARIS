@@ -15,10 +15,15 @@ jobs:
           enable-cache: true
       - run: uv python install 3.11
       - run: uv sync --extra dev
-      # Repo currently has a large pre-existing Ruff backlog (900+). Report it
-      # but do not fail the job so pytest is the merge gate.
-      - run: uv run ruff check . --exit-zero
-      # These six need local FastF1/model fixtures and fail on a cold GHA runner.
+      # Fail on new Ruff findings. Existing backlog is snapshotted in ruff-baseline.json.
+      - run: uv run python scripts/check_ruff_baseline.py
+      # Deselected tests — bounded, known gaps (not neglect):
+      # test_zandvoort_identity_flag_off — recommend() identity lock ("Pit lap 33 for HARD"); needs gitignored models/residual_xgb.json
+      # test_predicted_increases_with_age_after_outlap — bicycle predicted_deg monotonicity needs a FastF1-backed explain session
+      # test_zandvoort_identity_with_flag_on_no_field — same residual identity lock as the flag-off ranking test
+      # test_ghost_and_real_pit_counts_match_sample_races — FastF1 session ticks for VER/NOR/PIA; synthetic bundle is not enough
+      # test_ver_zandvoort_ghost_position_anchored_to_real_and_delta — FastF1-backed ghost ticks with a non-zero cumulative delta
+      # test_zandvoort_identity_with_measured_flag_on — same residual identity lock plus measured SC pit-loss table
       - run: >
           uv run pytest -v
           --deselect tests/test_circuit_deg.py::test_zandvoort_identity_flag_off
@@ -46,3 +51,7 @@ jobs:
       - run: npx next typegen
       - run: npx tsc --noEmit
       - run: npm test
+      - run: npm run build:static
+        env:
+          NEXT_PUBLIC_API_BASE: https://example.herokuapp.com
+          NEXT_PUBLIC_R2_BASE_URL: https://pub-9429cde26be84c4c8034f0b5873b9a7d.r2.dev

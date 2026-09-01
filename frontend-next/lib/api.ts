@@ -946,7 +946,7 @@ export async function postGhostRecompute(opts: {
         session_key: opts.sessionKey ?? null,
       }),
     },
-    15000,
+    25000,
   );
 }
 

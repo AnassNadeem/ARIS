@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import os
 
+# Canonical production UI (Cloudflare Pages custom domain).
+PRODUCTION_FRONTEND_ORIGIN = "https://arisf1.tech"
+PRODUCTION_PAGES_ORIGIN = "https://aris-frontend-590.pages.dev"
+
 _LOCAL_DEV_ORIGINS = (
     "http://localhost:5173",
     "http://127.0.0.1:5173",
@@ -15,11 +19,14 @@ _LOCAL_DEV_ORIGINS = (
 def cors_allow_origins() -> list[str]:
     """Origins for CORSMiddleware.
 
-    ``ARIS_FRONTEND_ORIGIN`` is a comma-separated list (Cloudflare Pages URL,
-    optional extra preview hosts). When unset, local Vite/Next origins are
-    used so ``uvicorn`` on a laptop still works without extra config.
+    ``ARIS_FRONTEND_ORIGIN`` is a comma-separated list (canonical:
+    ``https://arisf1.tech``, plus optional Pages preview hosts). When unset
+    on a Heroku dyno, the production UI origins are used. When unset locally,
+    Vite/Next localhost origins are used so laptop ``uvicorn`` still works.
     """
     raw = (os.getenv("ARIS_FRONTEND_ORIGIN") or "").strip()
-    if not raw:
-        return list(_LOCAL_DEV_ORIGINS)
-    return [part.strip().rstrip("/") for part in raw.split(",") if part.strip()]
+    if raw:
+        return [part.strip().rstrip("/") for part in raw.split(",") if part.strip()]
+    if os.getenv("DYNO"):
+        return [PRODUCTION_FRONTEND_ORIGIN, PRODUCTION_PAGES_ORIGIN]
+    return list(_LOCAL_DEV_ORIGINS)

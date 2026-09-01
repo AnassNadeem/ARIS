@@ -17,6 +17,8 @@ fastf1_cache/
 cache/
 
 # V3 React app
+frontend-next/node_modules/
+frontend-next/out/
 frontend/node_modules/
 frontend/dist/
 
@@ -81,7 +83,17 @@ Thumbs.db
 # docs/: public top-level markdown; keep planning/learning + private audits local
 docs/planning/
 docs/learning/
+docs/journal/
 docs/REPO-STATUS-*.md
+
+# One-off diagnosis scripts (local only; see scripts/_archive/)
+scripts/_*.py
+scripts/_archive/
+
+# Local GPS chunk packs from scripts/build_replay_pack.py (production replay is R2)
+static_replays/*
+!static_replays/README.md
+!static_replays/.gitkeep
 
 # Logs
 *.log

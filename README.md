@@ -14,11 +14,17 @@ calls against real telemetry, and races an ARIS ghost against the field so
 every recommendation comes with a quantified lap-time delta — classical
 decision support stitched with modern ML, not a black box.
 
+**For reviewers:** open [arisf1.tech](https://arisf1.tech), pick a 2024 or 2025
+race, turn ARIS on, and watch the timing tower and ghost run the plan you
+chose. The headline result is mid-race match-rate **0.345** (30/87) vs stay-out,
+with a 2024 calendar blend MAE of **0.583 s** that does **not** beat MA(2).
+
 ### ▶ Live — [**arisf1.tech**](https://arisf1.tech)
 
-Replay any 2024–2025 race, turn ARIS on, and watch the timing tower, track
-map, and strategy comms run from lights-out. Pick a driver and a plan; the
-ghost follows that strategy against the real race.
+**Strategy / Replay app:** [arisf1.tech](https://arisf1.tech) — Next.js console
+(timing tower, track map, ARIS ghost).
+**Lap explorer (Phase 2):** Streamlit — see
+[`docs/legacy-streamlit-deploy.md`](./docs/legacy-streamlit-deploy.md).
 
 **Where it stands today** (every figure is aimed vs actual; full account in
 [`docs/model-status.md`](./docs/model-status.md)):
@@ -68,8 +74,7 @@ a headline. T3-B/C field undercut / overcut arcs are formally closed
 | **Cadence** | 6 hrs/day × 6 days/week (Sundays off) |
 
 This repo is **under active construction**. Phases ship sequentially as
-tagged releases; nothing in this README is an over-claim of state. See
-[`BUILD-LOG.md`](./BUILD-LOG.md) for the daily log — friction included.
+tagged releases; nothing in this README is an over-claim of state.
 
 ---
 
@@ -167,12 +172,13 @@ ARIS/
 │   ├── montecarlo.py   # slim MC confidence layer
 │   ├── recommend.py    # top-3 strategy search
 │   └── narrate.py      # Ollama radio-call narration
-├── apps/               # Streamlit (lap explorer + Strategy page) — canonical UI
+├── frontend-next/      # Next.js Strategy / Replay console (canonical UI)
+├── backend/            # FastAPI broker (Heroku in production)
+├── apps/               # Streamlit lap explorer (Phase 2)
 ├── scripts/            # ingest, train_residual, smoke_strategy, deploy_to_neon
 ├── models/             # gitignored trained artefacts (residual_xgb.json)
 ├── tests/
-├── BUILD-LOG.md
-└── ARIS-EXECUTION-PLAN.md
+└── docs/               # model-status, replay architecture, research notes
 ```
 
 ---
@@ -217,7 +223,9 @@ uv run pytest
 
 **Run the dashboard locally (Phase 2).** Bring up Postgres, ingest a season, then
 launch Streamlit. The app reads `ARIS_DB_URL` from a repo-root `.env` (see
-[`.env.example`](./.env.example)); the full cloud runbook is in [`DEPLOY.md`](./DEPLOY.md).
+[`.env.example`](./.env.example)). Production Strategy/Replay deploy:
+[`DEPLOY.md`](./DEPLOY.md). Streamlit Cloud:
+[`docs/legacy-streamlit-deploy.md`](./docs/legacy-streamlit-deploy.md).
 
 ```powershell
 docker compose up -d                       # local Postgres on :5432

@@ -38,9 +38,18 @@ def test_cors_reads_frontend_origin_env(monkeypatch):
 
 def test_cors_local_default_when_unset(monkeypatch):
     monkeypatch.delenv("ARIS_FRONTEND_ORIGIN", raising=False)
+    monkeypatch.delenv("DYNO", raising=False)
     origins = cors_allow_origins()
     assert "http://localhost:3000" in origins
     assert "http://localhost:5173" in origins
+
+
+def test_cors_heroku_defaults_to_production_ui(monkeypatch):
+    monkeypatch.delenv("ARIS_FRONTEND_ORIGIN", raising=False)
+    monkeypatch.setenv("DYNO", "web.1")
+    origins = cors_allow_origins()
+    assert "https://arisf1.tech" in origins
+    assert not any("localhost" in o for o in origins)
 
 
 def test_sentry_unset_dsn_is_noop(monkeypatch):

@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { withSecurityHeaders } from "./securityHeaders";
 
 /** Kept because the first deploy registered this Durable Object class. */
 export class ArisApi extends DurableObject<Env> {
@@ -21,12 +22,14 @@ export default {
     if (api) {
       const origin = apiOrigin(env);
       if (!origin) {
-        return Response.json(
-          {
-            error:
-              "The ARIS UI is on Cloudflare. The FastAPI broker is not. Run scripts/aris-home-tunnel.ps1 on the Legion, or set API_ORIGIN.",
-          },
-          { status: 503 },
+        return withSecurityHeaders(
+          Response.json(
+            {
+              error:
+                "Production API is Heroku, not this Worker. Set API_ORIGIN only for local-dev tunneling (scripts/aris-home-tunnel.ps1).",
+            },
+            { status: 503 },
+          ),
         );
       }
       const target = new URL(url.pathname + url.search, origin);
@@ -42,20 +45,23 @@ export default {
         url.pathname.includes("/history") ||
         /\/api\/circuit\/.+\/(map|preview|characteristics)$/.test(url.pathname);
       try {
-        return await fetch(target, {
+        const upstream = await fetch(target, {
           method: request.method,
           headers,
           body: request.method === "GET" || request.method === "HEAD" ? undefined : request.body,
           signal: AbortSignal.timeout(heavy ? 90_000 : 25_000),
         });
+        return withSecurityHeaders(upstream);
       } catch (err) {
         const detail = err instanceof Error ? err.message : "tunnel fetch failed";
-        return Response.json(
-          { error: "ARIS backend is warming up. Retry shortly.", detail },
-          { status: 503 },
+        return withSecurityHeaders(
+          Response.json(
+            { error: "ARIS backend is warming up. Retry shortly.", detail },
+            { status: 503 },
+          ),
         );
       }
     }
-    return env.ASSETS.fetch(request);
+    return withSecurityHeaders(await env.ASSETS.fetch(request));
   },
 } satisfies ExportedHandler<Env>;

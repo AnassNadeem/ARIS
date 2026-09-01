@@ -1,5 +1,9 @@
-# Publish localhost FastAPI through a free Cloudflare quick tunnel.
-# The Worker at https://aris.anass-nadeem42.workers.dev proxies /api here.
+# Local-dev only. Do not use this as production.
+#
+# Publishes the laptop FastAPI process through a free Cloudflare quick tunnel
+# and writes the trycloudflare URL into the Worker API_ORIGIN secret. Production
+# API is Heroku (see DEPLOY.md). Leave this window open only while you are
+# debugging against a Worker that still proxies /api.
 #
 # ASCII only so Windows PowerShell 5.1 can parse this file.
 # Leave this window open. Leave the Legion plugged in.
@@ -63,6 +67,7 @@ function Stop-PortListeners {
     }
 }
 
+Write-Host "LOCAL DEV ONLY. Production API is Heroku (DEPLOY.md)."
 Write-Host "Keeping the PC awake on AC power."
 powercfg -change -standby-timeout-ac 0 | Out-Null
 powercfg -change -hibernate-timeout-ac 0 | Out-Null

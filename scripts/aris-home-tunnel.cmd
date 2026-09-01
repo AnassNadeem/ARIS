@@ -8,7 +8,7 @@ if not exist "scripts\aris-home-tunnel.ps1" (
 )
 if exist "%ProgramFiles%\nodejs\node.exe" set "PATH=%ProgramFiles%\nodejs;%PATH%"
 if exist "%LocalAppData%\fnm" set "PATH=%LocalAppData%\fnm;%PATH%"
-echo Starting ARIS home tunnel. Leave this window open.
+echo Starting ARIS home tunnel (LOCAL DEV ONLY). Leave this window open.
 echo.
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0aris-home-tunnel.ps1"
 echo.

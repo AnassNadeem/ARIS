@@ -1,196 +1,178 @@
-# ARIS — Streamlit Cloud deploy runbook
+# ARIS — production deploy
 
-What this doc covers: provisioning the managed Postgres, pushing the schema
-and ingest to it, then deploying `apps/streamlit_app.py` to Streamlit
-Community Cloud. Everything that has to be done in a browser is called out
-explicitly — every CLI step is copy-pasteable on Windows PowerShell.
+Canonical production is:
 
-The path of least friction: **Neon free tier** (managed Postgres, 0.5 GB,
-always-on branch) + **Streamlit Community Cloud** (free, GitHub-linked, reads
-this repo on push to `main`). Static-parquet fallback is documented at the
-bottom for the eviction case.
+| Piece | Host |
+|---|---|
+| Strategy / Replay UI | Cloudflare Pages (`frontend-next/` static export) at **https://arisf1.tech** |
+| FastAPI broker | **Heroku** (`Procfile` → `uvicorn backend.main:app`) |
+| Replay / ghost JSON | Cloudflare **R2** (GitHub Action `prebuild_race.yml`) |
+| Postgres | **Neon**, connected as Heroku `DATABASE_URL` |
 
----
-
-## Pre-reqs
-
-- Neon account (free, GitHub login): https://neon.tech
-- Streamlit Community Cloud account (free, GitHub login): https://share.streamlit.io
-- This repo pushed to GitHub on `main` (already true)
-- Local Postgres running (`docker compose up -d`) so the same ingest path can
-  fall back to local if Neon misbehaves
+The older Streamlit lap explorer runbook is in
+[`docs/legacy-streamlit-deploy.md`](./docs/legacy-streamlit-deploy.md).
 
 ---
 
-## Step 1 — Provision Neon Postgres (5 min, **browser, you**)
-
-1. Sign in at https://console.neon.tech.
-2. **New project** → name `aris`, region pick the one nearest you (eu-west-2
-   if UK), Postgres 16.
-3. After provisioning Neon shows a connection string of the shape
-   `postgresql://USER:PASSWORD@ep-xxxx.eu-west-2.aws.neon.tech/aris`.
-   - Click **Show password** and copy the full string.
-   - Replace the leading `postgresql://` with `postgresql+psycopg://` so
-     SQLAlchemy uses the psycopg3 driver this repo depends on.
-   - Append `?sslmode=require` (Neon requires TLS).
-   - Save the final string to your password manager. This is the value that
-     goes into both `.env.cloud` (next step) and Streamlit Cloud's secrets.
-
-Final string shape:
+## Architecture
 
 ```
-postgresql+psycopg://USER:PASSWORD@ep-xxxx.eu-west-2.aws.neon.tech/aris?sslmode=require
+browser  →  https://arisf1.tech          (Cloudflare Pages, Next static export)
+              ├── static UI
+              ├── /r2replay/*  or NEXT_PUBLIC_R2_BASE_URL  →  R2 public bucket
+              └── NEXT_PUBLIC_API_BASE   →  https://<heroku-app>.herokuapp.com
+                                              └── DATABASE_URL → Neon
 ```
+
+The repo-root Worker (`wrangler.jsonc`) is an optional extra UI host. It is
+**not** the production API. Cloudflare Containers (`wrangler.containers.jsonc`)
+are a **future option** on the Workers Paid plan, not the current backend.
+
+`scripts/aris-home-tunnel.ps1` is **local-dev only**.
 
 ---
 
-## Step 2 — Push schema + ingest to Neon (15 min, **PowerShell, me/you**)
+## 1. Neon Postgres
 
-Create a separate env file so the cloud creds never collide with local dev:
+Same project as local/dev. Connection string shape:
+
+```
+postgresql+psycopg://USER:PASSWORD@ep-xxxx.region.aws.neon.tech/aris?sslmode=require
+```
+
+On Heroku, paste the Neon URL as `DATABASE_URL` (Heroku's conventional name).
+The app rewrites `postgres://` → `postgresql+psycopg://` and adds `sslmode=require`
+when `DYNO` is set. You can also set `ARIS_DB_URL` explicitly; it wins.
+
+Apply schema once (from a laptop pointed at Neon):
 
 ```powershell
-# in the repo root
-Copy-Item .env.example .env.cloud
-# then edit .env.cloud and replace ARIS_DB_URL with the Neon string from Step 1
-notepad .env.cloud
-```
-
-Apply the schema. Neon doesn't ship `psql` access by default, but the same
-SQLAlchemy engine we use everywhere can run the file:
-
-```powershell
-$env:ARIS_DB_URL = (Select-String -Path .env.cloud -Pattern '^ARIS_DB_URL=' -SimpleMatch).Line -replace '^ARIS_DB_URL=', ''
-python -c "from sqlalchemy import create_engine, text; import os; e=create_engine(os.environ['ARIS_DB_URL']); sql=open('db/schema.sql').read();
-import re
-# psycopg can't run a multi-statement DDL blob in one execute; split on `;` boundaries that end a line.
-stmts=[s.strip() for s in re.split(r';\s*\n', sql) if s.strip()]
+$env:ARIS_DB_URL = "postgresql+psycopg://USER:PASSWORD@ep-xxxx.region.aws.neon.tech/aris?sslmode=require"
+python -c "from sqlalchemy import create_engine, text; import os, re; e=create_engine(os.environ['ARIS_DB_URL']); sql=open('db/schema.sql', encoding='utf-8').read(); stmts=[s.strip() for s in re.split(r';\s*\n', sql) if s.strip()];
 with e.begin() as c:
     for s in stmts:
         c.execute(text(s))
-print('schema applied:', len(stmts), 'statements')"
+print('schema applied:', len(stmts))"
 ```
 
-Run the season ingest against Neon (this is the same script that ran for the
-local DB on Day 3, just pointed at a different `ARIS_DB_URL`):
+Ingest is optional for the Replay UI (R2 serves race packs). It is required for
+Streamlit / SQL-backed eval.
 
 ```powershell
 python scripts/ingest_season.py 2024
 ```
 
-Expect: 24 rounds, +25,475 laps, ~5–10 min depending on FastF1 cache state
-and Neon round-trip latency. Telemetry stays out (size constraint on the free
-tier — the table exists, but population is Wk 4 work).
+---
 
-Sanity check from the same shell:
+## 2. Heroku FastAPI
+
+`Procfile` already declares a single web dyno. Do not scale a second dyno
+(telemetry load is in-process).
 
 ```powershell
-python -c "from sqlalchemy import create_engine, text; import os; e=create_engine(os.environ['ARIS_DB_URL']);
-with e.connect() as c:
-    print('sessions:', c.execute(text('select count(*) from sessions')).scalar())
-    print('drivers :', c.execute(text('select count(*) from drivers')).scalar())
-    print('laps    :', c.execute(text('select count(*) from laps')).scalar())"
+heroku create   # once; note the app URL
+heroku stack:set heroku-24
+git push heroku main
 ```
 
-Expect roughly `sessions: 24, drivers: ~24, laps: ~25500`.
+Or connect the GitHub repo in the Heroku dashboard and deploy from `main`.
 
----
+### Config vars (Heroku dashboard → Settings → Config Vars)
 
-## Step 3 — Configure Streamlit Cloud secrets (3 min, **browser, you**)
+| Var | Value |
+|---|---|
+| `DATABASE_URL` | Neon URL (Heroku may set this if you attach a Postgres add-on; otherwise paste Neon) |
+| `ARIS_FRONTEND_ORIGIN` | **`https://arisf1.tech`** (comma-separate extra Pages preview URLs if needed) |
+| `ARIS_CACHE_BACKEND` | `postgres` |
+| `OPENF1_USERNAME` / `OPENF1_PASSWORD` | OpenF1 account (live timing) |
+| `OPENF1_API_KEY` | if you use the token path |
+| `SENTRY_DSN` | optional |
+| `ARIS_ENABLE_PREWARM` | leave **unset** (a 512MB Basic dyno OOMs if GPS loads at boot) |
 
-1. https://share.streamlit.io → **New app**.
-2. Repo `AnassNadeem/ARIS`, branch `main`, main file path
-   `apps/streamlit_app.py`.
-3. Click **Advanced settings** before deploying.
-   - **Python version:** 3.11.
-   - **Secrets:** paste exactly one line, using the Neon URL from Step 1:
+If `ARIS_FRONTEND_ORIGIN` is unset, a dyno still allows `https://arisf1.tech` and
+the Pages project origin. Set it anyway so preview hosts are explicit.
 
-     ```toml
-     ARIS_DB_URL = "postgresql+psycopg://USER:PASSWORD@ep-xxxx.eu-west-2.aws.neon.tech/aris?sslmode=require"
-     ```
+Python version: `runtime.txt` → `python-3.11`.
 
-4. **Deploy**.
-
-The shape of `apps/streamlit_app.py` already reads `st.secrets["ARIS_DB_URL"]`
-into `os.environ` before importing `aris.io.db` — no app-side code changes
-needed.
-
----
-
-## Step 4 — Watch the build, fix the first failure (5–20 min, **browser**)
-
-Streamlit Cloud streams a build log. The two failures we expect from
-experience:
-
-- **Missing system lib for `psycopg[binary]`** — `psycopg[binary]` ships its
-  own wheel, so this is rare. If you see `Error: pg_config executable not
-  found`, the wheel didn't resolve; switch the line in `apps/requirements.txt`
-  to `psycopg[binary]==3.2.3` (pin) and redeploy.
-- **`ModuleNotFoundError: aris`** — `apps/streamlit_app.py` puts `src/` on
-  `sys.path` already, so this means the working directory isn't repo-root.
-  Streamlit Cloud's working dir IS repo-root, but if the error shows up
-  anyway, add `src/aris -> apps/aris` symlink or change the path
-  computation. Hasn't bitten us yet.
-
-When the build is green, the URL is `https://<random-slug>-aris.streamlit.app`.
-Rename the slug under **Settings → General → Custom subdomain** to something
-clean, e.g. `aris-f1`.
-
----
-
-## Step 5 — Verify in incognito (2 min, **browser, you**)
-
-Open the URL in an incognito window:
-
-- Three dropdowns render: Season, Race, Driver.
-- Selecting 2024 → R1 Bahrain → VER renders a lap-time chart.
-- The MA(2) MAE caption shows a number between 0.2 and 2.5 s.
-
-If all three pass, the deploy is real and Phase 2's "someone outside the
-laptop can verify the data pipeline" criterion is met.
-
----
-
-## Step 6 — Update README (1 min, **PowerShell, me**)
-
-Add a line under the README tagline:
-
-```
-**Live demo:** https://aris-f1.streamlit.app
-```
-
-Commit + push. Streamlit Cloud rebuilds on push, so the README update doesn't
-break the deploy.
-
----
-
-## Fallback — static parquet snapshot (only if Neon eats >2 hr)
-
-If Step 2 hits a Neon-side blocker that can't be untangled in two hours, fall
-back to a static-parquet demo:
+Smoke:
 
 ```powershell
-python -c "from aris.io import db; import pandas as pd;
-with db.engine().connect() as c:
-    pd.read_sql('select * from sessions', c).to_parquet('data/processed/sessions.parquet')
-    pd.read_sql('select * from drivers', c).to_parquet('data/processed/drivers.parquet')
-    pd.read_sql('select session_id, driver_id, lap_number, lap_time_s, compound, tyre_life, stint, pit_in, pit_out from laps', c).to_parquet('data/processed/laps.parquet')"
+curl -sS https://YOUR-APP.herokuapp.com/health
 ```
 
-Then patch `apps/streamlit_app.py` to read parquet via `pd.read_parquet`
-instead of going through `aris.io.db`. Document the swap in BUILD-LOG and
-flag that "live ingest" reverts to "static snapshot" for the week — Wk 4
-moves back to Neon during the polish pass.
+Expect JSON with `"ok": true` once Neon is reachable.
 
 ---
 
-## Manual steps summary (what only you can do)
+## 3. Cloudflare Pages (`frontend-next`)
 
-1. Create the Neon project and copy the connection string.
-2. Paste that string into Streamlit Cloud → Settings → Secrets as
-   `ARIS_DB_URL = "..."`.
-3. Click **Deploy** and watch the first build go green.
-4. Open the URL in incognito and confirm the chart renders.
-5. (Optional) Set a clean custom subdomain.
+Dashboard: Workers & Pages → the existing project (`aris-frontend-590`).
 
-Everything else — schema apply, season ingest, README update, deploy commit
-to `main` — is scripted above and can run from PowerShell.
+| Setting | Value |
+|---|---|
+| Root directory | `frontend-next` |
+| Build command | `npm ci && npm run build` (`CF_PAGES` is set by Pages → static export to `out/`) |
+| Build output | `out` |
+| Node | 20 |
+
+### Pages environment variables (build-time)
+
+| Var | Value |
+|---|---|
+| `NEXT_PUBLIC_API_BASE` | `https://YOUR-APP.herokuapp.com` (no trailing slash) |
+| `NEXT_PUBLIC_R2_BASE_URL` | R2 public URL, e.g. `https://pub-9429cde26be84c4c8034f0b5873b9a7d.r2.dev` |
+| `NEXT_PUBLIC_WS_BASE` | optional; derived from `NEXT_PUBLIC_API_BASE` if unset (`https` → `wss`) |
+| `NEXT_PUBLIC_ARIS_COPILOT` | `1` only if Copilot should ship; default is Ask ARIS |
+
+`NEXT_PUBLIC_*` is inlined at **build** time. Changing Heroku's URL requires a
+Pages rebuild.
+
+---
+
+## 4. Domain / DNS / SSL (`arisf1.tech`)
+
+In the Pages project → Custom domains → `arisf1.tech`.
+
+Cloudflare DNS (same account):
+
+- `CNAME arisf1.tech` → the Pages target Cloudflare shows (or a proxied apex
+  CNAME/ALIAS as the dashboard instructs)
+- SSL/TLS: **Full (strict)**; Pages provisions the certificate
+
+Wait until the custom domain shows Active. Then confirm:
+
+1. `https://arisf1.tech` loads the Next console (replay selector, ARIS toggle)
+2. Browser Network: `/api/health` or `/api/live/hub` hits **Heroku**, not 8765
+3. Replay of a 2024/2025 race loads R2 JSON (`race_field.json` / `ghost_*.json`)
+
+---
+
+## 5. R2 replay packs
+
+GitHub Actions workflow `.github/workflows/prebuild_race.yml` builds
+`race_field.json` + `ghost_{DRIVER}.json` and uploads them to R2.
+
+Repo secrets: `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`,
+`R2_BUCKET_NAME`, plus `DATABASE_URL` if the job scores ghosts against Postgres.
+
+The bucket must be publicly readable at `NEXT_PUBLIC_R2_BASE_URL`.
+
+---
+
+## 6. Optional Worker UI / future Container
+
+```powershell
+npm run deploy              # Workers assets from frontend-next/out (not the live domain)
+npm run deploy:container    # future: FastAPI in a Cloudflare Container (Workers Paid)
+```
+
+Do not point `arisf1.tech` at the Worker while Pages is canonical.
+
+---
+
+## Manual steps only you can do
+
+1. Confirm Heroku app URL and set `ARIS_FRONTEND_ORIGIN=https://arisf1.tech`.
+2. Set Pages `NEXT_PUBLIC_API_BASE` to that Heroku origin and rebuild.
+3. Confirm DNS for `arisf1.tech` is the Pages custom domain, TLS active.
+4. Incognito: replay a race, toggle ARIS on, confirm ghost + Heroku `/api`.

@@ -1,4 +1,5 @@
 import { Container, getContainer } from "@cloudflare/containers";
+import { withSecurityHeaders } from "./securityHeaders";
 
 export class ArisApi extends Container<Env> {
   defaultPort = 8080;
@@ -32,8 +33,8 @@ export default {
           portReadyTimeoutMS: 180_000,
         },
       });
-      return container.fetch(request);
+      return withSecurityHeaders(await container.fetch(request));
     }
-    return env.ASSETS.fetch(request);
+    return withSecurityHeaders(await env.ASSETS.fetch(request));
   },
 } satisfies ExportedHandler<Env>;

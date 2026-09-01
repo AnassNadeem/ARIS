@@ -409,12 +409,15 @@ async def _catalog_cache_headers(request, call_next):
 
 
 from backend.cors_origins import cors_allow_origins  # noqa: E402
+from backend.rate_limit import enforce_compute_quota  # noqa: E402
 
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_allow_origins(),
     allow_origin_regex=(
+        r"https://arisf1\.tech|"
+        r"https://www\.arisf1\.tech|"
         r"https://aris-frontend-590\.pages\.dev|"
         r"https://[a-z0-9]+\.aris-frontend-590\.pages\.dev|"
         r"http://localhost:3000"
@@ -1683,7 +1686,42 @@ async def _live_rainfall_override(body: RecommendRequest) -> RecommendRequest:
     return body.model_copy(update={"override_rainfall": raining})
 
 
-@app.post("/api/aris/recommend", response_model=RecommendResponse)
+GHOST_RECOMPUTE_TIMEOUT_S = 20
+
+
+def _ghost_recompute_http_error(extra: BaseException) -> HTTPException:
+    message = str(extra) or extra.__class__.__name__
+    lower = message.lower()
+    if "not warm" in lower:
+        return HTTPException(
+            status_code=503,
+            detail={
+                "error": message,
+                "code": "replay_pack_not_warm",
+            },
+        )
+    if "no laps" in lower or "no ticks" in lower or "did not race" in lower:
+        return HTTPException(
+            status_code=422,
+            detail={
+                "error": message,
+                "code": "ghost_uncomputable",
+            },
+        )
+    return HTTPException(
+        status_code=500,
+        detail={
+            "error": message,
+            "code": "ghost_recompute_failed",
+        },
+    )
+
+
+@app.post(
+    "/api/aris/recommend",
+    response_model=RecommendResponse,
+    dependencies=[Depends(enforce_compute_quota)],
+)
 async def api_recommend(body: RecommendRequest) -> RecommendResponse:
     try:
         body = await _live_rainfall_override(body)
@@ -1700,28 +1738,67 @@ async def api_recommend(body: RecommendRequest) -> RecommendResponse:
         return aris_api._fallback_recommend(body)
 
 
-@app.post("/api/aris/ghost-recompute", response_model=GhostRecomputeResponse)
-async def api_ghost_recompute(body: GhostRecomputeRequest) -> GhostRecomputeResponse:
+@app.post(
+    "/api/aris/ghost-recompute",
+    response_model=GhostRecomputeResponse,
+    dependencies=[Depends(enforce_compute_quota)],
+)
+async def api_ghost_recompute(
+    body: GhostRecomputeRequest,
+) -> GhostRecomputeResponse:
+    driver = str(body.driver or "").strip()
+    if not driver:
+        raise HTTPException(
+            status_code=422,
+            detail={"error": "driver is required", "code": "ghost_uncomputable"},
+        )
     try:
-        payload = await run_light(
-            live.recompute_ghost_from_plan,
-            year=int(body.year),
-            round_number=int(body.round),
-            driver=str(body.driver),
-            current_lap=int(body.current_lap),
-            pit_laps=list(body.pit_laps),
-            compounds=list(body.compounds),
-            session_key=body.session_key,
-            label=str(body.label or ""),
+        payload = await asyncio.wait_for(
+            run_light(
+                lambda: live.recompute_ghost_from_plan(
+                    year=int(body.year),
+                    round_number=int(body.round),
+                    driver=driver,
+                    current_lap=int(body.current_lap),
+                    pit_laps=list(body.pit_laps),
+                    compounds=list(body.compounds),
+                    session_key=body.session_key,
+                    label=str(body.label or ""),
+                )
+            ),
+            timeout=GHOST_RECOMPUTE_TIMEOUT_S,
         )
         return GhostRecomputeResponse.model_validate(payload)
+    except TimeoutError:
+        raise HTTPException(
+            status_code=504,
+            detail={
+                "error": "ghost recompute timed out",
+                "code": "ghost_recompute_timeout",
+                "timeout_s": GHOST_RECOMPUTE_TIMEOUT_S,
+            },
+        ) from None
+    except aris_api.ClientInputError as extra:
+        raise HTTPException(
+            status_code=422,
+            detail={"error": str(extra), "code": "ghost_uncomputable"},
+        ) from extra
     except RuntimeError as extra:
-        raise HTTPException(503, str(extra)) from extra
+        raise _ghost_recompute_http_error(extra) from extra
+    except ValueError as extra:
+        raise HTTPException(
+            status_code=422,
+            detail={"error": str(extra), "code": "ghost_uncomputable"},
+        ) from extra
     except Exception as extra:
-        raise HTTPException(503, str(extra)) from extra
+        raise _ghost_recompute_http_error(extra) from extra
 
 
-@app.post("/api/aris/simulate", response_model=SimulateResponse)
+@app.post(
+    "/api/aris/simulate",
+    response_model=SimulateResponse,
+    dependencies=[Depends(enforce_compute_quota)],
+)
 async def api_simulate(body: SimulateRequest) -> SimulateResponse:
     try:
         return await run_light(aris_api.simulate, body)
@@ -1769,7 +1846,11 @@ async def api_chat(
     )
 
 
-@app.post("/api/ask", response_model=ChatResponse)
+@app.post(
+    "/api/ask",
+    response_model=ChatResponse,
+    dependencies=[Depends(enforce_compute_quota)],
+)
 async def api_ask(body: AskRequest) -> ChatResponse:
     """Ask ARIS — factual questions hit field lookups via chat(); not a RAG dump."""
     return await run_sync(
@@ -1783,7 +1864,11 @@ async def api_ask(body: AskRequest) -> ChatResponse:
     )
 
 
-@app.post("/api/copilot/chat", response_model=CopilotChatResponse)
+@app.post(
+    "/api/copilot/chat",
+    response_model=CopilotChatResponse,
+    dependencies=[Depends(enforce_compute_quota)],
+)
 async def api_copilot_chat(body: CopilotChatRequest) -> CopilotChatResponse:
     try:
         return await run_sync(aris_api.copilot_chat, body)
@@ -1791,7 +1876,11 @@ async def api_copilot_chat(body: CopilotChatRequest) -> CopilotChatResponse:
         raise HTTPException(503, str(extra)) from extra
 
 
-@app.get("/api/aris/plans", response_model=StratPlansResponse)
+@app.get(
+    "/api/aris/plans",
+    response_model=StratPlansResponse,
+    dependencies=[Depends(enforce_compute_quota)],
+)
 async def api_plans(year: int, round_number: int, driver_code: str) -> StratPlansResponse:
     try:
         return await run_sync(aris_api.plans, year, round_number, driver_code)

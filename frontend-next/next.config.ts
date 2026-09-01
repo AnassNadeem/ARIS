@@ -20,7 +20,8 @@ function r2PublicOrigin(): string {
   ).replace(/\/$/, "");
 }
 
-const staticExport = Boolean(process.env.CF_PAGES);
+const staticExport =
+  Boolean(process.env.CF_PAGES) || process.env.npm_lifecycle_event === "build:static";
 
 const nextConfig: NextConfig = {
   ...(staticExport ? { output: "export" as const, images: { unoptimized: true } } : {}),

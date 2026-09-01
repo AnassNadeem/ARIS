@@ -26,3 +26,6 @@ partial calendar is better than a full abort.
 Also set `NEXT_PUBLIC_R2_BASE_URL` on the Cloudflare Pages project to the
 bucket's public URL (e.g. `https://pub-xxxx.r2.dev`). Leave it blank for local
 dev — the frontend falls back to the Heroku pack-status path.
+
+Canonical production: Pages (`frontend-next`) + Heroku (`Procfile`) + R2 + Neon.
+See [`DEPLOY.md`](../../DEPLOY.md).
