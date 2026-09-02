@@ -21,7 +21,9 @@ function r2PublicOrigin(): string {
 }
 
 const staticExport =
-  Boolean(process.env.CF_PAGES) || process.env.npm_lifecycle_event === "build:static";
+  Boolean(process.env.CF_PAGES) ||
+  process.env.WORKERS_CI === "1" ||
+  process.env.npm_lifecycle_event === "build:static";
 
 const nextConfig: NextConfig = {
   ...(staticExport ? { output: "export" as const, images: { unoptimized: true } } : {}),
