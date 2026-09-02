@@ -203,7 +203,12 @@ test.describe("ghost regression", () => {
     // pit lap itself, then let fast playback carry it through the pit-entry
     // point while polling for the status text.
     await seekToLap(page, pitLap);
-    await page.getByRole("button", { name: "25×" }).click();
+    // Playwright's locator.click() focuses 25× after a programmatic seek but
+    // does not fire React onClick (speed stays 1×). Call the DOM click so
+    // setPlaybackSpeed(25) actually runs.
+    const x25 = page.getByRole("button", { name: "25×" });
+    await x25.evaluate((el) => (el as HTMLButtonElement).click());
+    await expect(x25).toHaveClass(/bg-red/, { timeout: 5_000 });
     await expect
       .poll(async () => (await row.innerText()).includes("IN PITS"), { timeout: 10_000, intervals: [150] })
       .toBe(true);

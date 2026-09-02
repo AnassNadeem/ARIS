@@ -94,11 +94,22 @@ def generate_template_response(
                 )
         return "Tyre data unavailable."
 
-    if any(w in q for w in ["lap", "remaining", "left", "to go"]):
+    laps_remaining_q = (
+        "laps remaining" in q
+        or "how many laps" in q
+        or "laps left" in q
+        or "what lap is it" in q
+        or "which lap is it" in q
+        or "current lap" in q
+    )
+    strategy_q = any(w in q for w in ("why", "recommend", "pit", "strategy", "suggest", "box"))
+    if laps_remaining_q and not strategy_q:
         remaining = total_laps - current_lap
         return f"Lap {current_lap} of {total_laps}. {remaining} laps remaining."
 
-    if any(w in q for w in ["pit", "box", "stop"]):
+    if any(w in q for w in ["pit", "box", "stop"]) and not any(
+        w in q for w in ("why", "recommend", "strategy", "suggest")
+    ):
         return (
             "Ask ARIS for a strategy recommendation using the "
             "recommend button, or type 'should we pit?' for an analysis."

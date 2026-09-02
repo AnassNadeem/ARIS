@@ -130,6 +130,8 @@ function AskARIS() {
   const racePhase = useRaceStore((s) => s.racePhase);
   const rainfall = useRaceStore((s) => s.rainfall);
   const totalLaps = useRaceStore((s) => s.totalLaps);
+  const lastRecommendation = useRaceStore((s) => s.lastRecommendation);
+  const ghostPosition = useRaceStore((s) => s.ghostCar?.position ?? null);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
   const askEntries = commsLog.filter((c) => c.source === "USER" || c.source === "ARIS_ANALYSIS");
@@ -154,6 +156,8 @@ function AskARIS() {
       rainfall,
       focusDriver: arisDriver,
       session,
+      lastRecommendation,
+      ghostPosition,
     });
     if (local) {
       pushComms({

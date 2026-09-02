@@ -655,18 +655,22 @@ export async function askARIS(
   raceState?: unknown,
   meta?: { year?: number; round?: number; driver?: string; currentLap?: number },
 ): Promise<{ answer: string; offline: boolean }> {
-  const live = await tryFetch<{ answer: string }>("/api/ask", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      question,
-      race_state: raceState,
-      year: meta?.year,
-      round_number: meta?.round,
-      driver_code: meta?.driver,
-      current_lap: meta?.currentLap,
-    }),
-  });
+  const live = await tryFetch<{ answer: string }>(
+    "/api/ask",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        question,
+        race_state: raceState,
+        year: meta?.year,
+        round_number: meta?.round,
+        driver_code: meta?.driver,
+        current_lap: meta?.currentLap,
+      }),
+    },
+    8000,
+  );
   if (live?.answer) return { answer: live.answer, offline: false };
   const viaChat = await tryFetch<{ answer: string }>(
     `/api/aris/chat?question=${encodeURIComponent(question)}${
@@ -674,6 +678,8 @@ export async function askARIS(
     }${meta?.round != null ? `&round_number=${meta.round}` : ""}${
       meta?.driver ? `&driver_code=${encodeURIComponent(meta.driver)}` : ""
     }${meta?.currentLap != null ? `&current_lap=${meta.currentLap}` : ""}`,
+    undefined,
+    8000,
   );
   if (viaChat?.answer) return { answer: viaChat.answer, offline: false };
   return { answer: mockAskAnswer(question), offline: true };

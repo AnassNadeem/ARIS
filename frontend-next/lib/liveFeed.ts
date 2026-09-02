@@ -316,6 +316,14 @@ function applyCircuitPath(payload: SsePayload) {
   store.setCircuitOutline({ ...coords, available: true });
 }
 
+/** Drop leftover replay ghost data so live timing cannot paint another race's ARIS row. */
+export function clearLiveReplayGhost(): void {
+  const store = useRaceStore.getState();
+  store.setR2Ghost(null);
+  store.setGhostTicks({});
+  store.setGhostCar(null);
+}
+
 export class LiveSseFeed {
   private es: EventSource | null = null;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -328,6 +336,7 @@ export class LiveSseFeed {
 
   connect() {
     this.closed = false;
+    clearLiveReplayGhost();
     setFeedStatus("connecting");
     try {
       this.es = new EventSource(`${API_BASE}/api/live/stream`);

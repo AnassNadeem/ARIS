@@ -28,6 +28,8 @@ PUBLIC_BASE = (os.environ.get("NEXT_PUBLIC_R2_BASE_URL") or "https://pub-9429cde
 # hide every subsequent upload from browsers and Cloudflare's edge.
 CACHE_CONTROL = "public, max-age=3600, must-revalidate"
 CORS_ORIGINS = [
+    "https://arisf1.tech",
+    "https://www.arisf1.tech",
     "https://aris-frontend-590.pages.dev",
     "https://*.aris-frontend-590.pages.dev",
     "http://localhost:3000",

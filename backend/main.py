@@ -414,7 +414,15 @@ from backend.rate_limit import enforce_compute_quota  # noqa: E402
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_allow_origins(),
+    allow_origins=list(
+        dict.fromkeys(
+            [
+                *cors_allow_origins(),
+                "https://arisf1.tech",
+                "https://www.arisf1.tech",
+            ]
+        )
+    ),
     allow_origin_regex=(
         r"https://arisf1\.tech|"
         r"https://www\.arisf1\.tech|"
