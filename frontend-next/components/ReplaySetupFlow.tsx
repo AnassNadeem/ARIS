@@ -15,17 +15,28 @@ import {
   circuitCoordsFromReplayOutline,
   prewarmSession,
 } from "@/lib/api";
-import { fetchGhost, fetchRaceField, fieldToDrivers, fieldToLapRows, fieldToStintRows, ghostTicksMap, r2Configured, r2FetchErrorMessage, R2_LOAD_ERROR } from "@/lib/r2Replay";
-import { MOCK_DRIVERS_2025 } from "@/lib/mockData";
+import {
+  fetchGhost,
+  fetchRaceField,
+  fieldToDrivers,
+  fieldToLapRows,
+  fieldToStintRows,
+  ghostTicksMap,
+  r2Configured,
+  raceFieldExists,
+  r2FetchErrorMessage,
+  R2_LOAD_ERROR,
+} from "@/lib/r2Replay";
 import { isFullCircuitOutline, shouldApplyFallbackOutline } from "@/lib/circuitCache";
 import {
   defaultReplayYear,
   filterReplayRounds,
   isAllowedReplayYear,
+  keepRoundsWithPack,
 } from "@/lib/replayFilter";
 import { canStartRace, nextSelectorStep, sessionLabel, type ReplayMode, type SelectorStep } from "@/lib/sessionFlow";
 import { useRaceStore } from "@/store/raceStore";
-import type { RoundCard } from "@/lib/types";
+import type { DriverListing, RoundCard } from "@/lib/types";
 
 const RACE_SESSION = "R" as const;
 
@@ -60,7 +71,8 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
   const [round, setRound] = useState<RoundCard | null>(null);
   const [mode, setMode] = useState<ReplayMode | null>(null);
   const [driver, setDriver] = useState<string | null>(null);
-  const [drivers, setDrivers] = useState(MOCK_DRIVERS_2025);
+  const [drivers, setDrivers] = useState<DriverListing[]>([]);
+  const [driversLoading, setDriversLoading] = useState(false);
   const [analysisPending, setAnalysisPending] = useState(false);
   const [loadReady, setLoadReady] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -76,9 +88,21 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
 
   useEffect(() => {
     let cancelled = false;
-    getCalendar(year, { replay: true }).then((r) => {
+    setDrivers([]);
+    setDriver(null);
+    getCalendar(year, { replay: true }).then(async (r) => {
       if (cancelled) return;
-      const playable = filterReplayRounds(r);
+      let playable = filterReplayRounds(r, { year });
+      if (r2Configured()) {
+        const exists = new Map<number, boolean | null>();
+        await Promise.all(
+          playable.map(async (card) => {
+            exists.set(card.round, await raceFieldExists(year, card.round));
+          }),
+        );
+        if (cancelled) return;
+        playable = keepRoundsWithPack(playable, exists);
+      }
       setRounds(playable);
       const fromUrl =
         Number.isFinite(urlRound) && urlRound > 0
@@ -93,15 +117,38 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
       setDriverLocked(false);
       setRoundsLoading(false);
     });
-    getDrivers(year).then((d) => {
-      if (cancelled) return;
-      setDrivers(d);
-    });
+    if (!r2Configured()) {
+      getDrivers(year).then((d) => {
+        if (cancelled) return;
+        setDrivers(d);
+      });
+    }
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [year]);
+
+  useEffect(() => {
+    if (!round || !r2Configured()) return;
+    let cancelled = false;
+    setDriversLoading(true);
+    fetchRaceField(year, round.round)
+      .then((field) => {
+        if (cancelled) return;
+        const list = fieldToDrivers(field);
+        setDrivers(list);
+        setDriversLoading(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setDrivers([]);
+        setDriversLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [year, round]);
 
   useEffect(() => {
     if (!driver) return;
@@ -404,25 +451,33 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
 
         {viewStep === "driver" && (
           <div className="replay-panel rounded-[8px] border border-border p-5">
-            <ARISConfigPanel
-              phase="driver"
-              arisMode={arisMode}
-              drivers={drivers}
-              selectedDriver={driver}
-              plans={strategies ?? []}
-              selectedPlanId={selectedStrategy?.id ?? null}
-              analysisPending={analysisPending}
-              onArisMode={setARISMode}
-              onDriver={(code) => {
-                setDriver(code);
-                setSelectedDriver(code);
-              }}
-              onGetStrategies={() => void fetchStrategies()}
-              onPlan={(id) => {
-                const hit = (strategies ?? []).find((p) => p.id === id) ?? null;
-                setSelectedStrategy(hit);
-              }}
-            />
+            {driversLoading && drivers.length === 0 ? (
+              <p className="font-mono-data text-[11px] text-muted">Loading this race&apos;s driver grid…</p>
+            ) : drivers.length === 0 ? (
+              <p className="font-mono-data text-[11px] text-muted">
+                No driver grid in race_field.json for this race.
+              </p>
+            ) : (
+              <ARISConfigPanel
+                phase="driver"
+                arisMode={arisMode}
+                drivers={drivers}
+                selectedDriver={driver}
+                plans={strategies ?? []}
+                selectedPlanId={selectedStrategy?.id ?? null}
+                analysisPending={analysisPending}
+                onArisMode={setARISMode}
+                onDriver={(code) => {
+                  setDriver(code);
+                  setSelectedDriver(code);
+                }}
+                onGetStrategies={() => void fetchStrategies()}
+                onPlan={(id) => {
+                  const hit = (strategies ?? []).find((p) => p.id === id) ?? null;
+                  setSelectedStrategy(hit);
+                }}
+              />
+            )}
           </div>
         )}
 

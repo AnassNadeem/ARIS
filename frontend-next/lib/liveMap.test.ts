@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterReplayRounds, replayYears, defaultReplayYear, startFinishMarker, isReplayableRound, chequeredSfFlag } from "./replayFilter";
+import { filterReplayRounds, replayYears, defaultReplayYear, startFinishMarker, isReplayableRound, chequeredSfFlag, keepRoundsWithPack } from "./replayFilter";
 import { annotateGhostTower, mapTimingAndPositions, mergeByDriverCode, mergeCars, onTrackCarCodes, orderTimingTower, rankGhostByGap, realClassifiedCars, sessionFlagToPhase, timingEqual, timingFingerprint } from "./mapCars";
 import { normalizeCompound, msToSeconds } from "./compounds";
 import { countryFlag } from "./flags";
@@ -39,9 +39,52 @@ describe("filterReplayRounds", () => {
   ];
 
   it("drops cancelled and upcoming 2026 rounds", () => {
-    const keep = filterReplayRounds(rounds).map((r) => r.round);
+    const keep = filterReplayRounds(rounds, { now: new Date("2026-09-03T12:00:00Z") }).map((r) => r.round);
     expect(keep).toEqual([1, 15]);
     expect(isReplayableRound(rounds[1])).toBe(false);
+  });
+
+  it("hides a COMPLETED race whose date is still in the future", () => {
+    const monza: RoundCard = {
+      round: 16,
+      circuitName: "Italy",
+      countryFlag: "🇮🇹",
+      date: "2026-09-06T13:00:00Z",
+      sessionType: "R",
+      isSprint: false,
+      arisEligible: true,
+      status: "COMPLETED",
+    };
+    expect(filterReplayRounds([monza], { now: new Date("2026-09-03T12:00:00Z") })).toEqual([]);
+    expect(filterReplayRounds([monza], { now: new Date("2026-09-06T18:00:00Z") }).map((r) => r.round)).toEqual([16]);
+  });
+
+  it("hides Imola 2026 even when the API marks it completed", () => {
+    const imola: RoundCard = {
+      round: 7,
+      circuitName: "Imola",
+      countryFlag: "🇮🇹",
+      date: "2026-05-24T13:00:00Z",
+      sessionType: "R",
+      isSprint: false,
+      arisEligible: true,
+      status: "COMPLETED",
+    };
+    expect(filterReplayRounds([imola], { year: 2026, now: new Date("2026-09-03T12:00:00Z") })).toEqual([]);
+  });
+});
+
+describe("keepRoundsWithPack", () => {
+  it("drops only confirmed missing race_field.json packs", () => {
+    const rounds: RoundCard[] = [
+      { round: 6, circuitName: "Miami", countryFlag: "🇺🇸", date: "2026-05-10", sessionType: "R", isSprint: true, arisEligible: true, status: "COMPLETED" },
+      { round: 9, circuitName: "Spain", countryFlag: "🇪🇸", date: "2026-06-14", sessionType: "R", isSprint: false, arisEligible: true, status: "COMPLETED" },
+    ];
+    const exists = new Map<number, boolean | null>([
+      [6, true],
+      [9, false],
+    ]);
+    expect(keepRoundsWithPack(rounds, exists).map((r) => r.round)).toEqual([6]);
   });
 });
 

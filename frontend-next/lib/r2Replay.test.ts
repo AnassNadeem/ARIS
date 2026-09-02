@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { annotateVsActivePlan, shouldFetchRecommend } from "./arisRecommend";
 import { mapTimingAndPositions } from "./mapCars";
-import { fieldToDrivers, fieldToLapRows, interpolatedPosFrac, nearestPosSample, normalizeR2Base, plansMatch, r2Configured, r2FrameAt, r2TickToGhostTick, raceDurationS, sectorSecondsForLap, speedKphFromPath, deriveGhostLapTimes, pitLossForCircuit, realLapTimesByDriver, GRID_START_LAP_FRAC, blendedPathFrac, gridPathFrac, replayDisplayFrac, ghostTickAtOrBefore, ghostDeltaChartPoints, r2FetchErrorMessage, RaceFieldNotFoundError, R2_LOAD_ERROR, R2_RACE_UNAVAILABLE } from "./r2Replay";
+import { fieldToDrivers, fieldToLapRows, interpolatedPosFrac, nearestPosSample, normalizeR2Base, plansMatch, r2Configured, r2FrameAt, r2TickToGhostTick, raceDurationS, sectorSecondsForLap, speedKphFromPath, deriveGhostLapTimes, pitLossForCircuit, realLapTimesByDriver, GRID_START_LAP_FRAC, blendedPathFrac, gridPathFrac, replayDisplayFrac, ghostTickAtOrBefore, ghostDeltaChartPoints, r2FetchErrorMessage, RaceFieldNotFoundError, R2_LOAD_ERROR, R2_RACE_UNAVAILABLE, driversFromRaceOrGrid } from "./r2Replay";
 import type { ARISRecommendation, GhostData, RaceField, RaceFieldLap } from "./types";
 
 function rec(over: Partial<ARISRecommendation> = {}): ARISRecommendation {
@@ -108,6 +108,52 @@ describe("r2FetchErrorMessage", () => {
   it("keeps connection copy for other failures", () => {
     expect(r2FetchErrorMessage(new Error("HTTP 503"))).toBe(R2_LOAD_ERROR);
     expect(r2FetchErrorMessage(new Error("Timed out after 30s"))).toBe(R2_LOAD_ERROR);
+  });
+});
+
+describe("fieldToDrivers season teams", () => {
+  function fieldWithHam(team: string, colour: string): RaceField {
+    return {
+      meta: {
+        year: 2024,
+        round: 1,
+        session_type: "R",
+        circuit_name: "Sakhir",
+        total_laps: 1,
+        date_race: "2024-03-02",
+        green_flag_s: 0,
+        session_key: 1,
+      },
+      outline: { x: [], y: [] },
+      drivers: [{ code: "HAM", name: "Lewis Hamilton", team, colour, grid_position: 9, number: 44 }],
+      laps: [],
+      stints: [],
+      weather: [],
+      race_control: [],
+      pos_samples: {},
+    };
+  }
+
+  it("reads team and colour from race_field.json, not a global map", () => {
+    expect(fieldToDrivers(fieldWithHam("Mercedes", "#27F4D2"))[0]).toMatchObject({
+      driver_code: "HAM",
+      team: "Mercedes",
+      team_colour: "#27F4D2",
+    });
+    expect(fieldToDrivers(fieldWithHam("Ferrari", "#E8002D"))[0]).toMatchObject({
+      driver_code: "HAM",
+      team: "Ferrari",
+      team_colour: "#E8002D",
+    });
+  });
+
+  it("prefers race_field drivers over a stale grid listing", () => {
+    const field = fieldWithHam("Mercedes", "#27F4D2");
+    const stale = [
+      { driver_number: 44, driver_code: "HAM", full_name: "Lewis Hamilton", team: "Ferrari", team_colour: "#E8002D" },
+    ];
+    expect(driversFromRaceOrGrid(stale, field)[0].team).toBe("Mercedes");
+    expect(driversFromRaceOrGrid(stale, field)[0].team_colour).toBe("#27F4D2");
   });
 });
 

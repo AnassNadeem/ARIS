@@ -12,7 +12,8 @@ import {
   YAxis,
 } from "recharts";
 import { downloadDebriefExport, explainSessionId, getRaceDebrief } from "@/lib/api";
-import { COMPOUND_COLOUR, MOCK_DRIVERS_2025 } from "@/lib/mockData";
+import { COMPOUND_COLOUR } from "@/lib/mockData";
+import { driversFromRaceOrGrid } from "@/lib/r2Replay";
 import { useRaceStore } from "@/store/raceStore";
 import { useFocusDriver } from "@/lib/useFocusDriver";
 import { PanelEmpty, PanelSkeleton } from "@/components/ui/PanelStates";
@@ -30,6 +31,9 @@ export function RaceDebriefView({
 }) {
   const session = useRaceStore((s) => s.session);
   const focused = useFocusDriver();
+  const gridDrivers = useRaceStore((s) => s.gridDrivers);
+  const field = useRaceStore((s) => s.r2RaceField);
+  const driverOptions = driversFromRaceOrGrid(gridDrivers, field);
   const [code, setCode] = useState(focusDriver ?? focused);
 
   useEffect(() => {
@@ -74,7 +78,7 @@ export function RaceDebriefView({
       <div className="mb-2 flex flex-wrap items-center gap-2 font-mono-data text-[10px]">
         <span className="text-muted">Driver</span>
         <select value={code} onChange={(e) => setCode(e.target.value)} className={SELECT}>
-          {MOCK_DRIVERS_2025.map((d) => (
+          {driverOptions.map((d) => (
             <option key={d.driver_code} value={d.driver_code}>
               {d.driver_code}
             </option>

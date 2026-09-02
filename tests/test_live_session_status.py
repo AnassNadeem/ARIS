@@ -646,6 +646,15 @@ def test_after_zandvoort_race_next_is_monza():
     assert "ital" in (nxt.name or "").lower() or "monza" in (nxt.circuit_name or "").lower()
 
 
+def test_imola_2026_is_cancelled():
+    from backend.calendar import _SCHED_MEM, get_calendar
+
+    _SCHED_MEM.pop(2026, None)
+    cal = get_calendar(2026, as_of=datetime(2026, 9, 3, 12, 0, tzinfo=timezone.utc))
+    imola = next(r for r in cal.rounds if r.round_number == 7)
+    assert imola.status == "CANCELLED"
+
+
 def test_calendar_2026_race_morning_uses_overlay():
     from backend.calendar import _SCHED_MEM, get_calendar, next_race
 

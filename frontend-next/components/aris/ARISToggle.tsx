@@ -1,7 +1,7 @@
 "use client";
 
 import { useRaceStore } from "@/store/raceStore";
-import { MOCK_DRIVERS_2025 } from "@/lib/mockData";
+import { driversFromRaceOrGrid } from "@/lib/r2Replay";
 
 export function ARISToggle({ disabled, disabledReason }: { disabled?: boolean; disabledReason?: string }) {
   const isARISOn = useRaceStore((s) => s.isARISOn);
@@ -9,8 +9,9 @@ export function ARISToggle({ disabled, disabledReason }: { disabled?: boolean; d
   const arisModeLocked = useRaceStore((s) => s.arisModeLocked);
   const arisDriver = useRaceStore((s) => s.arisDriver);
   const gridDrivers = useRaceStore((s) => s.gridDrivers);
+  const r2RaceField = useRaceStore((s) => s.r2RaceField);
   const setARISOn = useRaceStore((s) => s.setARISOn);
-  const drivers = gridDrivers.length ? gridDrivers : MOCK_DRIVERS_2025;
+  const drivers = driversFromRaceOrGrid(gridDrivers, r2RaceField);
   const setARISMode = useRaceStore((s) => s.setARISMode);
   const setARISDriver = useRaceStore((s) => s.setARISDriver);
 

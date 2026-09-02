@@ -13,8 +13,8 @@ function prand(seed: number): number {
   return x - Math.floor(x);
 }
 
-// 2025 grid — team colours match FastF1 / F1 TV convention closely enough
-// for a portfolio demo. Not pulled live.
+// Demo-only 2025/26-shaped grid (HAM at Ferrari). Replay must never use this
+// for team/colour — those come from race_field.json for the selected race.
 export const MOCK_DRIVERS_2025: DriverListing[] = [
   { driver_number: 1, driver_code: "VER", full_name: "Max Verstappen", team: "Red Bull Racing", team_colour: "#3671C6" },
   { driver_number: 4, driver_code: "NOR", full_name: "Lando Norris", team: "McLaren", team_colour: "#FF8000" },

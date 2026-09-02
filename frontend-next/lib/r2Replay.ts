@@ -182,6 +182,37 @@ export function r2Configured(): boolean {
   return Boolean(R2_BASE);
 }
 
+const raceFieldPromises = new Map<string, Promise<RaceField>>();
+
+function raceFieldCacheKey(year: number, round: number): string {
+  return `${year}/${round}`;
+}
+
+/** HEAD race_field.json. `false` = confirmed 404; `null` = unknown (keep the race). */
+export async function raceFieldExists(year: number, round: number): Promise<boolean | null> {
+  if (!R2_BASE) return null;
+  try {
+    const res = await fetch(r2Url(year, round, "race_field.json"), {
+      method: "HEAD",
+      signal: AbortSignal.timeout(8000),
+    });
+    if (res.status === 404) return false;
+    if (res.ok) return true;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** Prefer this race's race_field.json drivers; never a global mock grid. */
+export function driversFromRaceOrGrid(
+  grid: DriverListing[],
+  field: RaceField | null | undefined,
+): DriverListing[] {
+  if (field?.drivers?.length) return fieldToDrivers(field);
+  return grid;
+}
+
 function r2Url(year: number, round: number, file: string): string {
   return `${R2_BASE}/replay/${year}/${round}/${file}?v=${R2_ASSET_V}`;
 }
@@ -228,8 +259,24 @@ export async function fetchRaceField(
   onProgress?: (loaded: number, total: number | null) => void,
 ): Promise<RaceField> {
   if (!R2_BASE) throw new Error("R2 base URL unset");
-  const res = await fetchWithProgress(r2Url(year, round, "race_field.json"), onProgress);
-  return (await res.json()) as RaceField;
+  const key = raceFieldCacheKey(year, round);
+  const cached = raceFieldPromises.get(key);
+  if (cached) {
+    const field = await cached;
+    onProgress?.(1, 1);
+    return field;
+  }
+  const pending = (async () => {
+    try {
+      const res = await fetchWithProgress(r2Url(year, round, "race_field.json"), onProgress);
+      return (await res.json()) as RaceField;
+    } catch (err) {
+      raceFieldPromises.delete(key);
+      throw err;
+    }
+  })();
+  raceFieldPromises.set(key, pending);
+  return pending;
 }
 
 export async function fetchGhost(

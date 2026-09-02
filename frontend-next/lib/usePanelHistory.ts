@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { MOCK_DRIVERS_2025 } from "@/lib/mockData";
 import { getRaceHistoryMock } from "@/lib/mockRaceHistory";
 import {
   lapRecordsFromApi,
@@ -62,7 +61,7 @@ export function usePanelHistory() {
       laps: [] as ReturnType<typeof lapRecordsFromApi>,
       stints: [] as ReturnType<typeof stintRecordsFromApi>,
       pitStops: [] as ReturnType<typeof pitStopsFromLaps>,
-      drivers: gridDrivers.length ? gridDrivers : MOCK_DRIVERS_2025,
+      drivers: gridDrivers,
       fromApi: false,
       totalLaps,
       currentLap,
@@ -78,7 +77,7 @@ export function usePanelHistory() {
       : useMock
         ? mock.pitStops.filter((p) => p.lap <= currentLap)
         : [],
-    drivers: gridDrivers.length ? gridDrivers : MOCK_DRIVERS_2025,
+    drivers: gridDrivers,
     fromApi: hasApi,
     totalLaps,
     currentLap,

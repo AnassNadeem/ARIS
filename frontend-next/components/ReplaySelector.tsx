@@ -52,7 +52,7 @@ export function ReplaySelector({
         <div className="font-mono-data text-[10px] uppercase tracking-[0.22em] text-red">ARIS</div>
         <h2 className="mt-1 text-xl font-bold tracking-wide text-white uppercase sm:text-2xl">Replay with ARIS</h2>
         <p className="mt-1 font-mono-data text-[11px] text-muted">
-          Toggle ARIS first, then pick a season and race. Cancelled and upcoming weekends are hidden.
+          Toggle ARIS first, then pick a season and race. Cancelled, upcoming, and future-dated weekends are hidden.
         </p>
         <div className="mt-3 inline-flex w-fit overflow-hidden rounded-[8px] border border-border bg-obsidian" role="group" aria-label="ARIS toggle">
           <button

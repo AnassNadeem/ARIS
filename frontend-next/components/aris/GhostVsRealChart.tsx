@@ -12,7 +12,7 @@ import {
   YAxis,
 } from "recharts";
 import { explainSessionId, getGhostVsReal } from "@/lib/api";
-import { MOCK_DRIVERS_2025 } from "@/lib/mockData";
+import { driversFromRaceOrGrid } from "@/lib/r2Replay";
 import { useRaceStore } from "@/store/raceStore";
 import { useFocusDriver } from "@/lib/useFocusDriver";
 import { PanelEmpty, PanelSkeleton } from "@/components/ui/PanelStates";
@@ -40,6 +40,8 @@ export function GhostVsRealChart({
   const [pending, setPending] = useState(false);
   const sid = sessionId ?? explainSessionId(session);
   const field = useRaceStore((s) => s.r2RaceField);
+  const gridDrivers = useRaceStore((s) => s.gridDrivers);
+  const driverOptions = driversFromRaceOrGrid(gridDrivers, field);
   const ticks = useRaceStore((s) => s.ghostTicksByLap);
   const local = useMemo(
     () => (field && Object.keys(ticks).length ? ghostVsRealFromField(field, code, ticks) : null),
@@ -89,7 +91,7 @@ export function GhostVsRealChart({
       <div className="mb-2 flex flex-wrap items-center gap-2 font-mono-data text-[10px]">
         <span className="text-muted">Driver</span>
         <select value={code} onChange={(e) => setCode(e.target.value)} className={SELECT}>
-          {MOCK_DRIVERS_2025.map((d) => (
+          {driverOptions.map((d) => (
             <option key={d.driver_code} value={d.driver_code}>
               {d.driver_code}
             </option>
