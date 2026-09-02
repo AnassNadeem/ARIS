@@ -2,11 +2,17 @@
 """Pre-process completed races into static JSON for Cloudflare R2.
 
     python scripts/prebuild_race_r2.py --year 2025 --round 15 --driver VER
+    python scripts/prebuild_race_r2.py --year 2026 --round 6 --all-drivers
     python scripts/prebuild_race_r2.py --all-completed --skip-existing
+    python scripts/prebuild_race_r2.py --all-completed --all-drivers --skip-existing
 
 Reads FastF1 (and optionally Postgres) directly — no running Heroku backend.
 Fails with exit 1 on a FastF1 error for a single race. --all-completed logs
 the error and continues so a partial calendar still ships.
+
+--all-drivers reads race_field.json drivers[] (local cache first) and bakes
+ghost_{CODE}.json for every driver. FastF1 is loaded at most once per race,
+and only when race_field.json is missing locally and on R2.
 """
 
 from __future__ import annotations
@@ -968,6 +974,157 @@ def build_ghost(
     return compute_ghost(year, round_number, driver, field)
 
 
+def driver_codes_from_field(field: dict[str, Any]) -> list[str]:
+    """Driver abbreviations from race_field.json ``drivers[]``, in file order."""
+    codes: list[str] = []
+    seen: set[str] = set()
+    for row in field.get("drivers") or []:
+        if not isinstance(row, dict):
+            continue
+        code = str(row.get("code") or "").strip().upper()
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        codes.append(code)
+    return codes
+
+
+def _read_local_field(year: int, round_number: int) -> dict[str, Any] | None:
+    path = _local_key(year, round_number, "race_field.json")
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as extra:
+        _log.warning("unreadable race_field.json %s: %s", path, extra)
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _fetch_remote_field(year: int, round_number: int) -> dict[str, Any] | None:
+    """Download race_field.json from public R2 only when the local file is missing."""
+    from aris.ghost_pack import _http_json, _r2_public_base
+
+    base = _r2_public_base()
+    if not base:
+        return None
+    payload = _http_json(f"{base}/replay/{int(year)}/{int(round_number)}/race_field.json")
+    if not isinstance(payload, dict):
+        return None
+    path = _local_key(year, round_number, "race_field.json")
+    _write_json(path, payload)
+    _log.info("cached race_field.json from R2 for %s R%s", year, round_number)
+    return payload
+
+
+def load_or_build_race_field(
+    year: int, round_number: int, *, no_upload: bool
+) -> tuple[dict[str, Any], str]:
+    """Return (field, source) with FastF1 loaded at most once, and only if needed.
+
+    source is ``local``, ``r2``, or ``fastf1``.
+    """
+    field = _read_local_field(year, round_number)
+    if field is not None:
+        _log.info(
+            "race_field.json from local cache %s R%s — FastF1 not loaded",
+            year,
+            round_number,
+        )
+        return field, "local"
+    field = _fetch_remote_field(year, round_number)
+    if field is not None:
+        return field, "r2"
+    _log.info(
+        "race_field.json missing — loading FastF1 session once for %s R%s",
+        year,
+        round_number,
+    )
+    sess = _load_session(year, round_number)
+    field = build_race_field(year, round_number, sess)
+    raw = _fit_pos_under_budget(field, MAX_FIELD_BYTES)
+    if len(raw) > MAX_FIELD_BYTES:
+        raise RuntimeError(
+            f"{year} R{round_number} race_field.json still {len(raw)} bytes after downsample"
+        )
+    field_path = _local_key(year, round_number, "race_field.json")
+    _write_json(field_path, field)
+    if not no_upload:
+        _upload(field_path, f"replay/{year}/{round_number}/race_field.json")
+    return field, "fastf1"
+
+
+def build_all_drivers(
+    year: int,
+    round_number: int,
+    race_name: str,
+    *,
+    skip_existing: bool,
+    no_upload: bool,
+) -> dict[str, Any]:
+    """Bake ghost_{CODE}.json for every driver in race_field.json drivers[].
+
+    Loads race_field once (local cache first). Does not reload FastF1 per driver.
+    A single driver failure is logged and skipped; the rest of the field continues.
+    """
+    t0 = time.monotonic()
+    field, source = load_or_build_race_field(year, round_number, no_upload=no_upload)
+    codes = driver_codes_from_field(field)
+    if not codes:
+        raise RuntimeError(f"No drivers[] in race_field.json for {year} R{round_number}")
+    label = race_name or str((field.get("meta") or {}).get("circuit_name") or "")
+    succeeded: list[str] = []
+    failed: list[dict[str, str]] = []
+    skipped: list[str] = []
+    for i, code in enumerate(codes, 1):
+        ghost_name = f"ghost_{code}.json"
+        _log.info(
+            "Building %s R%s %s: %s (%s/%s)...",
+            year,
+            round_number,
+            label,
+            code,
+            i,
+            len(codes),
+        )
+        if skip_existing and _r2_exists(year, round_number, ghost_name):
+            _log.info("skip existing %s %s R%s", ghost_name, year, round_number)
+            skipped.append(code)
+            continue
+        try:
+            ghost = build_ghost(year, round_number, code, None, field)
+            ghost_path = _local_key(year, round_number, ghost_name)
+            _write_json(ghost_path, ghost)
+            if not no_upload:
+                _upload(ghost_path, f"replay/{year}/{round_number}/{ghost_name}")
+            succeeded.append(code)
+        except Exception as extra:
+            _log.exception(
+                "FAILED ghost %s %s R%s: %s", code, year, round_number, extra
+            )
+            failed.append({"driver": code, "error": str(extra)})
+    _log.info(
+        "%s R%s ghosts: %s ok, %s failed, %s skipped (field=%s) in %.1fs",
+        year,
+        round_number,
+        len(succeeded),
+        len(failed),
+        len(skipped),
+        source,
+        time.monotonic() - t0,
+    )
+    return {
+        "year": year,
+        "round": round_number,
+        "field_source": source,
+        "drivers": codes,
+        "succeeded": succeeded,
+        "failed": failed,
+        "skipped": skipped,
+        "elapsed_s": time.monotonic() - t0,
+    }
+
+
 def _default_driver(sess: Any, requested: str | None) -> str:
     if requested:
         return str(requested).upper()
@@ -1041,10 +1198,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--year", type=int)
     parser.add_argument("--round", type=int, dest="round_number")
     parser.add_argument("--driver", default=None)
+    parser.add_argument(
+        "--all-drivers",
+        action="store_true",
+        help="Build ghost_{CODE}.json for every driver in race_field.json drivers[]",
+    )
     parser.add_argument("--all-completed", action="store_true")
     parser.add_argument("--skip-existing", action="store_true")
     parser.add_argument("--no-upload", action="store_true")
     args = parser.parse_args(argv)
+
+    if args.all_drivers and args.driver:
+        _log.warning("--all-drivers ignores --driver %s", args.driver)
 
     if args.all_completed:
         jobs = completed_jobs()
@@ -1060,13 +1225,26 @@ def main(argv: list[str] | None = None) -> int:
     for year, rnd, name in jobs:
         _log.info("building %s R%s %s", year, rnd, name)
         try:
-            build_one(
-                year,
-                rnd,
-                args.driver,
-                skip_existing=args.skip_existing,
-                no_upload=args.no_upload,
-            )
+            if args.all_drivers:
+                result = build_all_drivers(
+                    year,
+                    rnd,
+                    name,
+                    skip_existing=args.skip_existing,
+                    no_upload=args.no_upload,
+                )
+                for row in result.get("failed") or []:
+                    failures.append(
+                        f"{year} R{rnd} {row.get('driver')}: {row.get('error')}"
+                    )
+            else:
+                build_one(
+                    year,
+                    rnd,
+                    args.driver,
+                    skip_existing=args.skip_existing,
+                    no_upload=args.no_upload,
+                )
         except Exception as extra:
             _log.exception("FAILED %s R%s: %s", year, rnd, extra)
             failures.append(f"{year} R{rnd}: {extra}")
@@ -1074,6 +1252,8 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
     if failures:
         _log.error("%s race(s) failed (continued): %s", len(failures), "; ".join(failures))
+        if args.all_drivers and not args.all_completed:
+            return 1
     return 0
 
 
