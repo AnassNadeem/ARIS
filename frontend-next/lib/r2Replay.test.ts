@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi, afterEach } from "vitest";
 import { annotateVsActivePlan, shouldFetchRecommend } from "./arisRecommend";
 import { mapTimingAndPositions } from "./mapCars";
-import { fieldToDrivers, fieldToLapRows, interpolatedPosFrac, nearestPosSample, normalizeR2Base, plansMatch, r2Configured, r2FrameAt, r2TickToGhostTick, raceDurationS, sectorSecondsForLap, speedKphFromPath, deriveGhostLapTimes, pitLossForCircuit, realLapTimesByDriver, GRID_START_LAP_FRAC, blendedPathFrac, gridPathFrac, replayDisplayFrac, ghostTickAtOrBefore, ghostDeltaChartPoints, r2FetchErrorMessage, RaceFieldNotFoundError, R2_LOAD_ERROR, R2_RACE_UNAVAILABLE, driversFromRaceOrGrid } from "./r2Replay";
+import { fieldToDrivers, fieldToLapRows, interpolatedPosFrac, nearestPosSample, normalizeR2Base, plansMatch, r2Configured, r2FrameAt, r2TickToGhostTick, raceDurationS, sectorSecondsForLap, speedKphFromPath, deriveGhostLapTimes, pitLossForCircuit, realLapTimesByDriver, GRID_START_LAP_FRAC, blendedPathFrac, gridPathFrac, replayDisplayFrac, ghostTickAtOrBefore, ghostDeltaChartPoints, r2FetchErrorMessage, fetchGhost, RaceFieldNotFoundError, R2_LOAD_ERROR, R2_RACE_UNAVAILABLE, driversFromRaceOrGrid } from "./r2Replay";
 import type { ARISRecommendation, GhostData, RaceField, RaceFieldLap } from "./types";
 
 function rec(over: Partial<ARISRecommendation> = {}): ARISRecommendation {
@@ -154,6 +154,70 @@ describe("fieldToDrivers season teams", () => {
     ];
     expect(driversFromRaceOrGrid(stale, field)[0].team).toBe("Mercedes");
     expect(driversFromRaceOrGrid(stale, field)[0].team_colour).toBe("#27F4D2");
+  });
+});
+
+describe("fetchGhost on-demand fallback", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const jsonHeaders = { "content-type": "application/json" };
+
+  function stubFetch(handler: (href: string) => Response): void {
+    vi.stubGlobal("fetch", async (url: string | URL) => handler(String(url)));
+  }
+
+  it("returns a computed ghost when no baked R2 file exists", async () => {
+    stubFetch((href) => {
+      if (href.includes("ghost-pack")) {
+        return new Response(
+          JSON.stringify({
+            driver: "HAM",
+            strategy: { pit_laps: [18], compounds: ["HARD"], label: "computed" },
+            ticks: [],
+            outcome: { aris_action: "STAY_OUT", real_action: "STAY_OUT", verdict: null },
+            source: "computed",
+          }),
+          { status: 200, headers: jsonHeaders },
+        );
+      }
+      return new Response("", { status: 404 });
+    });
+    const ghost = await fetchGhost(2024, 3, "HAM");
+    expect(ghost?.driver).toBe("HAM");
+    expect(ghost?.strategy.label).toBe("computed");
+  });
+
+  it("rejects a driver who did not race this weekend", async () => {
+    stubFetch((href) => {
+      if (href.includes("ghost-pack")) {
+        return new Response(
+          JSON.stringify({
+            detail: { code: "driver_did_not_race", message: "BOT did not race this weekend" },
+          }),
+          { status: 422, headers: jsonHeaders },
+        );
+      }
+      return new Response("", { status: 404 });
+    });
+    await expect(fetchGhost(2024, 3, "BOT")).rejects.toMatchObject({
+      name: "GhostUnavailableError",
+      code: "driver_did_not_race",
+      message: "BOT did not race this weekend",
+    });
+  });
+
+  it("does not map a missing race pack onto fetchRaceField's unavailable path", async () => {
+    stubFetch(() =>
+      new Response(
+        JSON.stringify({
+          detail: { code: "race_unavailable", message: R2_RACE_UNAVAILABLE },
+        }),
+        { status: 404, headers: jsonHeaders },
+      ),
+    );
+    await expect(fetchGhost(2025, 22, "VER")).resolves.toBeNull();
   });
 });
 

@@ -48,12 +48,19 @@ function GhostTooltip({
   );
 }
 
-function ghostEmptyCopy(isARISOn: boolean, reason: string | null): string {
+function ghostEmptyCopy(isARISOn: boolean, reason: string | null, driver: string | null): string {
   if (!isARISOn || reason === "aris_disabled") {
     return "ARIS is off. On the replay setup screen, click On, pick a driver, then a strategy — the ghost is ARIS's plan from lights out.";
   }
   if (reason === "no_driver_selected") {
     return "Select a driver to compute the ARIS ghost.";
+  }
+  if (reason === "driver_did_not_race") {
+    const who = driver ? `${driver} did` : "This driver did";
+    return `${who} not race this weekend, so ARIS has no ghost to compare.`;
+  }
+  if (reason === "ghost_data_gap") {
+    return "Lap data for this driver is incomplete, so ARIS cannot compute a ghost. This is a data gap, not a missing bake.";
   }
   if (reason === "session_not_ingested") {
     return "This session isn't in the ARIS database yet, so the ghost can't be computed from lap 1. Ingested race sessions show ARIS's lights-out plan on the map and tower.";
@@ -97,7 +104,7 @@ export function GhostDelta() {
     return (
       <PanelEmpty
         title="Ghost delta"
-        detail={ghostEmptyCopy(isARISOn, ghostReason)}
+        detail={ghostEmptyCopy(isARISOn, ghostReason, arisDriver ?? null)}
       />
     );
   }

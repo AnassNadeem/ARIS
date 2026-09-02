@@ -1533,6 +1533,30 @@ async def api_aris_ghost(
     )
 
 
+@app.get("/api/aris/ghost-pack")
+async def api_aris_ghost_pack(year: int, round_number: int, driver: str) -> dict[str, object]:
+    """Full R2-shaped ghost for any driver who raced this weekend.
+
+    Race-pack 404s stay ``Race data unavailable``. A driver who did not race
+    is a 422, not an empty ghost. Computation is synchronous: recommend()
+    with mc_draws=0 plus per-lap simulate is typically a few seconds.
+    """
+    from aris.ghost_pack import GhostPackError
+
+    try:
+        return await run_sync(aris_api.ghost_pack, year, round_number, driver)
+    except GhostPackError as extra:
+        raise HTTPException(status_code=extra.status, detail=extra.as_detail()) from extra
+    except Exception as extra:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "ghost_data_gap",
+                "message": f"Could not compute a ghost for {str(driver).upper()}: {extra}",
+            },
+        ) from extra
+
+
 @app.get("/api/live/status", response_model=LiveStatus)
 async def api_live_status(as_of: AsOf, replay_session_key: int | None = None) -> LiveStatus:
     try:

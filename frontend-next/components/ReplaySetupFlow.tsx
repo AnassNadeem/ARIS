@@ -25,6 +25,7 @@ import {
   r2Configured,
   raceFieldExists,
   r2FetchErrorMessage,
+  GhostUnavailableError,
   R2_LOAD_ERROR,
 } from "@/lib/r2Replay";
 import { isFullCircuitOutline, shouldApplyFallbackOutline } from "@/lib/circuitCache";
@@ -206,10 +207,21 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
           setFocusDriver(driver);
           store.setARISModeLocked(withARIS);
           if (driver && withARIS) {
-            const ghost = await fetchGhost(year, round.round, driver);
-            if (ghost) {
-              store.setR2Ghost(ghost);
-              store.setGhostTicks(ghostTicksMap(ghost));
+            try {
+              const ghost = await fetchGhost(year, round.round, driver);
+              if (ghost) {
+                store.setR2Ghost(ghost);
+                store.setGhostTicks(ghostTicksMap(ghost));
+                store.setGhostReason(null);
+              }
+            } catch (ghostErr) {
+              if (ghostErr instanceof GhostUnavailableError) {
+                store.setR2Ghost(null);
+                store.setGhostTicks({});
+                store.setGhostReason(ghostErr.code);
+              } else {
+                throw ghostErr;
+              }
             }
           }
           setLoadReady(true);
