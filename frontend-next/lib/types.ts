@@ -271,6 +271,7 @@ export interface DriverListing {
   team: string;
   team_colour: string;
   headshot_url?: string | null;
+  is_dns?: boolean;
 }
 
 export interface RoundCard {

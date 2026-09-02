@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { explainFeatureEnabled, explainSessionId, getGhostVsReal } from "@/lib/api";
 import { useRaceStore } from "@/store/raceStore";
 import { GhostVsRealChart } from "@/components/aris/GhostVsRealChart";
@@ -30,6 +31,7 @@ export function RaceFinishedDebrief() {
   const cars = useRaceStore((s) => s.cars);
   const field = useRaceStore((s) => s.r2RaceField);
   const isARISOn = useRaceStore((s) => s.isARISOn);
+  const ghostReason = useRaceStore((s) => s.ghostReason);
   const [compare, setCompare] = useState<GhostVsRealResponse | null>(null);
 
   const ended =
@@ -92,6 +94,14 @@ export function RaceFinishedDebrief() {
             >
               View debrief
             </button>
+            {isARISOn && (
+              <Link
+                href="/replay"
+                className="rounded border border-red bg-red/10 px-3 py-1.5 font-mono-data text-[11px] uppercase text-red hover:bg-red/20"
+              >
+                Choose another race
+              </Link>
+            )}
             <button
               type="button"
               onClick={() => setDebriefDismissed(true)}
@@ -132,7 +142,11 @@ export function RaceFinishedDebrief() {
               </button>
             </div>
 
-            {isARISOn && (
+            {isARISOn && ghostReason === "driver_did_not_race" ? (
+              <p role="alert" className="px-4 pt-3 font-mono-data text-[11px] text-amber">
+                {arisDriver} did not start this race (DNS). ARIS could not compute a ghost car.
+              </p>
+            ) : isARISOn ? (
               <div className="grid shrink-0 grid-cols-2 gap-3 px-4 pt-3 font-mono-data text-[11px]">
                 <div className="rounded border border-border bg-carbon p-3">
                   <div className="text-[9px] uppercase text-muted">ARIS (timing tower)</div>
@@ -149,9 +163,9 @@ export function RaceFinishedDebrief() {
                   </div>
                 </div>
               </div>
-            )}
+            ) : null}
 
-            {lastDelta != null && (
+            {lastDelta != null && ghostReason !== "driver_did_not_race" && (
               <p className="px-4 pt-2 font-mono-data text-[12px] text-white">
                 Estimated delta:{" "}
                 <span className={lastDelta >= 0 ? "text-green-400" : "text-red-400"}>
@@ -171,8 +185,16 @@ export function RaceFinishedDebrief() {
               </div>
             </div>
 
-            {explainFeatureEnabled() && (
-              <div className="shrink-0 border-t border-border p-3">
+            <div className="flex shrink-0 flex-wrap gap-2 border-t border-border p-3">
+              {isARISOn && (
+                <Link
+                  href="/replay"
+                  className="rounded border border-red bg-red/10 px-3 py-1.5 font-mono-data text-[11px] uppercase text-red hover:bg-red/20"
+                >
+                  Choose another race
+                </Link>
+              )}
+              {explainFeatureEnabled() && (
                 <button
                   type="button"
                   onClick={() => {
@@ -184,8 +206,8 @@ export function RaceFinishedDebrief() {
                 >
                   Open in Explain tab
                 </button>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
       )}

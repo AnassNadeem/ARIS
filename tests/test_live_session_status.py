@@ -583,7 +583,7 @@ def test_history_ttl_keeps_current_season_shorter():
 def test_zandvoort_2026_notes_include_hadjar():
     from backend.calendar import get_round
 
-    rnd = get_round(2026, 15, as_of=datetime(2026, 8, 23, 10, 0, tzinfo=timezone.utc))
+    rnd = get_round(2026, 12, as_of=datetime(2026, 8, 23, 10, 0, tzinfo=timezone.utc))
     blob = " ".join(rnd.notes).lower()
     assert "hadjar" in blob
     assert rnd.circuit_key == "netherlands"
@@ -591,7 +591,7 @@ def test_zandvoort_2026_notes_include_hadjar():
 
 def test_sq_live_window_at_zandvoort_2026():
     as_of = datetime(2026, 8, 21, 15, 2, tzinfo=timezone.utc)
-    weekend = get_round_sessions(2026, 15, as_of=as_of)
+    weekend = get_round_sessions(2026, 12, as_of=as_of)
     by = {s.session_type: s.status for s in weekend.sessions}
     assert by["FP1"] == "COMPLETED"
     assert by["SQ"] == "LIVE"
@@ -608,7 +608,7 @@ def test_sq_duration_covers_chequered_not_overnight():
 
 def test_after_sq_next_is_sprint():
     as_of = datetime(2026, 8, 21, 15, 40, tzinfo=timezone.utc)
-    weekend = get_round_sessions(2026, 15, as_of=as_of)
+    weekend = get_round_sessions(2026, 12, as_of=as_of)
     by = {s.session_type: s.status for s in weekend.sessions}
     assert by["FP1"] == "COMPLETED"
     assert by["SQ"] == "COMPLETED"
@@ -621,7 +621,7 @@ def test_zandvoort_race_is_open_before_lights():
     from backend.calendar import session_is_open
 
     as_of = datetime(2026, 8, 23, 12, 20, tzinfo=timezone.utc)
-    assert session_is_open(2026, 15, "R", as_of=as_of) is True
+    assert session_is_open(2026, 12, "R", as_of=as_of) is True
     assert session_is_open(2025, 15, "R", as_of=as_of) is False
 
 
@@ -629,7 +629,7 @@ def test_open_race_does_not_load_fastf1_laps(monkeypatch):
     monkeypatch.setattr("backend.calendar.session_is_open", lambda *_a, **_k: True)
     from backend.sessions import session_laps
 
-    out = session_laps(2026, 15, "R")
+    out = session_laps(2026, 12, "R")
     assert out.laps == []
     assert out.session_type == "R"
 
@@ -639,20 +639,22 @@ def test_after_zandvoort_race_next_is_monza():
 
     as_of = datetime(2026, 8, 23, 16, 0, tzinfo=timezone.utc)
     cal = get_calendar(2026, as_of=as_of)
-    nl = next(r for r in cal.rounds if r.round_number == 15)
+    nl = next(r for r in cal.rounds if r.round_number == 12)
     assert nl.status == "COMPLETED"
     nxt = next_race(as_of=as_of)
-    assert nxt.round_number == 16
+    assert nxt.round_number == 13
     assert "ital" in (nxt.name or "").lower() or "monza" in (nxt.circuit_name or "").lower()
 
 
-def test_imola_2026_is_cancelled():
+def test_imola_2026_is_not_on_the_calendar():
     from backend.calendar import _SCHED_MEM, get_calendar
 
     _SCHED_MEM.pop(2026, None)
     cal = get_calendar(2026, as_of=datetime(2026, 9, 3, 12, 0, tzinfo=UTC))
-    imola = next(r for r in cal.rounds if r.round_number == 7)
-    assert imola.status == "CANCELLED"
+    blob = " ".join(f"{r.name} {r.circuit_name}" for r in cal.rounds).lower()
+    assert "imola" not in blob
+    assert "emilia" not in blob
+    assert len(cal.rounds) == 23
 
 
 def test_calendar_2026_race_morning_uses_overlay():
@@ -661,11 +663,11 @@ def test_calendar_2026_race_morning_uses_overlay():
     _SCHED_MEM.pop(2026, None)
     as_of = datetime(2026, 8, 23, 11, 0, tzinfo=timezone.utc)
     cal = get_calendar(2026, as_of=as_of)
-    nl = next(r for r in cal.rounds if r.round_number == 15)
+    nl = next(r for r in cal.rounds if r.round_number == 12)
     assert nl.status == "LIVE"
     assert nl.circuit_key == "netherlands"
     nxt = next_race(as_of=as_of)
-    assert nxt.round_number == 15
+    assert nxt.round_number == 12
     assert nxt.next_session_name in {"Race", "R"} or (nxt.next_session_name or "").upper().startswith("R")
 
 

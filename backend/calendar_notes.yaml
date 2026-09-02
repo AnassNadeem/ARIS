@@ -9,26 +9,25 @@ notes:
     - "First Chinese Grand Prix since 2019. Sprint weekend."
   "2024-14":
     - "Max Verstappen received a 10-place grid penalty. Highlight in qualifying result."
-  "2026-15":
+  "2026-12":
     - "2026 Dutch Grand Prix at Zandvoort. New 2026 technical regulations (MGU-H removed)."
     - "Isack Hadjar withdrew (injury). Liam Lawson is at Red Bull (promoted from Racing Bulls). Yuki Tsunoda replaces Hadjar at Racing Bulls."
     - "ARIS focus car is Lewis Hamilton. Strategy uses 2021–2025 Zandvoort races, not Hamilton's real pit calls."
 
 # Drivers who must not appear on the live/replay map for a weekend.
 weekend_lineups:
-  "2026-15":
+  "2026-12":
     exclude: ["HAD"]
 
-cancelled:
-  "2026-2": "2026 Bahrain Grand Prix cancelled"
-  "2026-3": "2026 Saudi Arabian Grand Prix cancelled"
-  "2026-7": "2026 Emilia Romagna Grand Prix cancelled (Imola dropped from the 2026 FIA calendar)"
+# 2026 dropped venues are omitted from the 23-round overlay (Sakhir, Jeddah, Imola).
+# Keep this empty unless a numbered round on the live overlay is later cancelled.
+cancelled: {}
 
 # Used only if FastF1 EventFormat is missing.
 estimated_sprint:
   "2024": [5, 6, 11, 14, 19, 21, 23]
   "2025": [2, 6, 11, 13, 19, 21, 23]
-  "2026": [5, 6, 11, 13, 15, 19, 21, 23]
+  "2026": [2, 4, 5, 9, 12, 17]
 
 # Last-resort roster if OpenF1 and FastF1 both return nothing.
 # UI MUST show [ESTIMATED — API unavailable].
@@ -185,27 +184,26 @@ fallback_schedule:
     - {round: 23, name: Qatar, circuit: Lusail International Circuit, city: Lusail, country: Qatar, date: "2025-11-30", sprint: true}
     - {round: 24, name: Abu Dhabi, circuit: Yas Marina Circuit, city: Abu Dhabi, country: UAE, date: "2025-12-07", sprint: false}
   2026:
-    - {round: 1, name: Australia, circuit: Albert Park, city: Melbourne, country: Australia, date: "2026-03-15", sprint: false}
-    - {round: 2, name: Bahrain, circuit: Bahrain International Circuit, city: Sakhir, country: Bahrain, date: "2026-03-22", sprint: false}
-    - {round: 3, name: Saudi Arabia, circuit: Jeddah Corniche Circuit, city: Jeddah, country: Saudi Arabia, date: "2026-03-29", sprint: false}
-    - {round: 4, name: Japan, circuit: Suzuka, city: Suzuka, country: Japan, date: "2026-04-12", sprint: false}
-    - {round: 5, name: China, circuit: Shanghai International Circuit, city: Shanghai, country: China, date: "2026-04-26", sprint: true}
-    - {round: 6, name: Miami, circuit: Miami International Autodrome, city: Miami, country: United States, date: "2026-05-10", sprint: true}
-    - {round: 7, name: Emilia Romagna, circuit: Autodromo Enzo e Dino Ferrari, city: Imola, country: Italy, date: "2026-05-24", sprint: false}
-    - {round: 8, name: Monaco, circuit: Circuit de Monaco, city: Monaco, country: Monaco, date: "2026-05-31", sprint: false}
-    - {round: 9, name: Spain, circuit: Circuit de Barcelona-Catalunya, city: Barcelona, country: Spain, date: "2026-06-14", sprint: false}
-    - {round: 10, name: Canada, circuit: Circuit Gilles-Villeneuve, city: Montreal, country: Canada, date: "2026-06-21", sprint: false}
-    - {round: 11, name: Austria, circuit: Red Bull Ring, city: Spielberg, country: Austria, date: "2026-07-05", sprint: true}
-    - {round: 12, name: Britain, circuit: Silverstone, city: Silverstone, country: United Kingdom, date: "2026-07-12", sprint: false}
-    - {round: 13, name: Belgium, circuit: Circuit de Spa-Francorchamps, city: Spa, country: Belgium, date: "2026-07-26", sprint: true}
-    - {round: 14, name: Hungary, circuit: Hungaroring, city: Budapest, country: Hungary, date: "2026-08-02", sprint: false}
-    - {round: 15, name: Netherlands, circuit: Circuit Zandvoort, city: Zandvoort, country: Netherlands, date: "2026-08-23", sprint: true, fp1: "2026-08-21T10:30:00Z"}
-    - {round: 16, name: Italy, circuit: Autodromo Nazionale Monza, city: Monza, country: Italy, date: "2026-09-06", sprint: false}
-    - {round: 17, name: Azerbaijan, circuit: Baku City Circuit, city: Baku, country: Azerbaijan, date: "2026-09-20", sprint: false}
-    - {round: 18, name: Singapore, circuit: Marina Bay Street Circuit, city: Singapore, country: Singapore, date: "2026-10-04", sprint: false}
-    - {round: 19, name: United States, circuit: Circuit of the Americas, city: Austin, country: United States, date: "2026-10-18", sprint: true}
-    - {round: 20, name: Mexico City, circuit: Autodromo Hermanos Rodriguez, city: Mexico City, country: Mexico, date: "2026-10-25", sprint: false}
-    - {round: 21, name: Sao Paulo, circuit: Autodromo Jose Carlos Pace, city: Sao Paulo, country: Brazil, date: "2026-11-08", sprint: true}
-    - {round: 22, name: Las Vegas, circuit: Las Vegas Strip Circuit, city: Las Vegas, country: United States, date: "2026-11-21", sprint: false}
-    - {round: 23, name: Qatar, circuit: Lusail International Circuit, city: Lusail, country: Qatar, date: "2026-11-29", sprint: true}
-    - {round: 24, name: Abu Dhabi, circuit: Yas Marina Circuit, city: Abu Dhabi, country: UAE, date: "2026-12-06", sprint: false}
+    - {round: 1, name: Australia, circuit: Albert Park, city: Melbourne, country: Australia, date: "2026-03-08", sprint: false}
+    - {round: 2, name: China, circuit: Shanghai International Circuit, city: Shanghai, country: China, date: "2026-03-15", sprint: true}
+    - {round: 3, name: Japan, circuit: Suzuka, city: Suzuka, country: Japan, date: "2026-03-29", sprint: false}
+    - {round: 4, name: Miami, circuit: Miami International Autodrome, city: Miami, country: United States, date: "2026-05-03", sprint: true}
+    - {round: 5, name: Canada, circuit: Circuit Gilles-Villeneuve, city: Montreal, country: Canada, date: "2026-05-24", sprint: true}
+    - {round: 6, name: Monaco, circuit: Circuit de Monaco, city: Monaco, country: Monaco, date: "2026-06-07", sprint: false}
+    - {round: 7, name: Barcelona, circuit: Circuit de Barcelona-Catalunya, city: Barcelona, country: Spain, date: "2026-06-14", sprint: false}
+    - {round: 8, name: Austria, circuit: Red Bull Ring, city: Spielberg, country: Austria, date: "2026-06-28", sprint: false}
+    - {round: 9, name: Britain, circuit: Silverstone, city: Silverstone, country: United Kingdom, date: "2026-07-05", sprint: true}
+    - {round: 10, name: Belgium, circuit: Circuit de Spa-Francorchamps, city: Spa, country: Belgium, date: "2026-07-19", sprint: false}
+    - {round: 11, name: Hungary, circuit: Hungaroring, city: Budapest, country: Hungary, date: "2026-07-26", sprint: false}
+    - {round: 12, name: Netherlands, circuit: Circuit Zandvoort, city: Zandvoort, country: Netherlands, date: "2026-08-23", sprint: true, fp1: "2026-08-21T10:30:00Z"}
+    - {round: 13, name: Italy, circuit: Autodromo Nazionale Monza, city: Monza, country: Italy, date: "2026-09-06", sprint: false}
+    - {round: 14, name: Madrid, circuit: Madring, city: Madrid, country: Spain, date: "2026-09-13", sprint: false}
+    - {round: 15, name: Azerbaijan, circuit: Baku City Circuit, city: Baku, country: Azerbaijan, date: "2026-09-26", sprint: false}
+    - {round: 16, name: Malaysia, circuit: Sepang International Circuit, city: Sepang, country: Malaysia, date: "2026-10-04", sprint: false}
+    - {round: 17, name: Singapore, circuit: Marina Bay Street Circuit, city: Singapore, country: Singapore, date: "2026-10-11", sprint: true}
+    - {round: 18, name: United States, circuit: Circuit of the Americas, city: Austin, country: United States, date: "2026-10-25", sprint: false}
+    - {round: 19, name: Mexico City, circuit: Autodromo Hermanos Rodriguez, city: Mexico City, country: Mexico, date: "2026-11-01", sprint: false}
+    - {round: 20, name: Sao Paulo, circuit: Autodromo Jose Carlos Pace, city: Sao Paulo, country: Brazil, date: "2026-11-08", sprint: false}
+    - {round: 21, name: Las Vegas, circuit: Las Vegas Strip Circuit, city: Las Vegas, country: United States, date: "2026-11-22", sprint: false}
+    - {round: 22, name: Qatar, circuit: Lusail International Circuit, city: Lusail, country: Qatar, date: "2026-11-29", sprint: false}
+    - {round: 23, name: Abu Dhabi, circuit: Yas Marina Circuit, city: Abu Dhabi, country: UAE, date: "2026-12-06", sprint: false}

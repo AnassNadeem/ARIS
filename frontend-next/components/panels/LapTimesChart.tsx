@@ -13,10 +13,10 @@ import {
   YAxis,
 } from "recharts";
 import { useRaceStore } from "@/store/raceStore";
-import { scLapRanges } from "@/lib/mockRaceHistory";
 import { usePanelHistory } from "@/lib/usePanelHistory";
 import { useFocusDriver } from "@/lib/useFocusDriver";
 import { PanelEmpty, PanelSkeleton, usePanelFeedLoading } from "@/components/ui/PanelStates";
+import { topNDriverCodes } from "@/lib/panelData";
 
 type Filter = "all" | "top5" | "aris";
 
@@ -41,16 +41,20 @@ export function LapTimesChart() {
   const isARISOn = useRaceStore((s) => s.isARISOn);
   const ghostData = useRaceStore((s) => s.ghostData);
   const phaseHistory = useRaceStore((s) => s.phaseHistory);
+  const cars = useRaceStore((s) => s.cars);
   const [filter, setFilter] = useState<Filter>("top5");
 
-  const { laps, drivers } = usePanelHistory();
+  const { laps, drivers, currentLap } = usePanelHistory();
   const loading = usePanelFeedLoading();
 
   const driverCodes = useMemo(() => {
-    if (filter === "aris") return [arisDriver];
-    if (filter === "top5") return drivers.slice(0, 5).map((d) => d.driver_code);
+    if (filter === "aris") return arisDriver ? [arisDriver] : [];
+    if (filter === "top5") {
+      const top = topNDriverCodes(5, cars, laps, currentLap);
+      if (top.length) return top;
+    }
     return drivers.map((d) => d.driver_code);
-  }, [filter, arisDriver, drivers]);
+  }, [filter, arisDriver, drivers, cars, laps, currentLap]);
 
   const data = useMemo(() => {
     const byLap: Record<number, Record<string, number | string>> = {};
@@ -132,10 +136,6 @@ export function LapTimesChart() {
               width={48}
               label={{ value: "Lap time (s)", angle: -90, position: "insideLeft", fill: "#888888", fontSize: 10 }}
             />
-            {/* Legacy SC zones from mock data */}
-            {scLapRanges().map((z, i) => (
-              <ReferenceArea key={`sc-${i}`} x1={z.startLap} x2={z.endLap} fill="#f5a623" fillOpacity={0.12} />
-            ))}
             {/* FSM phase bands from live/replay phaseHistory */}
             {phaseBands.map((band, i) => {
               const style = phaseBandStyle(band.phase);

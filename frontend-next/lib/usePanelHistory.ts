@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { getRaceHistoryMock } from "@/lib/mockRaceHistory";
 import {
   lapRecordsFromApi,
   lapsUpTo,
@@ -47,15 +46,12 @@ export function usePanelHistory() {
   const gridDrivers = useRaceStore((s) => s.gridDrivers);
   const totalLaps = useRaceStore((s) => s.totalLaps) || 1;
   const currentLap = useRaceStore((s) => s.currentLap) || 1;
-  const session = useRaceStore((s) => s.session);
   const ready = useAnalyticsReady();
-  const mock = getRaceHistoryMock();
   const liveLaps = lapRecordsFromApi(lapRows);
   const liveStintsRaw = stintRecordsFromApi(stintRows);
   const derivedStints = stintsFromLapRecords(liveLaps);
   const liveStints = derivedStints.length ? derivedStints : liveStintsRaw;
   const hasApi = liveLaps.length > 0 || liveStints.length > 0;
-  const useMock = !hasApi && !session;
   if (!ready) {
     return {
       laps: [] as ReturnType<typeof lapRecordsFromApi>,
@@ -67,16 +63,12 @@ export function usePanelHistory() {
       currentLap,
     };
   }
-  const laps = hasApi ? lapsUpTo(liveLaps, currentLap) : useMock ? lapsUpTo(mock.laps, currentLap) : [];
-  const stints = hasApi ? stintsUpTo(liveStints, currentLap) : useMock ? stintsUpTo(mock.stints, currentLap) : [];
+  const laps = hasApi ? lapsUpTo(liveLaps, currentLap) : [];
+  const stints = hasApi ? stintsUpTo(liveStints, currentLap) : [];
   return {
     laps,
     stints,
-    pitStops: hasApi
-      ? pitStopsFromLaps(lapRows).filter((p) => p.lap <= currentLap)
-      : useMock
-        ? mock.pitStops.filter((p) => p.lap <= currentLap)
-        : [],
+    pitStops: hasApi ? pitStopsFromLaps(lapRows).filter((p) => p.lap <= currentLap) : [],
     drivers: gridDrivers,
     fromApi: hasApi,
     totalLaps,

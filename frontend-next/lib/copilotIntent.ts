@@ -67,7 +67,7 @@ const HISTORY_RE =
   /\b(who won|winner|last year|podium|classified|finished p\d|who won last)\b/i;
 
 const LIVE_FACT_RE =
-  /\b(gap to|who's leading|who is leading|who'?s the leader|who is the leader|who is in the lead|who'?s in the lead|who leads|who'?s in p|who is in p|p\d\b|position|tyres?|tires?|compound|rubber|tyre life|tire life|what(?:'s| is) the gap|raining|safety car|red flag|vsc|who'?s ahead|laps remaining|laps left|how many laps|what lap is it|current lap)\b/i;
+  /\b(gap to|who's leading|who is leading|who'?s the leader|who is the leader|who is in the lead|who'?s in the lead|who leads|who'?s in p|who is in p|p\d\b|position|tyres?|tires?|compound|rubber|tyre life|tire life|what(?:'s| is) the gap|raining|safety car|red flag|vsc|who'?s ahead|laps remaining|laps left|how many laps|what lap is it|current lap|is there a safety car)\b/i;
 
 const PIT_NOW_RE =
   /\b(should i pit|should we pit|pit now|box now|pit window)\b/i;

@@ -22,18 +22,35 @@ export function defaultReplayYear(now: Date = new Date()): number {
 }
 
 /**
- * Rounds dropped from the FIA calendar. Mirrors backend/calendar_notes.yaml
- * `cancelled` so the public selector hides them even if Heroku still marks
- * them COMPLETED (Imola was axed from 2026; FastF1 still emits a pack).
+ * Rounds/venues dropped from the FIA calendar. Hide leftover FastF1 packs
+ * (Imola, Sakhir, Jeddah) even if an API still marks them COMPLETED.
  */
-export const CANCELLED_REPLAY_ROUNDS: ReadonlySet<string> = new Set([
-  "2026-2",
-  "2026-3",
-  "2026-7",
+export const CANCELLED_REPLAY_CIRCUITS: ReadonlySet<string> = new Set([
+  "imola",
+  "sakhir",
+  "jeddah",
 ]);
+
+export const CANCELLED_REPLAY_ROUNDS: ReadonlySet<string> = new Set();
 
 export function replayRoundKey(year: number, round: number): string {
   return `${year}-${round}`;
+}
+
+function circuitSlug(name: string | null | undefined): string {
+  return (name || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+/** Format a race ISO date as "8 Mar" using the calendar day, not local TZ. */
+export function formatRaceDate(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (m) {
+    const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+    return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+  }
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
 }
 
 function utcDayMs(d: Date): number {
@@ -54,7 +71,8 @@ export type ReplayRoundFilterOpts = {
 };
 
 export function isReplayableRound(
-  round: Pick<RoundCard, "status" | "cancelledReason" | "date" | "round">,
+  round: Pick<RoundCard, "status" | "cancelledReason" | "date" | "round"> &
+    Partial<Pick<RoundCard, "circuitName">>,
   opts?: ReplayRoundFilterOpts,
 ): boolean {
   const status = (round.status ?? "COMPLETED").toUpperCase();
@@ -62,6 +80,10 @@ export function isReplayableRound(
   if (round.cancelledReason) return false;
   const year = opts?.year;
   if (year != null && CANCELLED_REPLAY_ROUNDS.has(replayRoundKey(year, round.round))) return false;
+  if (year === 2026) {
+    const slug = circuitSlug(round.circuitName);
+    if ([...CANCELLED_REPLAY_CIRCUITS].some((c) => slug.includes(c))) return false;
+  }
   if (isFutureRaceDate(round.date, opts?.now ?? new Date())) return false;
   return true;
 }

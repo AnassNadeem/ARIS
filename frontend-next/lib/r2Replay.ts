@@ -66,6 +66,39 @@ export class GhostUnavailableError extends Error {
   }
 }
 
+/** True when the chosen driver has no classified laps in a race that already has lap data. */
+export function driverDidNotStart(field: RaceField | null | undefined, code: string | null | undefined): boolean {
+  if (!field || !code) return false;
+  const want = code.toUpperCase();
+  const drv = field.drivers.find((d) => d.code.toUpperCase() === want);
+  if (drv?.is_dns === true) return true;
+  if (!field.laps.length) return false;
+  return !field.laps.some((row) => row.driver.toUpperCase() === want);
+}
+
+export function ghostUnavailableMessage(reason: string | null, driver: string | null, isARISOn: boolean): string {
+  if (!isARISOn || reason === "aris_disabled") {
+    return "ARIS is off. On the replay setup screen, click On, pick a driver, then a strategy — the ghost is ARIS's plan from lights out.";
+  }
+  if (reason === "no_driver_selected") {
+    return "Select a driver to compute the ARIS ghost.";
+  }
+  if (reason === "driver_did_not_race") {
+    const who = driver ? driver.toUpperCase() : "This driver";
+    return `${who} did not start this race (DNS). ARIS cannot compute a ghost car without lap data — pick a driver who raced, or turn ARIS off to watch the field.`;
+  }
+  if (reason === "ghost_data_gap") {
+    return "Lap data for this driver is incomplete, so ARIS cannot compute a ghost. This is a data gap, not a missing bake.";
+  }
+  if (reason === "session_not_ingested") {
+    return "This session isn't in the ARIS database yet, so the ghost can't be computed from lap 1. Ingested race sessions show ARIS's lights-out plan on the map and tower.";
+  }
+  if (reason === "no_divergence") {
+    return "No ghost_*.json for this driver/race, or it hasn't loaded yet. Use a completed replay pack (e.g. 2024 Bahrain or 2026 Hungary/Zandvoort) with ARIS On from setup.";
+  }
+  return "No active ghost driver. Turn ARIS on from the replay setup (On), pick a driver, then Start Race.";
+}
+
 export function r2FetchErrorMessage(err: unknown): string {
   if (err instanceof RaceFieldNotFoundError) return R2_RACE_UNAVAILABLE;
   if (err instanceof Error && (/\b404\b/.test(err.message) || err.message === R2_RACE_UNAVAILABLE)) {
@@ -682,12 +715,15 @@ export function fieldToStintRows(field: RaceField): ApiStintRow[] {
 }
 
 export function fieldToDrivers(field: RaceField): DriverListing[] {
+  const raced = new Set(field.laps.map((row) => row.driver.toUpperCase()));
+  const raceHasLaps = field.laps.length > 0;
   return field.drivers.map((d, i) => ({
     driver_number: d.number ?? i + 1,
     driver_code: d.code,
     full_name: d.name,
     team: d.team,
     team_colour: d.colour,
+    is_dns: d.is_dns === true || (raceHasLaps && !raced.has(d.code.toUpperCase())),
   }));
 }
 

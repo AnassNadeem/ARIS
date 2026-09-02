@@ -11,7 +11,16 @@ import { useCommsNarration } from "@/lib/useCommsNarration";
 import { StrategyPanel } from "@/components/aris/StrategyPanel";
 import { PanelEmpty, PanelSkeleton, usePanelFeedLoading } from "@/components/ui/PanelStates";
 
-const CHIPS = ["Gap to the leader?", "Should we extend?", "What's the undercut window?"];
+const ASK_CHIPS = [
+  "Who's leading?",
+  "Gap to the leader?",
+  "What lap is it?",
+  "What tyres are we on?",
+  "Is there a safety car?",
+  "What's the undercut window?",
+  "Should we extend?",
+  "What does ARIS think?",
+];
 
 let commsSeq = 0;
 function nextCommsId(prefix: string): string {
@@ -132,7 +141,6 @@ function AskARIS() {
   const totalLaps = useRaceStore((s) => s.totalLaps);
   const lastRecommendation = useRaceStore((s) => s.lastRecommendation);
   const ghostPosition = useRaceStore((s) => s.ghostCar?.position ?? null);
-  const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
   const askEntries = commsLog.filter((c) => c.source === "USER" || c.source === "ARIS_ANALYSIS");
   const scrollerRef = useRef<HTMLDivElement | null>(null);
@@ -147,7 +155,6 @@ function AskARIS() {
     if (!question.trim() || pending) return;
     setPending(true);
     pushComms({ id: nextCommsId("ask"), lap: currentLap, source: "USER", text: question, timestamp: nowTimestamp() });
-    setInput("");
     const local = answerFactualLive(question, {
       cars,
       currentLap,
@@ -211,17 +218,10 @@ function AskARIS() {
     <div className="flex h-full flex-col overflow-hidden">
       <div ref={scrollerRef} className="min-h-0 flex-1 overflow-y-auto p-2 [overflow-anchor:none]">
         {askEntries.length === 0 && (
-          <div className="flex flex-wrap gap-2 p-2">
-            {CHIPS.map((c) => (
-              <button
-                key={c}
-                onClick={() => send(c)}
-                className="rounded-full border border-border px-2.5 py-1 font-mono-data text-[10px] text-muted hover:border-white hover:text-white"
-              >
-                {c}
-              </button>
-            ))}
-          </div>
+          <PanelEmpty
+            title="Ask ARIS"
+            detail="Pick a question below. ARIS answers from the live timing board for this race."
+          />
         )}
         {askEntries.map((m) => (
           <div key={m.id} className="mb-2">
@@ -236,17 +236,18 @@ function AskARIS() {
         ))}
         {pending && <div className="font-mono-data text-[10px] text-muted">Thinking…</div>}
       </div>
-      <div className="flex shrink-0 gap-2 border-t border-border p-2">
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && send(input)}
-          placeholder="Ask ARIS a question about this race…"
-          className="flex-1 rounded border border-border bg-surface px-2.5 py-1.5 font-mono-data text-[11px] text-white outline-none focus:border-white"
-        />
-        <button onClick={() => send(input)} className="rounded bg-red px-3 py-1.5 font-mono-data text-[11px] text-white">
-          →
-        </button>
+      <div className="flex shrink-0 flex-wrap gap-1.5 border-t border-border p-2">
+        {ASK_CHIPS.map((c) => (
+          <button
+            key={c}
+            type="button"
+            disabled={pending}
+            onClick={() => void send(c)}
+            className="rounded-full border border-border px-2.5 py-1 font-mono-data text-[10px] text-muted hover:border-white hover:text-white disabled:opacity-40"
+          >
+            {c}
+          </button>
+        ))}
       </div>
     </div>
   );

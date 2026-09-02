@@ -14,6 +14,7 @@ import {
   fieldToStintRows,
   ghostTicksMap,
   GhostUnavailableError,
+  driverDidNotStart,
   lapToElapsed,
   plansMatch,
   elapsedToLap,
@@ -181,6 +182,14 @@ function applyGhost(payload: SsePayload) {
     return;
   }
   const driver = store.arisDriver ?? store.session?.driverCode ?? store.focusDriver ?? null;
+  if (driver && driverDidNotStart(store.r2RaceField, driver)) {
+    if (store.ghostCar || store.ghostData || store.ghostReason !== "driver_did_not_race") {
+      store.setGhostCar(null);
+      store.setGhostData(null);
+      store.setGhostReason("driver_did_not_race");
+    }
+    return;
+  }
   const freezeKey = `${store.session?.year}-${store.session?.round}-${driver}`;
   if (store.racePhase === "RED_FLAG") {
     if (redFlagFreezeKey !== freezeKey) {

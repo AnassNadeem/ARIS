@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { explainFeatureEnabled, explainSessionId, getGhostVsReal } from "@/lib/api";
 import { useRaceStore } from "@/store/raceStore";
 import { raceFinishSummary } from "@/lib/debriefSummary";
@@ -15,6 +16,7 @@ export function RaceEndedView() {
   const cars = useRaceStore((s) => s.cars);
   const field = useRaceStore((s) => s.r2RaceField);
   const isARISOn = useRaceStore((s) => s.isARISOn);
+  const ghostReason = useRaceStore((s) => s.ghostReason);
   const setExplainTabRequest = useRaceStore((s) => s.setExplainTabRequest);
   const setRaceFinished = useRaceStore((s) => s.setRaceFinished);
   const [compare, setCompare] = useState<GhostVsRealResponse | null>(null);
@@ -69,7 +71,13 @@ export function RaceEndedView() {
           {isARISOn && arisDriver ? `ARIS for ${arisDriver} vs real ${arisDriver}` : "Replay finished."}
         </p>
 
-        {isARISOn && (
+        {isARISOn && ghostReason === "driver_did_not_race" && (
+          <p role="alert" className="mt-4 rounded border border-amber/40 bg-amber/10 p-3 font-mono-data text-[11px] text-amber">
+            {arisDriver} did not start this race (DNS). ARIS could not compute a ghost car.
+          </p>
+        )}
+
+        {isARISOn && ghostReason !== "driver_did_not_race" && (
           <div className="mt-4 grid grid-cols-2 gap-3 font-mono-data text-[11px]">
             <div className="rounded border border-border bg-carbon p-3">
               <div className="text-[9px] uppercase text-muted">ARIS (timing tower)</div>
@@ -84,7 +92,7 @@ export function RaceEndedView() {
           </div>
         )}
 
-        {lastDelta != null && (
+        {lastDelta != null && ghostReason !== "driver_did_not_race" && (
           <p className="mt-3 font-mono-data text-[12px] text-white">
             Estimated delta:{" "}
             <span className={lastDelta >= 0 ? "text-green-400" : "text-red-400"}>
@@ -114,6 +122,14 @@ export function RaceEndedView() {
             >
               Open Race Debrief
             </button>
+          )}
+          {isARISOn && (
+            <Link
+              href="/replay"
+              className="rounded border border-red bg-red/10 px-4 py-2 font-mono-data text-[11px] uppercase text-red hover:bg-red/20"
+            >
+              Choose another race
+            </Link>
           )}
           <button
             type="button"

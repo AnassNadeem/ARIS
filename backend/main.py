@@ -119,7 +119,7 @@ from aris.schemas import (  # noqa: E402
 # Race day: only the live weekend + last year's Zandvoort outline.
 # Loading every 2025 quali in-process crashed uvicorn (Win access violation).
 CIRCUITS_TO_PREWARM = [
-    (2026, 15),
+    (2026, 12),
     (2024, 15),
 ]
 

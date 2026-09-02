@@ -3173,13 +3173,13 @@ def _mask_aris_focus_strategy(
     rows: list[Any], year: int | None, round_number: int | None, current_lap: int | None
 ) -> list[Any]:
     """ARIS car: keep live GPS/pace, hide this driver's real Ferrari stints."""
-    dutch = int(year or 0) == 2026 and int(round_number or 0) == 15
+    dutch = int(year or 0) == 2026 and int(round_number or 0) == 12
     if not dutch:
         try:
             from backend.calendar import next_race
 
             nxt = next_race()
-            dutch = int(nxt.year) == 2026 and int(nxt.round_number) == 15
+            dutch = int(nxt.year) == 2026 and int(nxt.round_number) == 12
         except Exception:
             dutch = False
     if not dutch:

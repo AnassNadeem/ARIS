@@ -24,7 +24,7 @@ import { defaultAnalyticsIds, loadAnalyticsSlots, moveAnalyticsSlot, saveAnalyti
 import { useIsNarrow } from "@/lib/useIsNarrow";
 import { MockRaceFeed } from "@/lib/mockRaceFeed";
 import { LiveSseFeed, ReplayFrameFeed } from "@/lib/liveFeed";
-import { R2_LOAD_ERROR } from "@/lib/r2Replay";
+import { R2_LOAD_ERROR, ghostUnavailableMessage } from "@/lib/r2Replay";
 import { broadcastRaceState } from "@/lib/broadcastChannel";
 import { SpeedWidget } from "@/components/ui/SpeedWidget";
 import { RaceFinishedDebrief } from "@/components/aris/RaceFinishedDebrief";
@@ -203,6 +203,7 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
   const session = useRaceStore((s) => s.session);
   const isARISOn = useRaceStore((s) => s.isARISOn);
   const arisDriver = useRaceStore((s) => s.arisDriver);
+  const ghostReason = useRaceStore((s) => s.ghostReason);
   const currentLap = useRaceStore((s) => s.currentLap);
   const totalLaps = useRaceStore((s) => s.totalLaps);
   const carCount = useRaceStore((s) => Object.keys(s.cars).length);
@@ -661,6 +662,11 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
       {packToast && (
         <div className="shrink-0 bg-red/10 px-4 py-1.5 font-mono-data text-[11px] uppercase tracking-wide text-red">
           {packToast}
+        </div>
+      )}
+      {isARISOn && (ghostReason === "driver_did_not_race" || ghostReason === "ghost_data_gap") && (
+        <div role="alert" className="shrink-0 bg-amber/10 px-4 py-2 font-mono-data text-[11px] text-amber">
+          {ghostUnavailableMessage(ghostReason, arisDriver, true)}
         </div>
       )}
       {waitingForLiveData && (

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterReplayRounds, replayYears, defaultReplayYear, startFinishMarker, isReplayableRound, chequeredSfFlag, keepRoundsWithPack } from "./replayFilter";
+import { filterReplayRounds, replayYears, defaultReplayYear, startFinishMarker, isReplayableRound, chequeredSfFlag, keepRoundsWithPack, formatRaceDate } from "./replayFilter";
 import { annotateGhostTower, mapTimingAndPositions, mergeByDriverCode, mergeCars, onTrackCarCodes, orderTimingTower, rankGhostByGap, realClassifiedCars, sessionFlagToPhase, timingEqual, timingFingerprint } from "./mapCars";
 import { normalizeCompound, msToSeconds } from "./compounds";
 import { countryFlag } from "./flags";
@@ -8,7 +8,7 @@ import { driverOutOfRace, fmtGap, fmtSectorTime, sectorClass } from "./timingDis
 import { buildPath, fractionAtPoint, lerpFrac, pointAtFraction } from "./trackGeometry";
 import { PathCarAnimator, wrappedDelta } from "./deadReckoning";
 import { isFullCircuitOutline, shouldApplyFallbackOutline } from "./circuitCache";
-import { lapRecordsFromApi, stintsFromLapRecords } from "./panelData";
+import { lapRecordsFromApi, stintsFromLapRecords, topNDriverCodes } from "./panelData";
 import { sectorPathsFromOutline } from "./trackGeometry";
 import { withCache, clearHttpCache, dedupe } from "./httpCache";
 import { mapRecommendResponse, recommendNarration, shouldFetchRecommend } from "./arisRecommend";
@@ -29,24 +29,44 @@ describe("defaultReplayYear", () => {
   });
 });
 
+describe("formatRaceDate", () => {
+  it("uses the calendar day, not the viewer's timezone", () => {
+    expect(formatRaceDate("2026-03-08T04:00:00Z")).toBe("8 Mar");
+    expect(formatRaceDate("2026-03-08")).toBe("8 Mar");
+  });
+});
+
+describe("topNDriverCodes", () => {
+  it("uses live classification, not grid order", () => {
+    const cars = {
+      VER: { driver_code: "VER", position: 4, is_ghost: false, is_dnf: false, status: "RUNNING" },
+      NOR: { driver_code: "NOR", position: 1, is_ghost: false, is_dnf: false, status: "RUNNING" },
+      PIA: { driver_code: "PIA", position: 2, is_ghost: false, is_dnf: false, status: "RUNNING" },
+      RUS: { driver_code: "RUS", position: 3, is_ghost: false, is_dnf: false, status: "RUNNING" },
+      HAM: { driver_code: "HAM", position: 5, is_ghost: false, is_dnf: false, status: "RUNNING" },
+      LEC: { driver_code: "LEC", position: 6, is_ghost: false, is_dnf: false, status: "RUNNING" },
+    };
+    expect(topNDriverCodes(5, cars, [], 12)).toEqual(["NOR", "PIA", "RUS", "VER", "HAM"]);
+  });
+});
+
 describe("filterReplayRounds", () => {
   const rounds: RoundCard[] = [
-    { round: 1, circuitName: "Australia", countryFlag: "🇦🇺", date: "2026-03-15", sessionType: "R", isSprint: false, arisEligible: true, status: "COMPLETED" },
-    { round: 2, circuitName: "Bahrain", countryFlag: "🇧🇭", date: "2026-03-22", sessionType: "R", isSprint: false, arisEligible: false, status: "CANCELLED" },
-    { round: 3, circuitName: "Saudi Arabia", countryFlag: "🇸🇦", date: "2026-03-29", sessionType: "R", isSprint: false, arisEligible: false, status: "CANCELLED" },
-    { round: 15, circuitName: "Netherlands", countryFlag: "🇳🇱", date: "2026-08-23", sessionType: "R", isSprint: true, arisEligible: true, status: "COMPLETED" },
-    { round: 16, circuitName: "Italy", countryFlag: "🇮🇹", date: "2026-09-06", sessionType: "R", isSprint: false, arisEligible: false, status: "UPCOMING" },
+    { round: 1, circuitName: "Australia", countryFlag: "🇦🇺", date: "2026-03-08", sessionType: "R", isSprint: false, arisEligible: true, status: "COMPLETED" },
+    { round: 2, circuitName: "China", countryFlag: "🇨🇳", date: "2026-03-15", sessionType: "R", isSprint: true, arisEligible: true, status: "COMPLETED" },
+    { round: 12, circuitName: "Netherlands", countryFlag: "🇳🇱", date: "2026-08-23", sessionType: "R", isSprint: true, arisEligible: true, status: "COMPLETED" },
+    { round: 13, circuitName: "Italy", countryFlag: "🇮🇹", date: "2026-09-06", sessionType: "R", isSprint: false, arisEligible: false, status: "UPCOMING" },
   ];
 
   it("drops cancelled and upcoming 2026 rounds", () => {
     const keep = filterReplayRounds(rounds, { now: new Date("2026-09-03T12:00:00Z") }).map((r) => r.round);
-    expect(keep).toEqual([1, 15]);
-    expect(isReplayableRound(rounds[1])).toBe(false);
+    expect(keep).toEqual([1, 2, 12]);
+    expect(isReplayableRound({ ...rounds[3] })).toBe(false);
   });
 
   it("hides a COMPLETED race whose date is still in the future", () => {
     const monza: RoundCard = {
-      round: 16,
+      round: 13,
       circuitName: "Italy",
       countryFlag: "🇮🇹",
       date: "2026-09-06T13:00:00Z",
@@ -56,7 +76,7 @@ describe("filterReplayRounds", () => {
       status: "COMPLETED",
     };
     expect(filterReplayRounds([monza], { now: new Date("2026-09-03T12:00:00Z") })).toEqual([]);
-    expect(filterReplayRounds([monza], { now: new Date("2026-09-06T18:00:00Z") }).map((r) => r.round)).toEqual([16]);
+    expect(filterReplayRounds([monza], { now: new Date("2026-09-06T18:00:00Z") }).map((r) => r.round)).toEqual([13]);
   });
 
   it("hides Imola 2026 even when the API marks it completed", () => {

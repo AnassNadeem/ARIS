@@ -15,7 +15,7 @@ import { useRaceStore } from "@/store/raceStore";
 import { PanelEmpty, PanelSkeleton, usePanelFeedLoading } from "@/components/ui/PanelStates";
 import { useAnalyticsReady } from "@/lib/usePanelHistory";
 import { AXIS_TICK, xAxisLabel, yAxisLabel } from "@/lib/chartAxis";
-import { ghostDeltaChartPoints } from "@/lib/r2Replay";
+import { ghostDeltaChartPoints, ghostUnavailableMessage } from "@/lib/r2Replay";
 
 function formatDelta(v: number): string {
   if (v >= 0) return `+${v.toFixed(2)}s`;
@@ -46,29 +46,6 @@ function GhostTooltip({
       </div>
     </div>
   );
-}
-
-function ghostEmptyCopy(isARISOn: boolean, reason: string | null, driver: string | null): string {
-  if (!isARISOn || reason === "aris_disabled") {
-    return "ARIS is off. On the replay setup screen, click On, pick a driver, then a strategy — the ghost is ARIS's plan from lights out.";
-  }
-  if (reason === "no_driver_selected") {
-    return "Select a driver to compute the ARIS ghost.";
-  }
-  if (reason === "driver_did_not_race") {
-    const who = driver ? `${driver} did` : "This driver did";
-    return `${who} not race this weekend, so ARIS has no ghost to compare.`;
-  }
-  if (reason === "ghost_data_gap") {
-    return "Lap data for this driver is incomplete, so ARIS cannot compute a ghost. This is a data gap, not a missing bake.";
-  }
-  if (reason === "session_not_ingested") {
-    return "This session isn't in the ARIS database yet, so the ghost can't be computed from lap 1. Ingested race sessions show ARIS's lights-out plan on the map and tower.";
-  }
-  if (reason === "no_divergence") {
-    return "No ghost_*.json for this driver/race, or it hasn't loaded yet. Use a completed replay pack (e.g. 2024 Bahrain or 2026 Hungary/Zandvoort) with ARIS On from setup.";
-  }
-  return "No active ghost driver. Turn ARIS on from the replay setup (On), pick a driver, then Start Race.";
 }
 
 export function GhostDelta() {
@@ -104,7 +81,7 @@ export function GhostDelta() {
     return (
       <PanelEmpty
         title="Ghost delta"
-        detail={ghostEmptyCopy(isARISOn, ghostReason, arisDriver ?? null)}
+        detail={ghostUnavailableMessage(ghostReason, arisDriver ?? null, isARISOn)}
       />
     );
   }

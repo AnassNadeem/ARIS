@@ -29,6 +29,10 @@ const FLAGS: Record<string, string> = {
   uae: "🇦🇪",
   "abu dhabi": "🇦🇪",
   "las vegas": "🇺🇸",
+  malaysia: "🇲🇾",
+  sepang: "🇲🇾",
+  madrid: "🇪🇸",
+  madring: "🇪🇸",
 };
 
 export function countryFlag(country?: string | null, circuitKey?: string | null): string {

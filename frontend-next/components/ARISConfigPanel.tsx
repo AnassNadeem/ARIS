@@ -104,6 +104,8 @@ export function ARISConfigPanel({
   continueLabel?: string;
 }) {
   const canStart = Boolean(selectedDriver && plans.length > 0 && selectedPlanId);
+  const selectedMeta = drivers.find((d) => d.driver_code === selectedDriver);
+  const selectedDns = Boolean(selectedMeta?.is_dns);
 
   return (
     <section className="flex flex-col gap-5">
@@ -142,6 +144,7 @@ export function ARISConfigPanel({
             <div className="grid grid-cols-4 gap-2 sm:grid-cols-5 md:grid-cols-10">
               {drivers.map((d) => {
                 const on = selectedDriver === d.driver_code;
+                const dns = Boolean(d.is_dns);
                 return (
                   <button
                     key={d.driver_code}
@@ -149,7 +152,7 @@ export function ARISConfigPanel({
                     onClick={() => onDriver(d.driver_code)}
                     className={`flex flex-col items-center gap-1.5 rounded-[8px] border p-2 ${
                       on ? "border-red bg-red/10 replay-glow-red" : "border-border bg-obsidian hover:border-red/40"
-                    }`}
+                    } ${dns ? "opacity-70" : ""}`}
                   >
                     <span className="h-1 w-full rounded-full" style={{ background: d.team_colour }} />
                     {d.headshot_url ? (
@@ -166,16 +169,32 @@ export function ARISConfigPanel({
                     <span className="font-mono-data text-[10px] text-white">
                       #{d.driver_number} {d.driver_code}
                     </span>
+                    {dns && (
+                      <span className="font-mono-data text-[8px] uppercase tracking-wide text-amber">DNS</span>
+                    )}
                   </button>
                 );
               })}
             </div>
           </div>
 
+          {selectedDns && selectedDriver && (
+            <p role="alert" className="rounded-[8px] border border-amber/40 bg-amber/10 px-3 py-2 font-mono-data text-[11px] text-amber">
+              {selectedDriver} did not start this race (DNS). ARIS cannot compute a ghost car without lap data.
+              Pick a driver who raced, or go back and turn ARIS off to watch the field.
+            </p>
+          )}
+
           <button
             type="button"
-            disabled={!selectedDriver}
-            title={!selectedDriver ? "Choose a driver first." : undefined}
+            disabled={!selectedDriver || selectedDns}
+            title={
+              !selectedDriver
+                ? "Choose a driver first."
+                : selectedDns
+                  ? `${selectedDriver} did not start — pick another driver.`
+                  : undefined
+            }
             onClick={onGetStrategies}
             className="self-start rounded-[8px] bg-safety px-5 py-2.5 font-mono-data text-[11px] uppercase tracking-widest text-white hover:brightness-110 disabled:cursor-not-allowed disabled:bg-obsidian disabled:text-muted-2"
           >

@@ -134,3 +134,30 @@ export function stintsUpTo(stints: StintRecord[], currentLap: number): StintReco
     .filter((s) => s.startLap <= lap)
     .map((s) => ({ ...s, endLap: Math.min(s.endLap, lap) }));
 }
+
+/** Current classification order from live cars, else the latest completed lap. */
+export function topNDriverCodes(
+  n: number,
+  cars: Record<string, { driver_code: string; position: number | null; is_ghost?: boolean; is_dnf?: boolean; status?: string }>,
+  laps: LapRecord[],
+  currentLap: number,
+): string[] {
+  const live = Object.values(cars)
+    .filter(
+      (c) =>
+        !c.is_ghost &&
+        !c.driver_code.startsWith("A_") &&
+        c.status !== "DNS" &&
+        !c.is_dnf,
+    )
+    .sort((a, b) => (a.position ?? 99) - (b.position ?? 99))
+    .map((c) => c.driver_code);
+  if (live.length > 0) return live.slice(0, n);
+  const latest = laps.reduce((m, l) => (l.lap <= currentLap && l.lap > m ? l.lap : m), 0);
+  if (latest < 1) return [];
+  return laps
+    .filter((l) => l.lap === latest)
+    .sort((a, b) => a.position - b.position)
+    .slice(0, n)
+    .map((l) => l.driverCode);
+}

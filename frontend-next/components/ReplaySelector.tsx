@@ -1,16 +1,10 @@
 "use client";
 
-import { REPLAY_YEAR_BLOCKED_MSG, REPLAY_YEAR_TOOLTIP, replayYears } from "@/lib/replayFilter";
+import { REPLAY_YEAR_BLOCKED_MSG, REPLAY_YEAR_TOOLTIP, formatRaceDate, replayYears } from "@/lib/replayFilter";
 import { circuitBadge } from "@/lib/sessionFlow";
 import type { RoundCard } from "@/lib/types";
 
 const YEARS = replayYears();
-
-function formatDate(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
-}
 
 export function ReplaySelector({
   year,
@@ -143,7 +137,7 @@ export function ReplaySelector({
                 <span className="font-mono-data text-[10px] text-muted">R{r.round}</span>
               </div>
               <div className="mt-1.5 truncate font-mono-data text-[12px] font-semibold text-white">{r.circuitName}</div>
-              <div className="mt-0.5 font-mono-data text-[10px] text-muted">{formatDate(r.date)}</div>
+              <div className="mt-0.5 font-mono-data text-[10px] text-muted">{formatRaceDate(r.date)}</div>
               <div className="mt-1.5 flex flex-wrap gap-1">
                 {live && (
                   <span className="rounded bg-safety/20 px-1.5 py-0.5 font-mono-data text-[9px] uppercase tracking-wide text-safety">

@@ -89,5 +89,5 @@ def test_zandvoort_analysis_names_modern_races():
 def test_weekend_excludes_hadjar_dutch_2026():
     from backend.calendar import weekend_excluded_codes
 
-    assert "HAD" in weekend_excluded_codes(2026, 15)
+    assert "HAD" in weekend_excluded_codes(2026, 12)
     assert weekend_excluded_codes(2026, 14) == set()

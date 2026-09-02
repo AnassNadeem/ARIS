@@ -17,6 +17,11 @@ export function PositionTrace() {
   const { laps, drivers } = usePanelHistory();
   const loading = usePanelFeedLoading();
   const codes = drivers.map((d) => d.driver_code);
+  const maxPos = Math.max(
+    1,
+    codes.length,
+    ...laps.map((l) => l.position).filter((p) => Number.isFinite(p)),
+  );
 
   const byLap: Record<number, Record<string, number>> = {};
   for (const l of laps) {
@@ -46,7 +51,7 @@ export function PositionTrace() {
             />
             <YAxis
               reversed
-              domain={[1, Math.max(20, codes.length || 20)]}
+              domain={[1, maxPos]}
               stroke="#888888"
               tick={AXIS_TICK}
               width={40}

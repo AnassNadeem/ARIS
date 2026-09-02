@@ -413,7 +413,7 @@ export async function getNextRace(): Promise<NextRaceInfo> {
       poleDriver: "Norris",
       poleTime: "1:09.673",
       year: 2026,
-      round: 15,
+      round: 12,
     },
   };
 }

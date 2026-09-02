@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { annotateVsActivePlan, shouldFetchRecommend } from "./arisRecommend";
 import { mapTimingAndPositions } from "./mapCars";
-import { fieldToDrivers, fieldToLapRows, interpolatedPosFrac, nearestPosSample, normalizeR2Base, plansMatch, r2Configured, r2FrameAt, r2TickToGhostTick, raceDurationS, sectorSecondsForLap, speedKphFromPath, deriveGhostLapTimes, pitLossForCircuit, realLapTimesByDriver, GRID_START_LAP_FRAC, blendedPathFrac, gridPathFrac, replayDisplayFrac, ghostTickAtOrBefore, ghostDeltaChartPoints, r2FetchErrorMessage, fetchGhost, RaceFieldNotFoundError, R2_LOAD_ERROR, R2_RACE_UNAVAILABLE, driversFromRaceOrGrid } from "./r2Replay";
+import { fieldToDrivers, fieldToLapRows, interpolatedPosFrac, nearestPosSample, normalizeR2Base, plansMatch, r2Configured, r2FrameAt, r2TickToGhostTick, raceDurationS, sectorSecondsForLap, speedKphFromPath, deriveGhostLapTimes, pitLossForCircuit, realLapTimesByDriver, GRID_START_LAP_FRAC, blendedPathFrac, gridPathFrac, replayDisplayFrac, ghostTickAtOrBefore, ghostDeltaChartPoints, r2FetchErrorMessage, fetchGhost, RaceFieldNotFoundError, R2_LOAD_ERROR, R2_RACE_UNAVAILABLE, driversFromRaceOrGrid, driverDidNotStart, ghostUnavailableMessage } from "./r2Replay";
 import type { ARISRecommendation, GhostData, RaceField, RaceFieldLap } from "./types";
 
 function rec(over: Partial<ARISRecommendation> = {}): ARISRecommendation {
@@ -154,6 +154,43 @@ describe("fieldToDrivers season teams", () => {
     ];
     expect(driversFromRaceOrGrid(stale, field)[0].team).toBe("Mercedes");
     expect(driversFromRaceOrGrid(stale, field)[0].team_colour).toBe("#27F4D2");
+  });
+});
+
+describe("driverDidNotStart", () => {
+  const field: RaceField = {
+    meta: {
+      year: 2026,
+      round: 1,
+      session_type: "R",
+      circuit_name: "Albert Park",
+      total_laps: 2,
+      date_race: "2026-03-08",
+      green_flag_s: 0,
+      session_key: 1,
+    },
+    outline: { x: [], y: [] },
+    drivers: [
+      { code: "RUS", name: "George Russell", team: "Mercedes", colour: "#27F4D2", grid_position: 1, number: 63 },
+      { code: "HUL", name: "Nico Hulkenberg", team: "Sauber", colour: "#52E252", grid_position: 0, number: 27, is_dns: true },
+    ],
+    laps: [
+      { lap: 1, driver: "RUS", position: 1, gap_to_leader_s: 0, gap_ahead_s: 0, compound: "MEDIUM", tyre_life: 1, stint_number: 1, pit_this_lap: false, is_dnf: false, is_dsq: false, track_status: "1", lap_time_s: 82, sector_1_s: null, sector_2_s: null, sector_3_s: null },
+    ],
+    stints: [],
+    weather: [],
+    race_control: [],
+    pos_samples: {},
+  };
+
+  it("flags an explicit DNS driver and a driver with no laps once the race has data", () => {
+    expect(driverDidNotStart(field, "HUL")).toBe(true);
+    expect(driverDidNotStart(field, "RUS")).toBe(false);
+    expect(ghostUnavailableMessage("driver_did_not_race", "HUL", true)).toMatch(/did not start this race \(DNS\)/);
+  });
+
+  it("does not treat the whole grid as DNS before any laps exist", () => {
+    expect(driverDidNotStart({ ...field, laps: [] }, "RUS")).toBe(false);
   });
 });
 
