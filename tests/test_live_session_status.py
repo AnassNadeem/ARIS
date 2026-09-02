@@ -1,6 +1,6 @@
 """Live session calendar windows and OpenF1 helper parsing — no network."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 
 from backend.cache import TTL_NEXT_RACE
 from backend.calendar import _session_status, get_round_sessions
@@ -650,7 +650,7 @@ def test_imola_2026_is_cancelled():
     from backend.calendar import _SCHED_MEM, get_calendar
 
     _SCHED_MEM.pop(2026, None)
-    cal = get_calendar(2026, as_of=datetime(2026, 9, 3, 12, 0, tzinfo=datetime.UTC))
+    cal = get_calendar(2026, as_of=datetime(2026, 9, 3, 12, 0, tzinfo=UTC))
     imola = next(r for r in cal.rounds if r.round_number == 7)
     assert imola.status == "CANCELLED"
 
