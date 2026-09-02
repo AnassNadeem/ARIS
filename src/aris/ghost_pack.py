@@ -99,7 +99,15 @@ def _r2_public_base() -> str:
 
 def _http_json(url: str) -> dict[str, Any] | None:
     try:
-        req = urllib.request.Request(url, method="GET", headers={"Accept": "application/json"})
+        req = urllib.request.Request(
+            url,
+            method="GET",
+            headers={
+                "Accept": "application/json",
+                # Public R2 rejects Python-urllib's default User-Agent (HTTP 403).
+                "User-Agent": "ARIS-ghost-pack/1.0",
+            },
+        )
         with urllib.request.urlopen(req, timeout=15) as resp:
             status = int(getattr(resp, "status", 200))
             if status == 404:

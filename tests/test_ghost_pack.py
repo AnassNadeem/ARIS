@@ -319,3 +319,30 @@ def test_ghost_pack_http_missing_race(pack_env: Path, monkeypatch: pytest.Monkey
     detail = res.json()["detail"]
     assert detail["code"] == "race_unavailable"
     assert detail["message"] == RACE_UNAVAILABLE_MSG
+
+
+def test_http_json_sends_user_agent_so_public_r2_does_not_403(monkeypatch: pytest.MonkeyPatch):
+    """Public R2 returns 403 for Python-urllib's default User-Agent."""
+    from aris.ghost_pack import _http_json
+
+    seen: dict[str, str] = {}
+
+    class _Resp:
+        status = 200
+
+        def read(self) -> bytes:
+            return b'{"ok":true}'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_a):
+            return False
+
+    def fake_urlopen(req, timeout=15):  # noqa: ARG001
+        seen["ua"] = req.get_header("User-agent") or req.get_header("User-Agent") or ""
+        return _Resp()
+
+    monkeypatch.setattr("aris.ghost_pack.urllib.request.urlopen", fake_urlopen)
+    assert _http_json("https://example.invalid/race_field.json") == {"ok": True}
+    assert seen["ua"] == "ARIS-ghost-pack/1.0"
