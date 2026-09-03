@@ -86,11 +86,14 @@ def test_wet_race_recommends_inter_card():
         lag2_pace=82.5,
         stint_roll3=82.2,
         track_status="1",
+        track_state="WET",
         rainfall=True,
     )
     result = recommend(state, top_k=3, mc_draws=0)
     compounds = [r.action.pit_compound or "-" for r in result.recommendations]
     assert "INTERMEDIATE" in compounds
+    assert any(r.wet_heuristic for r in result.recommendations)
+    # Force-to-rank-1 only under WET/CROSSOVER when margin clears WET_FORCE_MARGIN_S.
     assert result.recommendations[0].wet_heuristic is True
 
 
@@ -143,7 +146,9 @@ def test_field_car_on_inter_is_not_a_rain_signal():
 
 
 def test_brazil_inter_in_shortlist_slick_not_rank_one():
-    result = recommend(_brazil_state(), top_k=3, mc_draws=0)
+    # Force-to-rank-1 requires WET/CROSSOVER + WET_FORCE_MARGIN_S. Under WET the
+    # heuristic's remaining-lap advantage clears the margin, so INTER is rank-1.
+    result = recommend(_brazil_state(track_state="WET"), top_k=3, mc_draws=0)
     labels = [r.label for r in result.recommendations]
     assert any("INTERMEDIATE" in r.label for r in result.recommendations), labels
     assert result.recommendations[0].wet_heuristic is True
@@ -184,8 +189,8 @@ def test_already_on_inter_in_rain_does_not_rank_dry_pit():
     assert top.action.kind == ActionKind.STAY_OUT
 
 
-def test_session_rain_on_inter_does_not_rank_dry_pit():
-    """Per-lap Rainfall can be False while the car is still on INTER in a wet session."""
+def test_session_rain_on_inter_releases_when_per_lap_dry():
+    """Session weather_rainfall alone must not keep the INTER lock after rain stops."""
     state = _brazil_state(
         driver_code="LEC",
         lap_number=27,
@@ -194,13 +199,16 @@ def test_session_rain_on_inter_does_not_rank_dry_pit():
         compound="INTERMEDIATE",
         tyre_life=8,
         track_status="4",
+        track_state="DRYING",
         rainfall=False,
         weather_rainfall=True,
     )
+    assert should_stay_on_wet(state) is False
     result = recommend(state, mc_draws=0)
     dry = {"SOFT", "MEDIUM", "HARD"}
-    assert result.recommendations[0].action.pit_compound not in dry
-    assert result.recommendations[0].action.kind == ActionKind.STAY_OUT
+    assert any(
+        (r.action.pit_compound or "") in dry for r in result.recommendations[:3]
+    ), [r.label for r in result.recommendations[:3]]
     state = _sample_state(
         driver_code="VER",
         country="Netherlands",
@@ -233,9 +241,14 @@ def test_should_stay_on_wet_guards():
     assert should_stay_on_wet(
         _brazil_state(compound="INTERMEDIATE", rainfall=False, weather_rainfall=False)
     ) is False
+    # weather_rainfall alone is not enough once per-lap rainfall is False.
     assert should_stay_on_wet(
         _brazil_state(compound="INTERMEDIATE", rainfall=False, weather_rainfall=True)
-    ) is True
+    ) is False
+    # Ambiguous rainfall (None) may still use weather_rainfall as tiebreaker.
+    ambiguous = _brazil_state(compound="INTERMEDIATE", weather_rainfall=True)
+    object.__setattr__(ambiguous, "rainfall", None)
+    assert should_stay_on_wet(ambiguous) is True
     assert should_stay_on_wet(_brazil_state(compound="INTERMEDIATE", track_status="5")) is False
     assert should_stay_on_wet(
         _brazil_state(compound="INTERMEDIATE", laps_remaining=3, lap_number=68)

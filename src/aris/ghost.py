@@ -396,11 +396,80 @@ def pick_strategy_recommendation(rec_result) -> dict | None:
     return None
 
 
+def clamp_ghost_first_pit(
+    plan: GhostPlan,
+    *,
+    decision_lap: int | None = None,
+    total_laps: int | None = None,
+) -> GhostPlan:
+    """Enforce MIN_STINT_LAPS on the first planned stop (ghost bake safety).
+
+    First stop must not land before lap ``1 + MIN_STINT_LAPS`` (default 16).
+    If the planned stop is at/before the bake decision lap (+1), that is also
+    treated as too early (lights-out PIT_NOW). Cap at ``1 + MAX_REALISTIC_STINT_LAPS``
+    so a clamp never invents an impossible 40+ lap opening stint.
+
+    Short races (``total_laps < 1 + MIN_STINT_LAPS + 5``) skip the 15-lap stint
+    floor — only the lights-out gate still fires.
+    """
+    from aris.recommend import MAX_REALISTIC_STINT_LAPS, MIN_STINT_LAPS
+
+    if not plan.pit_laps:
+        return plan
+    original = int(plan.pit_laps[0])
+    min_pit = 1 + int(MIN_STINT_LAPS)
+    max_pit = 1 + int(MAX_REALISTIC_STINT_LAPS)
+    total = int(total_laps) if total_laps is not None else None
+    short_race = total is not None and total < min_pit + 5
+
+    lights_out = decision_lap is not None and original <= int(decision_lap) + 1
+    too_early = (not short_race and original < min_pit) or lights_out
+    if not too_early:
+        return plan
+
+    if short_race:
+        # Only nudge off lights-out; keep a stop that can still happen.
+        floor = (int(decision_lap) + 2) if decision_lap is not None else 2
+        ceiling = max(floor, (total or floor) - 1)
+        clamped = min(max(original, floor), ceiling)
+    else:
+        clamped = min(max(original, min_pit), max_pit)
+        if total is not None and total > 0:
+            clamped = min(clamped, max(min_pit, total - 5))
+
+    if clamped == original:
+        return plan
+    _log.warning(
+        "[ARIS ghost] clamped first pit lap %s → %s (MIN_STINT_LAPS=%s)",
+        original,
+        clamped,
+        MIN_STINT_LAPS,
+    )
+    pits = list(plan.pit_laps)
+    pits[0] = clamped
+    # Keep subsequent stops ordered and at least MIN_STINT_LAPS apart when present.
+    gap = 1 if short_race else int(MIN_STINT_LAPS)
+    for i in range(1, len(pits)):
+        pits[i] = max(int(pits[i]), pits[i - 1] + gap)
+    compounds = list(plan.pit_compounds)
+    label = plan.aris_action or ""
+    if compounds:
+        label = f"PIT_L{pits[0]}_{compounds[0]}"
+    return GhostPlan(
+        pit_laps=pits,
+        pit_compounds=compounds,
+        start_compound=plan.start_compound,
+        aris_action=label,
+        decision_lap=plan.decision_lap,
+    )
+
+
 def schedule_from_recommendation(
     recommendation,
     *,
     start_compound: str,
     lap_number: int,
+    total_laps: int | None = None,
 ) -> GhostPlan:
     """Convert a recommend() card into a full-race pit schedule."""
     from aris.physics.tires import normalize_compound
@@ -420,29 +489,38 @@ def schedule_from_recommendation(
         pits = [int(x) for x in pit_laps_raw]
         while len(compounds) < len(pits):
             compounds.append(pit_compound)
-        return GhostPlan(
+        plan = GhostPlan(
             pit_laps=pits,
             pit_compounds=compounds,
             start_compound=start,
             aris_action=label or f"Plan: {pits} -> {compounds}",
             decision_lap=int(lap_number),
         )
+        return clamp_ghost_first_pit(
+            plan, decision_lap=int(lap_number), total_laps=total_laps
+        )
     if kind == "pit_now":
-        return GhostPlan(
+        plan = GhostPlan(
             pit_laps=[int(lap_number)],
             pit_compounds=[pit_compound],
             start_compound=start,
             aris_action=label or f"PIT_NOW_{pit_compound}",
             decision_lap=int(lap_number),
         )
+        return clamp_ghost_first_pit(
+            plan, decision_lap=int(lap_number), total_laps=total_laps
+        )
     if kind == "pit_lap" and action.get("pit_lap") is not None:
         pit_lap = int(action["pit_lap"])
-        return GhostPlan(
+        plan = GhostPlan(
             pit_laps=[pit_lap],
             pit_compounds=[pit_compound],
             start_compound=start,
             aris_action=label or f"PIT_L{pit_lap}_{pit_compound}",
             decision_lap=int(lap_number),
+        )
+        return clamp_ghost_first_pit(
+            plan, decision_lap=int(lap_number), total_laps=total_laps
         )
     return GhostPlan(
         pit_laps=[],
@@ -463,6 +541,11 @@ def create_ghost_from_plan(
     """Always-on ghost from lap 1 following ``plan`` (not divergence-gated)."""
     from aris.physics.tires import normalize_compound
 
+    plan = clamp_ghost_first_pit(
+        plan,
+        decision_lap=int(getattr(race_state, "lap_number", 1) or 1),
+        total_laps=int(getattr(race_state, "total_laps", 0) or 0) or None,
+    )
     start = normalize_compound(plan.start_compound or race_state.compound)
     _log.debug(
         "create_ghost_from_plan driver=%s seed_position=%s pit_laps=%s",
@@ -628,6 +711,7 @@ def plan_from_pits(
     start_compound: str,
     *,
     label: str = "",
+    total_laps: int | None = None,
 ) -> GhostPlan:
     from aris.physics.tires import normalize_compound
 
@@ -635,13 +719,14 @@ def plan_from_pits(
     compounds = [normalize_compound(c) for c in pit_compounds]
     while len(compounds) < len(pits):
         compounds.append(normalize_compound(pit_compounds[-1] if pit_compounds else "HARD"))
-    return GhostPlan(
+    plan = GhostPlan(
         pit_laps=pits,
         pit_compounds=compounds[: len(pits)],
         start_compound=normalize_compound(start_compound),
         aris_action=label or ("STAY_OUT" if not pits else f"PIT_L{pits[0]}_{compounds[0]}"),
         decision_lap=1,
     )
+    return clamp_ghost_first_pit(plan, decision_lap=1, total_laps=total_laps)
 
 
 def score_parallel_ghost(

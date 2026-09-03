@@ -3674,10 +3674,14 @@ def precompute_ghost_for_session(
             list(explicit.get("compounds") or explicit.get("pit_compounds") or []),
             start_compound,
             label=str(explicit.get("label") or explicit.get("name") or ""),
+            total_laps=total_laps,
         )
     elif plan_rec:
         plan = schedule_from_recommendation(
-            plan_rec, start_compound=start_compound, lap_number=decision_lap
+            plan_rec,
+            start_compound=start_compound,
+            lap_number=decision_lap,
+            total_laps=total_laps,
         )
     else:
         plan = GhostPlan(

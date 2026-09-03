@@ -1,7 +1,8 @@
 """On-demand R2-shaped ghost for any driver who raced in a weekend pack.
 
-``compute_ghost`` is the same pipeline the offline baker uses (recommend +
-score_parallel_ghost over ``race_field.json``). ``get_or_compute_ghost``
+``compute_ghost`` is the same pipeline the offline baker uses
+(``derive_pit_windows`` Strat B seed, with ``recommend()`` fallback, then
+``score_parallel_ghost`` over ``race_field.json``). ``get_or_compute_ghost``
 serves a baked ``ghost_{DRIVER}.json`` when present, otherwise computes and
 persists next to the pack so the next request is a file read.
 
@@ -248,6 +249,7 @@ def compute_ghost(
     ``recommend_fn`` is a test seam; production uses ``aris.recommend.recommend``.
     """
     from aris.ghost import (
+        clamp_ghost_first_pit,
         field_cumulative_by_lap,
         field_gap_snapshot_by_lap,
         pick_strategy_recommendation,
@@ -288,31 +290,79 @@ def compute_ghost(
         track_status=str(focus_laps[0].get("track_status") or "1"),
     )
 
-    rec_fn = recommend_fn
-    if rec_fn is None:
-        from aris.recommend import recommend as rec_fn
-
-    card = None
+    # Prefer Strat B from derive_pit_windows (same windows as the pre-race
+    # Strat A/B/C screen). Lap-1 recommend() only sees {now,+1,+2,+3,+5,+8}
+    # and seeds an unrealistically early first stop (e.g. pit lap 9 on a
+    # 72-lap race) that disagrees with the UI.
+    plan = None
+    label = ""
     try:
-        for decision_lap in (1, 2):
-            try:
-                state = template.model_copy(update={"lap_number": decision_lap})
-                rec = rec_fn(state, top_k=3, mc_draws=0)
-                card = pick_strategy_recommendation(rec)
-                if card and str(card.get("label") or "") != "STRATEGY_RESET":
-                    break
-            except Exception as extra:
-                _log.info("recommend() lap %s failed for %s: %s", decision_lap, code, extra)
-                card = None
-    except Exception as extra:
-        raise GhostDataGap(f"Could not compute a strategy for {code}: {extra}") from extra
+        from aris.plan.prewrite import derive_pit_windows
+        from aris.tracks import load_track_config
 
-    if card:
-        plan = schedule_from_recommendation(card, start_compound=start_compound, lap_number=1)
-        label = str(card.get("label") or "")
-    else:
-        plan = plan_from_pits([], [], start_compound, label="STAY_OUT")
-        label = "STAY_OUT"
+        track = load_track_config(country, year=int(year), round_no=int(round_number))
+        windows = derive_pit_windows(total, float(track.pit_loss_s))
+        strat_b = [int(p) for p in (windows.get("B") or [])]
+        if strat_b and all(1 < p <= total for p in strat_b):
+            compounds = ["HARD"] * len(strat_b)
+            plan = plan_from_pits(
+                strat_b,
+                compounds,
+                start_compound,
+                label=f"PIT_L{strat_b[0]}_HARD",
+                total_laps=total,
+            )
+            label = plan.aris_action
+            _log.info(
+                "ghost seed Strat B for %s: pit_laps=%s (derive_pit_windows)",
+                code,
+                strat_b,
+            )
+    except Exception as extra:
+        _log.info("derive_pit_windows failed for %s: %s", code, extra)
+        plan = None
+
+    if plan is None:
+        rec_fn = recommend_fn
+        if rec_fn is None:
+            from aris.recommend import recommend as rec_fn
+
+        card = None
+        try:
+            for decision_lap in (1, 2):
+                try:
+                    state = template.model_copy(update={"lap_number": decision_lap})
+                    rec = rec_fn(state, top_k=3, mc_draws=0)
+                    card = pick_strategy_recommendation(rec)
+                    if card and str(card.get("label") or "") != "STRATEGY_RESET":
+                        break
+                except Exception as extra:
+                    _log.info(
+                        "recommend() lap %s failed for %s: %s", decision_lap, code, extra
+                    )
+                    card = None
+        except Exception as extra:
+            raise GhostDataGap(f"Could not compute a strategy for {code}: {extra}") from extra
+
+        if card:
+            plan = schedule_from_recommendation(
+                card,
+                start_compound=start_compound,
+                lap_number=1,
+                total_laps=total,
+            )
+            label = str(card.get("label") or "")
+        else:
+            plan = plan_from_pits(
+                [], [], start_compound, label="STAY_OUT", total_laps=total
+            )
+            label = "STAY_OUT"
+
+    # Fix 3 safety gate + Fix 2 MIN_STINT_LAPS: never leave a lap-1 / immediate
+    # pit in the baked plan (covers Strat B edge cases and recommend() fallback).
+    plan = clamp_ghost_first_pit(plan, decision_lap=1, total_laps=total)
+    if plan.aris_action:
+        label = plan.aris_action or label
 
     lap_rows = []
     for row in focus_laps:

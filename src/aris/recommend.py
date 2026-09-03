@@ -5,10 +5,16 @@ from __future__ import annotations
 import logging
 import math
 import os
+import time
+from collections import deque
 
 from pydantic import BaseModel
 
 _log = logging.getLogger(__name__)
+
+# Rolling wall-clock samples for recommend() (ms). Used by latency_stats() /
+# scripts/bench_recommend_latency.py — not part of ranking.
+_LATENCY_SAMPLES_MS: deque[float] = deque(maxlen=512)
 
 from aris.fsm import get_phase_config
 from aris.montecarlo import DEFAULT_DRAWS, run_mc
@@ -16,6 +22,7 @@ from aris.physics.tires import get_deg_slope, normalize_compound
 from aris.physics.traffic import compute_dirty_air_penalty
 from aris.physics.wet import (
     INTER_RAIN_THRESHOLD_MM,
+    WET_FORCE_MARGIN_S,
     WET_RAIN_THRESHOLD_MM,
     effective_rainfall_mm,
     should_recommend_inter,
@@ -84,6 +91,33 @@ class RecommendationResult(BaseModel):
     driver_code: str
     compound: str
     recommendations: list[Recommendation]
+    # Wall-clock for this call (physics → simulate → optional MC). Not scored.
+    latency_ms: float | None = None
+
+
+def latency_stats() -> dict[str, float | int]:
+    """Aggregate recommend() latencies recorded in this process.
+
+    Returns empty dict when no samples have been recorded yet.
+    """
+    samples = list(_LATENCY_SAMPLES_MS)
+    if not samples:
+        return {}
+    ordered = sorted(samples)
+    n = len(ordered)
+    p95_idx = min(n - 1, max(0, int(math.ceil(0.95 * n) - 1)))
+    return {
+        "n": n,
+        "avg_ms": round(sum(ordered) / n, 2),
+        "p50_ms": round(ordered[n // 2], 2),
+        "p95_ms": round(ordered[p95_idx], 2),
+        "min_ms": round(ordered[0], 2),
+        "max_ms": round(ordered[-1], 2),
+    }
+
+
+def reset_latency_stats() -> None:
+    _LATENCY_SAMPLES_MS.clear()
 
 
 def sc_risk_narration_line(state: RaceState) -> str | None:
@@ -1124,6 +1158,20 @@ def recommend(
     # include_tactical retained for API compatibility; hardcoded DRS/defend
     # deltas were removed in Phase C — line actions are scored via simulate().
     _ = include_tactical
+    t0 = time.perf_counter()
+
+    def _done(result: RecommendationResult) -> RecommendationResult:
+        ms = (time.perf_counter() - t0) * 1000.0
+        _LATENCY_SAMPLES_MS.append(ms)
+        result.latency_ms = round(ms, 2)
+        _log.debug(
+            "recommend_latency_ms=%.2f lap=%s driver=%s mc_draws=%s",
+            ms,
+            state.lap_number,
+            state.driver_code,
+            mc_draws,
+        )
+        return result
 
     # T6: FSM phase config — drives pit loss, deg multiplier, and resets.
     phase_config = get_phase_config(state)
@@ -1131,32 +1179,34 @@ def recommend(
     # STRATEGY_RESET: RED_FLAG / STANDING_START → flush all strategies.
     # Return a sentinel dict so the frontend can display the reset banner.
     if phase_config.strategy_reset:
-        return _stamp_uncertainty(
-            RecommendationResult(
-                state_lap=state.lap_number,
-                driver_code=state.driver_code,
-                compound=state.compound,
-                recommendations=[
-                    Recommendation(
-                        rank=1,
-                        label="STRATEGY_RESET",
-                        action=StrategyAction(kind=ActionKind.STAY_OUT),
-                        delta_vs_stay_out_s=0.0,
-                        mean_race_time_s=0.0,
-                        confidence_std_s=0.0,
-                        p10_delta_s=0.0,
-                        p90_delta_s=0.0,
-                        evidence=f"Race phase: {phase_config.phase.name} — strategy recalculating",
-                        narration_context={
-                            "action": "STRATEGY_RESET",
-                            "reason": f"Race phase: {phase_config.phase.name} — strategy recalculating",
-                            "phase": phase_config.phase.name,
-                            "free_tyre_change": phase_config.free_tyre_change,
-                        },
-                    )
-                ],
-            ),
-            state,
+        return _done(
+            _stamp_uncertainty(
+                RecommendationResult(
+                    state_lap=state.lap_number,
+                    driver_code=state.driver_code,
+                    compound=state.compound,
+                    recommendations=[
+                        Recommendation(
+                            rank=1,
+                            label="STRATEGY_RESET",
+                            action=StrategyAction(kind=ActionKind.STAY_OUT),
+                            delta_vs_stay_out_s=0.0,
+                            mean_race_time_s=0.0,
+                            confidence_std_s=0.0,
+                            p10_delta_s=0.0,
+                            p90_delta_s=0.0,
+                            evidence=f"Race phase: {phase_config.phase.name} — strategy recalculating",
+                            narration_context={
+                                "action": "STRATEGY_RESET",
+                                "reason": f"Race phase: {phase_config.phase.name} — strategy recalculating",
+                                "phase": phase_config.phase.name,
+                                "free_tyre_change": phase_config.free_tyre_change,
+                            },
+                        )
+                    ],
+                ),
+                state,
+            )
         )
 
     deg_mult = phase_config.deg_multiplier
@@ -1254,8 +1304,10 @@ def recommend(
         )
         if not any(_is_pure_stay(c) for c in candidates):
             candidates.append(_make_stay_out_card(state))
-        return _stamp_uncertainty(
-            _rank_and_trim(candidates, state, top_k=top_k), state
+        return _done(
+            _stamp_uncertainty(
+                _rank_and_trim(candidates, state, top_k=top_k), state
+            )
         )
 
     actions = list(_candidate_actions(state))
@@ -1440,7 +1492,19 @@ def recommend(
         wet_recs = [r for r in scored if r.wet_heuristic]
         if wet_recs:
             best_wet = min(wet_recs, key=lambda r: r.delta_vs_stay_out_s)
-            scored = [best_wet] + [r for r in scored if r is not best_wet]
+            track = str(getattr(state, "track_state", "") or "").upper()
+            # Keep INTER/WET in the shortlist always; only force rank-1 under
+            # sustained wet (WET/CROSSOVER) when the wet card clearly beats dry.
+            # DAMP: compete normally — do not hijack rank-1 on a light shower.
+            if track in {"WET", "CROSSOVER"}:
+                dry_recs = [r for r in scored if not r.wet_heuristic]
+                best_dry_delta = (
+                    min(r.delta_vs_stay_out_s for r in dry_recs)
+                    if dry_recs
+                    else float("inf")
+                )
+                if best_wet.delta_vs_stay_out_s <= best_dry_delta - WET_FORCE_MARGIN_S:
+                    scored = [best_wet] + [r for r in scored if r is not best_wet]
 
     # Always surface stay-out so the engineer can reject a pit push — even when
     # every pit option scores better on raw delta.
@@ -1471,12 +1535,14 @@ def recommend(
             getattr(state, "rainfall", None),
         )
 
-    return _stamp_uncertainty(
-        RecommendationResult(
-            state_lap=state.lap_number,
-            driver_code=state.driver_code,
-            compound=state.compound,
-            recommendations=top,
-        ),
-        state,
+    return _done(
+        _stamp_uncertainty(
+            RecommendationResult(
+                state_lap=state.lap_number,
+                driver_code=state.driver_code,
+                compound=state.compound,
+                recommendations=top,
+            ),
+            state,
+        )
     )

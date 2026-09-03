@@ -33,6 +33,9 @@ INTER_RAIN_THRESHOLD_MM = 0.5
 WET_RAIN_THRESHOLD_MM = 2.0
 BOOLEAN_RAIN_MM = 1.2  # when only the per-lap rainfall boolean is set
 MIN_LAPS_FOR_INTER = 8
+# Only force INTER/WET to rank-1 when it beats the best dry card by this much
+# under WET/CROSSOVER. Prevents a single DAMP tick from hijacking rank-1.
+WET_FORCE_MARGIN_S = 5.0
 SLICK = frozenset({"SOFT", "MEDIUM", "HARD"})
 WET_COMPOUNDS = frozenset({"INTERMEDIATE", "INTER", "WET"})
 
@@ -172,19 +175,19 @@ def should_stay_on_wet(state) -> bool:
     to wet); this fires on INTER/WET in rain (stay on wet). Track status ``4``
     is Safety Car, not rain.
 
-    Primary rain bit is per-lap ``state.rainfall``. FastF1's weather sample is
-    sparse (~1/min); Interlagos 2024 stays INTERMEDIATE for 20+ laps with
-    ``laps.rainfall=False`` while ``session_weather.rainfall`` is True. When
-    the car is already on INTER/WET, the session bit is a fallback so we do
-    not rank a dry HARD pit. A dry SC (session bit false) still switches
-    to slick.
+    Primary rain bit is per-lap ``state.rainfall``. Session-level
+    ``weather_rainfall`` alone must not keep the INTER lock after rain has
+    stopped on a per-lap basis — it is only a tiebreaker when ``rainfall`` is
+    ambiguous (``None``). A dry SC (no rain bits) still switches to slick.
     """
     compound = normalize_compound(getattr(state, "compound", None))
     if compound not in WET_COMPOUNDS:
         return False
-    raining = bool(getattr(state, "rainfall", False)) or bool(
-        getattr(state, "weather_rainfall", False)
-    )
+    rain_bit = getattr(state, "rainfall", None)
+    if rain_bit is None:
+        raining = bool(getattr(state, "weather_rainfall", False))
+    else:
+        raining = bool(rain_bit)
     if not raining:
         return False
     remaining = int(getattr(state, "laps_remaining", 0) or 0)
