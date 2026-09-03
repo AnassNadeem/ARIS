@@ -118,10 +118,11 @@ export function ThrottleBrake() {
                 label={yAxisLabel("Pedal (%)")}
               />
               <Tooltip
+                cursor={{ strokeDasharray: "3 3" }}
                 contentStyle={{ background: "#1a1a1a", border: "1px solid #2a2a2a", fontFamily: "var(--font-jbmono)", fontSize: 11 }}
               />
-              <Area type="monotone" dataKey="throttle" name="Throttle" stroke="#39ff14" fill="#39ff14" fillOpacity={0.25} isAnimationActive={false} />
-              <Area type="monotone" dataKey="brake" name="Brake" stroke="#e8002d" fill="#e8002d" fillOpacity={0.3} isAnimationActive={false} />
+              <Area type="monotone" dataKey="throttle" name="Throttle" stroke="#39ff14" fill="#39ff14" fillOpacity={0.25} animationDuration={280} />
+              <Area type="monotone" dataKey="brake" name="Brake" stroke="#e8002d" fill="#e8002d" fillOpacity={0.3} animationDuration={280} />
               <Legend wrapperStyle={{ fontFamily: "var(--font-jbmono)", fontSize: 10 }} />
             </AreaChart>
           </ResponsiveContainer>

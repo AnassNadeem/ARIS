@@ -8,10 +8,33 @@ import { PanelEmpty, PanelSkeleton, usePanelFeedLoading } from "@/components/ui/
 
 export function StintSummary() {
   const arisDriver = useRaceStore((s) => s.arisDriver) ?? "VER";
+  const isARISOn = useRaceStore((s) => s.isARISOn);
+  const ghostTicks = useRaceStore((s) => s.ghostTicksByLap);
   const [driver, setDriver] = useState(arisDriver);
   const { stints, drivers } = usePanelHistory();
   const loading = usePanelFeedLoading();
-  const rows = stints.filter((s) => s.driverCode === driver);
+  const ghostRows = Object.values(ghostTicks)
+    .sort((a, b) => a.lap - b.lap)
+    .reduce<Array<{ driverCode: string; stintNumber: number; compound: string; startLap: number; endLap: number; avgLapTimeS: number }>>((acc, tick) => {
+      const last = acc[acc.length - 1];
+      if (!last || last.compound !== tick.compound) {
+        acc.push({
+          driverCode: "ARIS",
+          stintNumber: acc.length + 1,
+          compound: tick.compound,
+          startLap: tick.lap,
+          endLap: tick.lap,
+          avgLapTimeS: 0,
+        });
+      } else {
+        last.endLap = tick.lap;
+      }
+      return acc;
+    }, []);
+  const rows = driver === "ARIS" ? ghostRows : stints.filter((s) => s.driverCode === driver);
+  const selectableDrivers = isARISOn && ghostRows.length > 0
+    ? [{ driver_code: "ARIS", team_colour: "#e8002d" }, ...drivers]
+    : drivers;
 
   return (
     <div className="flex h-full flex-col bg-carbon p-2 font-mono-data text-xs">
@@ -22,7 +45,7 @@ export function StintSummary() {
           onChange={(e) => setDriver(e.target.value)}
           className="rounded border border-border bg-surface px-2 py-0.5 font-mono-data text-xs text-white"
         >
-          {drivers.map((d) => (
+          {selectableDrivers.map((d) => (
             <option key={d.driver_code} value={d.driver_code}>{d.driver_code}</option>
           ))}
         </select>

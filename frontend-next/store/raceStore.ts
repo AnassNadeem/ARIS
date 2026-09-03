@@ -215,7 +215,7 @@ const initialState = {
   ghostCar: null as CarState | null,
   ghostData: null as GhostTickData | null,
   ghostReason: null as string | null,
-  currentLap: 1,
+  currentLap: 0,
   totalLaps: 0,
   racePhase: "GREEN" as RacePhase,
   rainfall: false,
@@ -298,7 +298,7 @@ export const useRaceStore = create<RaceStore>()(
     setSession: (session) =>
       set({
         session,
-        currentLap: 1,
+        currentLap: 0,
         totalLaps: session?.totalLaps && session.totalLaps > 0 ? session.totalLaps : 0,
         isPlaying: false,
         consolePlayState: "ready",

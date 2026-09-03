@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import {
   Area,
   ComposedChart,
+  Legend,
   Line,
   ReferenceLine,
   ResponsiveContainer,
@@ -153,7 +154,7 @@ export function GhostDelta() {
                 width={44}
                 label={yAxisLabel("Ghost Δ vs real (s)")}
               />
-              <Tooltip content={<GhostTooltip />} />
+              <Tooltip content={<GhostTooltip />} cursor={{ strokeDasharray: "3 3" }} />
 
               {/* Zero reference line — ghost is running exactly the real driver's pace */}
               <ReferenceLine
@@ -220,21 +221,25 @@ export function GhostDelta() {
               <Area
                 type="monotone"
                 dataKey="delta"
+                name="Ghost delta area"
                 stroke="none"
                 fill="url(#ghostGradient)"
                 fillOpacity={1}
-                isAnimationActive={false}
+                animationDuration={280}
               />
 
               {/* Delta line */}
               <Line
                 type="monotone"
                 dataKey="delta"
+                name="Ghost delta"
                 stroke="#e8002d"
                 strokeWidth={1.5}
                 dot={false}
-                isAnimationActive={false}
+                activeDot={{ r: 3 }}
+                animationDuration={280}
               />
+              <Legend wrapperStyle={{ fontFamily: "var(--font-jbmono)", fontSize: 10 }} />
 
               <defs>
                 <linearGradient id="ghostGradient" x1="0" y1="0" x2="0" y2="1">

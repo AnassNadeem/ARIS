@@ -82,6 +82,7 @@ export function WeatherForecast() {
             <XAxis dataKey="lap" stroke="#888888" tick={AXIS_TICK} label={xAxisLabel("Lap")} />
             <YAxis stroke="#888888" tick={AXIS_TICK} width={40} label={yAxisLabel("Temperature (°C)")} />
             <Tooltip
+              cursor={{ strokeDasharray: "3 3" }}
               contentStyle={{ background: "#1a1a1a", border: "1px solid #2a2a2a", fontFamily: "var(--font-jbmono)", fontSize: 11 }}
             />
             <Area
@@ -91,9 +92,9 @@ export function WeatherForecast() {
               stroke="#E8002D"
               fill="#E8002D"
               fillOpacity={0.12}
-              isAnimationActive={false}
+              animationDuration={280}
             />
-            <Line type="monotone" dataKey="airTempC" name="Air °C" stroke="#39FF14" dot={false} strokeWidth={1.5} isAnimationActive={false} />
+            <Line type="monotone" dataKey="airTempC" name="Air °C" stroke="#39FF14" dot={false} activeDot={{ r: 3 }} strokeWidth={1.5} animationDuration={280} />
             <ReferenceLine x={currentLap} stroke="#888888" strokeDasharray="3 3" />
             <Legend wrapperStyle={{ fontFamily: "var(--font-jbmono)", fontSize: 10 }} />
           </AreaChart>

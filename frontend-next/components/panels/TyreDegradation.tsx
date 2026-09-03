@@ -163,7 +163,7 @@ export function TyreDegradation() {
                   name={`${driver} ${s.compound}`}
                   data={s.pts}
                   fill={COMPOUND_COLOUR[s.compound]}
-                  isAnimationActive={false}
+                  animationDuration={260}
                 />
               ) : null,
             )}
@@ -177,7 +177,7 @@ export function TyreDegradation() {
                   shape={(props: { cx?: number; cy?: number }) => (
                     <Diamond cx={props.cx} cy={props.cy} fill={COMPARE_COLOUR[s.compound]} />
                   )}
-                  isAnimationActive={false}
+                  animationDuration={260}
                 />
               ) : null,
             )}

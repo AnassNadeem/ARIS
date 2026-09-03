@@ -19,22 +19,22 @@ export function useAnalyticsReady(): boolean {
  * Call `follow()` to unpin and resume auto-advance.
  */
 export function useFollowRaceLap() {
-  const currentLap = useRaceStore((s) => s.currentLap) || 1;
-  const [lap, setLapState] = useState(Math.max(1, currentLap));
+  const currentLap = useRaceStore((s) => s.currentLap) || 0;
+  const [lap, setLapState] = useState(Math.max(0, currentLap));
   const [pinned, setPinned] = useState(false);
 
   useEffect(() => {
-    if (!pinned) setLapState(Math.max(1, currentLap));
+    if (!pinned) setLapState(Math.max(0, currentLap));
   }, [currentLap, pinned]);
 
   function setLap(next: number) {
     setPinned(true);
-    setLapState(Math.max(1, next));
+    setLapState(Math.max(0, next));
   }
 
   function follow() {
     setPinned(false);
-    setLapState(Math.max(1, currentLap));
+    setLapState(Math.max(0, currentLap));
   }
 
   return { lap, setLap, pinned, follow, currentLap };
@@ -45,7 +45,7 @@ export function usePanelHistory() {
   const stintRows = useRaceStore((s) => s.stintRows);
   const gridDrivers = useRaceStore((s) => s.gridDrivers);
   const totalLaps = useRaceStore((s) => s.totalLaps) || 1;
-  const currentLap = useRaceStore((s) => s.currentLap) || 1;
+  const currentLap = useRaceStore((s) => s.currentLap) || 0;
   const ready = useAnalyticsReady();
   const liveLaps = lapRecordsFromApi(lapRows);
   const liveStintsRaw = stintRecordsFromApi(stintRows);

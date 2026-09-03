@@ -81,11 +81,12 @@ export function SectorTimes() {
             <XAxis dataKey="lap" stroke="#888888" tick={AXIS_TICK} label={xAxisLabel("Lap")} />
             <YAxis stroke="#888888" tick={AXIS_TICK} width={44} label={yAxisLabel("Sector time (s)")} />
             <Tooltip
+              cursor={{ fill: "rgba(255,255,255,0.06)" }}
               contentStyle={{ background: "#1a1a1a", border: "1px solid #2a2a2a", fontFamily: "var(--font-jbmono)", fontSize: 11 }}
             />
-            <Bar dataKey="s1" stackId="a" fill="#39ff14" name="S1" isAnimationActive={false} />
-            <Bar dataKey="s2" stackId="a" fill="#f5a623" name="S2" isAnimationActive={false} />
-            <Bar dataKey="s3" stackId="a" fill="#e8002d" name="S3" isAnimationActive={false} />
+            <Bar dataKey="s1" stackId="a" fill="#39ff14" name="S1" animationDuration={260} />
+            <Bar dataKey="s2" stackId="a" fill="#f5a623" name="S2" animationDuration={260} />
+            <Bar dataKey="s3" stackId="a" fill="#e8002d" name="S3" animationDuration={260} />
             <Legend wrapperStyle={{ fontFamily: "var(--font-jbmono)", fontSize: 10 }} />
           </BarChart>
         </ResponsiveContainer>

@@ -2,6 +2,7 @@
 
 import {
   CartesianGrid,
+  Legend,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -10,11 +11,14 @@ import {
   YAxis,
 } from "recharts";
 import { usePanelHistory } from "@/lib/usePanelHistory";
+import { useRaceStore } from "@/store/raceStore";
 import { PanelEmpty, PanelSkeleton, usePanelFeedLoading } from "@/components/ui/PanelStates";
 import { AXIS_TICK, xAxisLabel, yAxisLabel } from "@/lib/chartAxis";
 
 export function PositionTrace() {
   const { laps, drivers } = usePanelHistory();
+  const isARISOn = useRaceStore((s) => s.isARISOn);
+  const ghostTicks = useRaceStore((s) => s.ghostTicksByLap);
   const loading = usePanelFeedLoading();
   const codes = drivers.map((d) => d.driver_code);
   const maxPos = Math.max(
@@ -26,6 +30,11 @@ export function PositionTrace() {
   const byLap: Record<number, Record<string, number>> = {};
   for (const l of laps) {
     byLap[l.lap] = { ...(byLap[l.lap] ?? { lap: l.lap }), [l.driverCode]: l.position };
+  }
+  if (isARISOn) {
+    for (const tick of Object.values(ghostTicks)) {
+      byLap[tick.lap] = { ...(byLap[tick.lap] ?? { lap: tick.lap }), ARIS: tick.position };
+    }
   }
   const data = Object.values(byLap).sort((a, b) => a.lap - b.lap);
 
@@ -67,11 +76,26 @@ export function PositionTrace() {
                   dataKey={code}
                   stroke={meta?.team_colour ?? "#888888"}
                   dot={false}
+                  activeDot={{ r: 3 }}
                   strokeWidth={1.5}
-                  isAnimationActive={false}
+                  animationDuration={280}
                 />
               );
             })}
+            {isARISOn && (
+              <Line
+                type="stepAfter"
+                dataKey="ARIS"
+                stroke="#e8002d"
+                strokeDasharray="5 4"
+                dot={false}
+                activeDot={{ r: 4 }}
+                strokeWidth={2}
+                name="ARIS ghost"
+                animationDuration={280}
+              />
+            )}
+            <Legend wrapperStyle={{ fontFamily: "var(--font-jbmono)", fontSize: 10 }} />
           </LineChart>
         </ResponsiveContainer>
         )}

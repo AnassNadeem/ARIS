@@ -88,6 +88,7 @@ export function UndercutWindow() {
               <XAxis dataKey="lap" stroke="#888888" tick={AXIS_TICK} label={xAxisLabel("Lap")} />
               <YAxis stroke="#888888" tick={AXIS_TICK} width={44} label={yAxisLabel("Gap ahead (s)")} />
               <Tooltip
+                cursor={{ strokeDasharray: "3 3" }}
                 contentStyle={{ background: "#1a1a1a", border: "1px solid #2a2a2a", fontFamily: "var(--font-jbmono)", fontSize: 11 }}
               />
               <ReferenceLine
@@ -96,7 +97,7 @@ export function UndercutWindow() {
                 strokeDasharray="4 3"
                 label={{ value: "Window ceiling", fill: "#f5a623", fontSize: 9, position: "insideTopRight" }}
               />
-              <Line type="monotone" dataKey="gap" name="Gap ahead" stroke="#e8002d" dot={false} strokeWidth={2} isAnimationActive={false} connectNulls />
+              <Line type="monotone" dataKey="gap" name="Gap ahead" stroke="#e8002d" dot={false} activeDot={{ r: 3 }} strokeWidth={2} animationDuration={280} connectNulls />
               <Legend wrapperStyle={{ fontFamily: "var(--font-jbmono)", fontSize: 10 }} />
             </LineChart>
           </ResponsiveContainer>

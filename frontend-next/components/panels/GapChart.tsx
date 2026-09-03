@@ -69,8 +69,8 @@ export function GapChart() {
               label={{ value: "Gap (s)", angle: -90, position: "insideLeft", fill: "#888888", fontSize: 10 }}
             />
             <Tooltip contentStyle={{ background: "#1a1a1a", border: "1px solid #2a2a2a", fontFamily: "var(--font-jbmono)", fontSize: 11 }} />
-            <Line type="monotone" dataKey="ahead" stroke="#e8002d" name="Gap ahead" dot={false} strokeWidth={2} isAnimationActive={false} connectNulls />
-            <Line type="monotone" dataKey="behind" stroke="#39ff14" name="Gap behind" dot={false} strokeWidth={2} isAnimationActive={false} connectNulls />
+            <Line type="monotone" dataKey="ahead" stroke="#e8002d" name="Gap ahead" dot={false} activeDot={{ r: 3 }} strokeWidth={2} animationDuration={280} connectNulls />
+            <Line type="monotone" dataKey="behind" stroke="#39ff14" name="Gap behind" dot={false} activeDot={{ r: 3 }} strokeWidth={2} animationDuration={280} connectNulls />
             <Legend wrapperStyle={{ fontFamily: "var(--font-jbmono)", fontSize: 10 }} />
           </LineChart>
         </ResponsiveContainer>

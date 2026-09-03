@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import {
   CartesianGrid,
+  Legend,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -112,11 +113,13 @@ export function SpeedTrace() {
                 label={yAxisLabel("Speed (km/h)")}
               />
               <Tooltip
+                cursor={{ strokeDasharray: "3 3" }}
                 contentStyle={{ background: "#1a1a1a", border: "1px solid #2a2a2a", fontFamily: "var(--font-jbmono)", fontSize: 11 }}
                 formatter={(v) => [`${Number(v).toFixed(0)} km/h`, "Speed"]}
                 labelFormatter={(v) => `${Number(v).toFixed(1)}% lap`}
               />
-              <Line type="monotone" dataKey="speed" stroke="#e8002d" dot={false} strokeWidth={1.5} isAnimationActive={false} />
+              <Line type="monotone" dataKey="speed" name="Speed" stroke="#e8002d" dot={false} activeDot={{ r: 3 }} strokeWidth={1.8} animationDuration={280} />
+              <Legend wrapperStyle={{ fontFamily: "var(--font-jbmono)", fontSize: 10 }} />
             </LineChart>
           </ResponsiveContainer>
         )}

@@ -385,8 +385,8 @@ export class LiveSseFeed {
     const positions = payload.positions?.positions ?? [];
     const lap = status?.current_lap ?? payload.timing?.current_lap;
     const total = status?.total_laps;
-    if (lap) store.setCurrentLap(lap);
-    if (total) store.setTotalLaps(total);
+    if (lap != null) store.setCurrentLap(lap);
+    if (total != null) store.setTotalLaps(total);
     if (status?.session_flag) store.setRacePhase(sessionFlagToPhase(status.session_flag));
     else if (payload.timing?.session_flag) store.setRacePhase(sessionFlagToPhase(payload.timing.session_flag));
     if (status?.session_ended) store.setRaceFinished(true);
@@ -439,7 +439,7 @@ export class LiveSseFeed {
       const store = useRaceStore.getState();
       if (Array.isArray(laps?.laps)) store.setLapRows(laps.laps as ApiLapRow[]);
       if (Array.isArray(stints?.stints)) store.setStintRows(stints.stints as ApiStintRow[]);
-      if (laps?.current_lap) store.setCurrentLap(laps.current_lap);
+      if (laps?.current_lap != null) store.setCurrentLap(laps.current_lap);
     } catch {
       /* keep last-known laps */
     }
@@ -492,7 +492,7 @@ export class ReplayFrameFeed {
   async connect(year: number, round: number, sessionType: string) {
     const store = useRaceStore.getState();
     setFeedStatus("connecting");
-    store.setCurrentLap(1);
+    store.setCurrentLap(0);
     store.setPlaybackSpeed(1);
     store.setIsPlaying(false);
     store.setCars({});
@@ -1069,7 +1069,7 @@ export class ReplayFrameFeed {
     if (frameTotal && frameTotal > 0) store.setTotalLaps(frameTotal);
     const total = frameTotal ?? store.totalLaps;
     applyCircuitPath(payload);
-    if (!seeking && lap) store.setCurrentLap(Math.max(1, lap));
+    if (!seeking && lap != null) store.setCurrentLap(Math.max(0, lap));
     this.prefetchPosChunk(Math.max(1, lap || 1));
     if (payload.status?.session_flag) store.setRacePhase(sessionFlagToPhase(payload.status.session_flag));
     const raining = payload.weather?.rainfall ?? payload.timing?.rainfall;

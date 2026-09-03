@@ -167,7 +167,7 @@ export function RaceFinishedDebrief() {
               <div className="shrink-0 space-y-1.5 px-4 pt-3">
                 <p className="font-sans text-sm font-semibold text-white">{story.headline}</p>
                 <p className="font-sans text-[13px] leading-relaxed text-white/80">{story.summary}</p>
-                <ul className="max-h-[22vh] space-y-1 overflow-y-auto font-mono-data text-[11px] leading-relaxed text-white/85">
+                <ul className="max-h-[24vh] space-y-1 overflow-y-auto overscroll-contain pr-1 font-mono-data text-[11px] leading-relaxed text-white/85">
                   {story.lines.map((line, i) => (
                     <li key={`${i}-${line.slice(0, 24)}`}>{line}</li>
                   ))}
@@ -175,7 +175,7 @@ export function RaceFinishedDebrief() {
               </div>
             )}
 
-            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-3 pr-2 [scrollbar-gutter:stable]">
               <div className="h-[240px] overflow-hidden rounded border border-border">
                 <GhostVsRealChart
                   sessionId={sid}

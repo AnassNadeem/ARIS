@@ -75,6 +75,21 @@ function deepestAnalyticsTabsetId(node: FlexNode | undefined | null): string | n
   return null;
 }
 
+function selectedAnalyticsTabsetId(node: FlexNode | undefined | null): string | null {
+  if (!node) return null;
+  if (node.getType() === "tabset") {
+    const selected = (node as unknown as { getSelectedNode?: () => { getComponent?: () => string } | null }).getSelectedNode?.();
+    const componentId = selected?.getComponent?.() ?? "";
+    const entry = catalogueEntry(componentId);
+    if (entry?.category === "analytics") return node.getId();
+  }
+  for (const child of node.getChildren()) {
+    const hit = selectedAnalyticsTabsetId(child ?? null);
+    if (hit) return hit;
+  }
+  return null;
+}
+
 function buildDefaultModel(isARISOn: boolean): IJsonModel {
   const mainRow = {
     type: "row",
@@ -462,7 +477,8 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
           n = n.getParent() ?? null;
         }
       }
-      const targetId = underAnalytics && active ? active.getId() : deepestAnalyticsTabsetId(row);
+      const selectedAnalytics = selectedAnalyticsTabsetId(row);
+      const targetId = underAnalytics && active ? active.getId() : selectedAnalytics ?? deepestAnalyticsTabsetId(row);
       if (targetId) {
         model.doAction(Actions.addNode(newTab, targetId, DockLocation.CENTER, -1));
         addAnalytics(componentId);
@@ -658,15 +674,13 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
           {waitingMessage ?? "Loading replay from lights out at 1×…"}
         </div>
       )}
-      {isARISOn && racePhase !== "GREEN" && (
+      {isARISOn && racePhase !== "GREEN" && racePhase !== "FORMATION_LAP" && (
         <div
           className={`shrink-0 px-4 py-2 font-sans text-xs font-semibold ${
             racePhase === "RED_FLAG"
               ? "bg-[#E8002D]/20 text-[#E8002D]"
-              : racePhase === "STANDING_START"
-                ? "bg-white/10 text-white"
-                : racePhase === "FORMATION_LAP"
-                  ? "bg-green-900/30 text-green-400"
+                : racePhase === "STANDING_START"
+                  ? "bg-white/10 text-white"
                   : "bg-[#FF8700]/20 text-[#FF8700]"
           }`}
         >
@@ -674,7 +688,6 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
           {racePhase === "VSC" && "🟡 VIRTUAL SAFETY CAR — Pace delta limited."}
           {racePhase === "RED_FLAG" && "🔴 RED FLAG — Free tyre change. Strategy reset."}
           {racePhase === "STANDING_START" && "🏁 STANDING START — Prior lap deltas cleared."}
-          {racePhase === "FORMATION_LAP" && "🟢 EXTRA FORMATION LAP"}
         </div>
       )}
       <StrategyChangeBanner />

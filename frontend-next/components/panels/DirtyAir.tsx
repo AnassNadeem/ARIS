@@ -5,6 +5,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Legend,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -81,10 +82,12 @@ export function DirtyAir() {
                 label={yAxisLabel("Gap ahead (s)")}
               />
               <Tooltip
+                cursor={{ fill: "rgba(255,255,255,0.06)" }}
                 contentStyle={{ background: "#1a1a1a", border: "1px solid #2a2a2a", fontFamily: "var(--font-jbmono)", fontSize: 11 }}
                 formatter={(v, name) => [name === "gap" ? `${Number(v).toFixed(2)}s` : v, name === "gap" ? "Gap ahead" : "Dirty air"]}
               />
-              <Bar dataKey="gap" name="Gap ahead" fill="#4FA8E0" isAnimationActive={false} />
+              <Bar dataKey="gap" name="Gap ahead" fill="#4FA8E0" animationDuration={260} />
+              <Legend wrapperStyle={{ fontFamily: "var(--font-jbmono)", fontSize: 10 }} />
             </BarChart>
           </ResponsiveContainer>
         )}

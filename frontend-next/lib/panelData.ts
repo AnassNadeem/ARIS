@@ -125,11 +125,11 @@ export function pitStopsFromLaps(rows: ApiLapRow[]): PitStopRecord[] {
 }
 
 export function lapsUpTo(laps: LapRecord[], currentLap: number): LapRecord[] {
-  return laps.filter((l) => l.lap <= Math.max(1, currentLap));
+  return laps.filter((l) => l.lap <= Math.max(0, currentLap));
 }
 
 export function stintsUpTo(stints: StintRecord[], currentLap: number): StintRecord[] {
-  const lap = Math.max(1, currentLap);
+  const lap = Math.max(0, currentLap);
   return stints
     .filter((s) => s.startLap <= lap)
     .map((s) => ({ ...s, endLap: Math.min(s.endLap, lap) }));
