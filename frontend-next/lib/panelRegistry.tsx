@@ -51,7 +51,6 @@ export const PANEL_CATALOGUE: PanelCatalogueEntry[] = [
   { componentId: "dirtyair", label: "Dirty air zone", status: "built", category: "analytics", description: "Laps where gap to car ahead is under 1.0 s." },
   { componentId: "undercutwindow", label: "Undercut window", status: "built", category: "analytics", description: "Laps where the gap ahead sits inside a typical undercut window." },
   { componentId: "ghostdelta", label: "Ghost delta", status: "built", category: "analytics", description: "Time delta between real driver and ARIS ghost driver." },
-  { componentId: "explain", label: "Explain", status: "built", category: "analytics", description: "Degradation curves, ARIS ghost vs real, and race debrief with recommend() top-3." },
 ];
 
 export function catalogueEntry(componentId: string): PanelCatalogueEntry | undefined {

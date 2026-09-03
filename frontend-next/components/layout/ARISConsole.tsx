@@ -64,6 +64,17 @@ function tab(componentId: string, name?: string, extra: Record<string, unknown> 
   };
 }
 
+function deepestAnalyticsTabsetId(node: FlexNode | undefined | null): string | null {
+  if (!node) return null;
+  if (node.getType() === "tabset") return node.getId();
+  const children = node.getChildren();
+  for (let i = children.length - 1; i >= 0; i--) {
+    const found = deepestAnalyticsTabsetId(children[i] ?? null);
+    if (found) return found;
+  }
+  return null;
+}
+
 function buildDefaultModel(isARISOn: boolean): IJsonModel {
   const mainRow = {
     type: "row",
@@ -216,6 +227,7 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
   );
   const arisOnAtMount = useRef(isARISOn);
   const canPersistLayout = useRef(false);
+  const suppressPersistUntil = useRef(0);
   const [layoutReady, setLayoutReady] = useState(false);
   const isNarrow = useIsNarrow();
   const [analyticsSlots, setAnalyticsSlots] = useState<string[]>(() =>
@@ -287,21 +299,21 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
 
   const waitingForLiveData = mode === "live" && carCount === 0;
 
-  // Dynamically add/remove the Comms tab if ARIS is on at mount or Copilot is added.
+  // Dynamically add the Comms tab if ARIS is on at mount or Copilot is added.
+  // Do not re-run on every model mutation — that was resizing the dock after Reset view.
   useEffect(() => {
     if (!layoutReady) return;
     const wantComms = isARISOn || copilotDocked;
-    if (wantComms) {
-      if (!model.getNodeById(COMMS_TABSET_ID)) {
-        const mainRow = model.getNodeById(MAIN_ROW_ID);
-        if (mainRow) {
-          model.doAction(
-            Actions.addNode(tab("comms", "ARIS Comms"), mainRow.getId(), DockLocation.RIGHT, -1),
-          );
-        }
-      }
+    if (!wantComms) return;
+    if (model.getNodeById(COMMS_TABSET_ID)) return;
+    const mainRow = model.getNodeById(MAIN_ROW_ID);
+    if (mainRow) {
+      model.doAction(
+        Actions.addNode(tab("comms", "ARIS Comms"), mainRow.getId(), DockLocation.RIGHT, -1),
+      );
     }
-  }, [isARISOn, copilotDocked, model, layoutReady]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isARISOn, copilotDocked, layoutReady, layoutEpoch]);
 
   // Live: EventSource → /api/live/stream (SSE) plus GPS positions.
   // Replay: FastF1 replay-frame on the playback clock.
@@ -385,7 +397,7 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
     const ids = analyticsIdsFromModel(changedModel);
     setAnalyticsSlots(ids.length ? ids : defaultAnalyticsIds({ arisOn: isARISOn }));
     saveAnalyticsSlots(ids.length ? ids : defaultAnalyticsIds({ arisOn: isARISOn }));
-    if (canPersistLayout.current) {
+    if (canPersistLayout.current && Date.now() >= suppressPersistUntil.current) {
       savePersistedLayout(changedModel);
     }
   }, [isARISOn]);
@@ -435,12 +447,13 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
       addAnalytics(componentId);
       return;
     }
+    const newTab = tab(componentId);
     if (entry?.category === "analytics") {
       const row = model.getNodeById(ANALYTICS_ROW_ID);
       const active = model.getActiveTabset();
+      let underAnalytics = false;
       if (row && active) {
         let n: FlexNode | null = active;
-        let underAnalytics = false;
         while (n) {
           if (n.getId() === ANALYTICS_ROW_ID) {
             underAnalytics = true;
@@ -448,29 +461,22 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
           }
           n = n.getParent() ?? null;
         }
-        if (underAnalytics) {
-          layoutRef.current?.addTabToActiveTabSet(tab(componentId));
-          addAnalytics(componentId);
-          return;
-        }
       }
-      if (row) {
-        const sets = row.getChildren();
-        const last = sets[sets.length - 1];
-        if (last) {
-          model.doAction(Actions.addNode(tab(componentId), last.getId(), DockLocation.CENTER, -1));
-          addAnalytics(componentId);
-          return;
-        }
+      const targetId = underAnalytics && active ? active.getId() : deepestAnalyticsTabsetId(row);
+      if (targetId) {
+        model.doAction(Actions.addNode(newTab, targetId, DockLocation.CENTER, -1));
+        addAnalytics(componentId);
+        return;
       }
     }
-    layoutRef.current?.addTabToActiveTabSet(tab(componentId));
+    layoutRef.current?.addTabToActiveTabSet(newTab);
   }
 
   const resetView = useCallback(() => {
     const defaults = defaultAnalyticsIds({ arisOn: isARISOn });
     const next = Model.fromJson(buildDefaultModel(isARISOn));
     canPersistLayout.current = false;
+    suppressPersistUntil.current = Date.now() + 2500;
     clearPersistedLayout();
     clearAnalyticsSlots();
     setModel(next);
@@ -688,8 +694,8 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
           <div className="h-full min-h-0 overflow-y-auto [overflow-anchor:none]">
             {layoutReady ? (
               <div
-                className="relative w-full"
-                style={{ height: `${MAIN_ROW_VH + ANALYTICS_BASE_VH}vh` }}
+                className="relative w-full overflow-hidden"
+                style={{ height: `${MAIN_ROW_VH + ANALYTICS_BASE_VH}vh`, maxHeight: `${MAIN_ROW_VH + ANALYTICS_BASE_VH}vh` }}
               >
                 <Layout
                   key={layoutEpoch}

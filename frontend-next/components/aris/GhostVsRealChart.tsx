@@ -27,10 +27,13 @@ export function GhostVsRealChart({
   sessionId,
   driver,
   lockDriver = false,
+  fullDistance = false,
 }: {
   sessionId?: string;
   driver?: string;
   lockDriver?: boolean;
+  /** Post-race brief: plot every lap, not only up to the live playback cursor. */
+  fullDistance?: boolean;
 }) {
   const session = useRaceStore((s) => s.session);
   const focused = useFocusDriver();
@@ -74,7 +77,7 @@ export function GhostVsRealChart({
 
   const chart = useMemo(() => {
     if (!data) return [];
-    const cap = Math.max(1, currentLap);
+    const cap = fullDistance ? Number.POSITIVE_INFINITY : Math.max(1, currentLap);
     return data.real.laps
       .map((lap, i) => ({
         lap,
@@ -88,7 +91,7 @@ export function GhostVsRealChart({
         realCompound: data.real.compound[i],
       }))
       .filter((row) => row.lap <= cap);
-  }, [data, currentLap]);
+  }, [data, currentLap, fullDistance]);
 
   return (
     <div className="flex h-full min-h-[280px] flex-col bg-carbon p-2">
@@ -142,14 +145,16 @@ export function GhostVsRealChart({
                 width={28}
                 label={{ value: "P", angle: -90, position: "insideLeft", fill: "#888888", fontSize: 10 }}
               />
-              <YAxis
-                yAxisId="gap"
-                orientation="right"
-                stroke="#888888"
-                tick={{ fontFamily: "var(--font-jbmono)", fontSize: 10 }}
-                width={36}
-                label={{ value: "Gap (s)", angle: 90, position: "insideRight", fill: "#888888", fontSize: 10 }}
-              />
+              {!lockDriver && (
+                <YAxis
+                  yAxisId="gap"
+                  orientation="right"
+                  stroke="#888888"
+                  tick={{ fontFamily: "var(--font-jbmono)", fontSize: 10 }}
+                  width={36}
+                  label={{ value: "Gap (s)", angle: 90, position: "insideRight", fill: "#888888", fontSize: 10 }}
+                />
+              )}
               <Tooltip
                 contentStyle={{ background: "#1a1a1a", border: "1px solid #2a2a2a", fontFamily: "var(--font-jbmono)", fontSize: 11 }}
               />
@@ -177,8 +182,12 @@ export function GhostVsRealChart({
                   label={{ value: "ARIS PIT", fill: "#e8002d", fontSize: 9, position: "insideTopRight" }}
                 />
               ))}
-              <Line yAxisId="gap" type="monotone" dataKey="realGap" name="Real gap" stroke="#888888" dot={false} strokeOpacity={0.7} isAnimationActive={false} />
-              <Line yAxisId="gap" type="monotone" dataKey="ghostGap" name="Ghost gap" stroke="#e8002d" dot={false} strokeDasharray="5 4" strokeOpacity={0.55} isAnimationActive={false} />
+              {!lockDriver && (
+                <>
+                  <Line yAxisId="gap" type="monotone" dataKey="realGap" name="Real gap" stroke="#888888" dot={false} strokeOpacity={0.7} isAnimationActive={false} />
+                  <Line yAxisId="gap" type="monotone" dataKey="ghostGap" name="Ghost gap" stroke="#e8002d" dot={false} strokeDasharray="5 4" strokeOpacity={0.55} isAnimationActive={false} />
+                </>
+              )}
               <Legend wrapperStyle={{ fontFamily: "var(--font-jbmono)", fontSize: 10 }} />
             </LineChart>
           </ResponsiveContainer>

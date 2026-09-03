@@ -130,7 +130,7 @@ export async function getStatus(): Promise<StatusResponse> {
 export async function getCalendar(year: number, opts?: { replay?: boolean }): Promise<RoundCard[]> {
   const suffix = opts?.replay ? "?replay=1" : "";
   const mapped = await withCache(
-    `GET:/api/calendar/${year}${suffix}:v2026-23`,
+    `GET:/api/calendar/${year}${suffix}:v2026-23b`,
     TTL_MS.calendar,
     async () => {
       const live = await tryFetch<{ rounds?: BackendRound[] }>(`/api/calendar/${year}${suffix}`, undefined, 20000);
@@ -327,7 +327,12 @@ export async function getDrivers(year: number): Promise<DriverListing[]> {
 
 export async function getLiveHub(): Promise<LiveHub | null> {
   const hub = await tryFetch<LiveHub>("/api/live/hub", undefined, 8000);
-  if (hub) return hub;
+  if (hub) {
+    const date = hub.next.date_race
+      ? overlayOfficial2026Date(hub.next.year, hub.next.circuit_name, hub.next.date_race)
+      : hub.next.date_race;
+    return { ...hub, next: { ...hub.next, date_race: date } };
+  }
   const nxt = await tryFetch<LiveHub["next"]>("/api/live/next", undefined, 6000);
   if (!nxt) return null;
   return {

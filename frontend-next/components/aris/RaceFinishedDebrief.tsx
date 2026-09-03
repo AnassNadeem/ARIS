@@ -2,10 +2,25 @@
 
 import { useEffect, useMemo } from "react";
 import Link from "next/link";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { explainSessionId } from "@/lib/api";
 import { useRaceStore } from "@/store/raceStore";
 import { GhostVsRealChart } from "@/components/aris/GhostVsRealChart";
-import { buildRaceStory, ghostVsRealFromField, raceFinishSummary } from "@/lib/debriefSummary";
+import {
+  buildRaceStory,
+  ghostVsRealFromField,
+  pitPositionSwings,
+  raceFinishSummary,
+} from "@/lib/debriefSummary";
 
 /**
  * Post-race overlay. Stays up until the user leaves the console.
@@ -63,6 +78,8 @@ export function RaceFinishedDebrief() {
       finish,
     });
   }, [arisDriver, field, compare, ghostData, finish]);
+
+  const pitSwings = useMemo(() => (compare ? pitPositionSwings(compare) : []), [compare]);
 
   if (!ended && !debriefOpen) return null;
 
@@ -149,7 +166,8 @@ export function RaceFinishedDebrief() {
             {story && (
               <div className="shrink-0 space-y-1.5 px-4 pt-3">
                 <p className="font-sans text-sm font-semibold text-white">{story.headline}</p>
-                <ul className="max-h-[28vh] space-y-1 overflow-y-auto font-mono-data text-[11px] leading-relaxed text-white/85">
+                <p className="font-sans text-[13px] leading-relaxed text-white/80">{story.summary}</p>
+                <ul className="max-h-[22vh] space-y-1 overflow-y-auto font-mono-data text-[11px] leading-relaxed text-white/85">
                   {story.lines.map((line, i) => (
                     <li key={`${i}-${line.slice(0, 24)}`}>{line}</li>
                   ))}
@@ -157,10 +175,49 @@ export function RaceFinishedDebrief() {
               </div>
             )}
 
-            <div className="min-h-0 flex-1 overflow-y-auto p-3">
-              <div className="h-[280px] overflow-hidden rounded border border-border">
-                <GhostVsRealChart sessionId={sid} driver={arisDriver ?? undefined} lockDriver />
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
+              <div className="h-[240px] overflow-hidden rounded border border-border">
+                <GhostVsRealChart
+                  sessionId={sid}
+                  driver={arisDriver ?? undefined}
+                  lockDriver
+                  fullDistance
+                />
               </div>
+              {pitSwings.length > 0 && (
+                <div className="h-[200px] overflow-hidden rounded border border-border bg-carbon p-2">
+                  <div className="mb-1 font-mono-data text-[10px] uppercase tracking-wide text-muted">
+                    Pit vs positions lost · {arisDriver} vs ARIS
+                  </div>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={pitSwings} margin={{ top: 8, right: 8, bottom: 16, left: 0 }}>
+                      <CartesianGrid stroke="#2a2a2a" strokeDasharray="2 4" />
+                      <XAxis
+                        dataKey="lap"
+                        stroke="#888888"
+                        tick={{ fontFamily: "var(--font-jbmono)", fontSize: 10 }}
+                        label={{ value: "Pit lap", position: "insideBottom", offset: -2, fill: "#888888", fontSize: 10 }}
+                      />
+                      <YAxis
+                        stroke="#888888"
+                        tick={{ fontFamily: "var(--font-jbmono)", fontSize: 10 }}
+                        width={28}
+                        label={{ value: "ΔP", angle: -90, position: "insideLeft", fill: "#888888", fontSize: 10 }}
+                      />
+                      <Tooltip
+                        contentStyle={{ background: "#1a1a1a", border: "1px solid #2a2a2a", fontFamily: "var(--font-jbmono)", fontSize: 11 }}
+                        formatter={(value, name) => [
+                          `${Number(value) > 0 ? "+" : ""}${value} places`,
+                          name === "realLost" ? arisDriver : "ARIS",
+                        ]}
+                      />
+                      <Bar dataKey="realLost" name={arisDriver ?? "Real"} fill="#ffffff" />
+                      <Bar dataKey="ghostLost" name="ARIS" fill="#e8002d" />
+                      <Legend wrapperStyle={{ fontFamily: "var(--font-jbmono)", fontSize: 10 }} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
             </div>
 
             <div className="flex shrink-0 flex-wrap gap-2 border-t border-border p-3">

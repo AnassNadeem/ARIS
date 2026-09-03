@@ -13,7 +13,7 @@ type CacheEntry<T> = { value: T; expiry: number };
 const mem = new Map<string, CacheEntry<unknown>>();
 const inflight = new Map<string, Promise<unknown>>();
 
-const LS_PREFIX = "aris.http.v2.";
+const LS_PREFIX = "aris.http.v3.";
 
 function lsGet(key: string): string | null {
   try {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ghostVsRealFromField, lastClassifiedLap, raceFinishSummary, buildRaceStory } from "./debriefSummary";
+import { ghostVsRealFromField, lastClassifiedLap, raceFinishSummary, buildRaceStory, pitPositionSwings } from "./debriefSummary";
 import type { CarState, GhostR2Tick, RaceField } from "./types";
 
 function field(): RaceField {
@@ -121,10 +121,23 @@ describe("ghostVsRealFromField", () => {
   });
 });
 
+describe("pitPositionSwings", () => {
+  it("counts places lost on a real pit lap", () => {
+    const series = ghostVsRealFromField(field(), "NOR", {
+      1: { lap: 1, position: 2, gap_to_leader_s: 0.9, compound: "MEDIUM", tyre_life: 1, stint: 1, cumulative_delta_s: 0, aris_action: "STAY_OUT", aris_confidence: 1 },
+      2: { lap: 2, position: 2, gap_to_leader_s: 8, compound: "MEDIUM", tyre_life: 2, stint: 1, cumulative_delta_s: 4, aris_action: "STAY_OUT", aris_confidence: 1 },
+    });
+    expect(series).not.toBeNull();
+    const swings = pitPositionSwings(series!);
+    expect(swings.some((s) => s.lap === 2 && s.realLost >= 1)).toBe(true);
+  });
+});
+
 describe("buildRaceStory", () => {
   it("explains a pit drop as an overtake and a stop", () => {
     const story = buildRaceStory({ driver: "NOR", field: field(), compare: null });
     expect(story.headline).toContain("NOR");
+    expect(story.summary).toMatch(/finished P3/i);
     expect(story.lines.some((l) => /pitted/i.test(l) && /P2/i.test(l))).toBe(true);
   });
 });

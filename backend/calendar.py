@@ -814,21 +814,33 @@ def get_calendar(year: int, as_of: datetime | None = None, *, for_replay: bool =
     wall = datetime.now(timezone.utc)
     as_of = now_utc(as_of)
     near_now = abs((as_of - wall).total_seconds()) < 180
-    cache_key = f"calbuild_{year}" if near_now else f"calbuild_{year}_{as_of.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+    cache_key = f"calbuild_jolpica23_{year}" if near_now else f"calbuild_jolpica23_{year}_{as_of.strftime('%Y-%m-%dT%H:%M:%SZ')}"
     hit = mem_cache.get(cache_key, TTL_CALENDAR)
     if hit is not None:
         return hit
     notes = load_notes()
     sched = _SCHED_MEM.get(year)
     source: str = "estimated"
-    if sched is not None:
+    # 2026 round list and race dates always come from NOTES_OVERLAY (23-round FIA
+    # calendar). FastF1 may still supply circuit keys / session stamps via
+    # _ensure_complete_calendar, but it must not keep the old 24-round draft
+    # (Australia 15 Mar, Japan as round 4) in the API.
+    if year == 2026:
+        ff1_rounds: list[CalendarRound] = []
+        if sched is not None:
+            try:
+                ff1_rounds = _rounds_from_schedule(year, sched, as_of)
+                source = "fastf1"
+            except Exception:
+                source = "estimated"
+        rounds = ff1_rounds
+    elif sched is not None:
         try:
             rounds = _rounds_from_schedule(year, sched, as_of)
             source = "fastf1"
         except Exception:
             rounds = _fallback_rounds(year, notes, as_of)
     elif year in NOTES_OVERLAY:
-        # Never block the request path on FastF1 — 2026 is fully in the FIA overlay.
         rounds = [_round_from_overlay(raw, as_of) for raw in NOTES_OVERLAY[year]]
         source = "estimated"
     else:
@@ -873,9 +885,9 @@ def get_round(year: int, round_number: int, as_of: datetime | None = None) -> Ca
 def peek_round_meta(year: int, round_number: int) -> tuple[str, str]:
     """Country + circuit_key from memory/overlay only — never loads FastF1."""
     wall = datetime.now(timezone.utc)
-    hit = mem_cache.get(f"calbuild_{year}", TTL_CALENDAR)
+    hit = mem_cache.get(f"calbuild_jolpica23_{year}", TTL_CALENDAR)
     if hit is None:
-        hit = mem_cache.get(f"calbuild_{year}_{wall.strftime('%Y-%m-%dT%H:%M:%SZ')}", TTL_CALENDAR)
+        hit = mem_cache.get(f"calbuild_jolpica23_{year}_{wall.strftime('%Y-%m-%dT%H:%M:%SZ')}", TTL_CALENDAR)
     if hit is not None:
         for rnd in getattr(hit, "rounds", []):
             if int(getattr(rnd, "round_number", 0) or 0) == int(round_number):

@@ -172,11 +172,6 @@ export function CopilotPanel({ threadId = "default" }: { threadId?: string }) {
                 >
                   {m.text}
                 </div>
-                {m.payload?.offline && (
-                  <div className="mt-1 inline-block rounded bg-amber/15 px-1.5 py-0.5 font-mono-data text-[9px] text-amber">
-                    ⚠ OFFLINE — backend unreachable, showing a cached local answer
-                  </div>
-                )}
                 {m.payload && m.payload.recommendations.length > 0 && (
                   <Top3Table rows={m.payload.recommendations} />
                 )}

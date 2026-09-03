@@ -1,6 +1,6 @@
 import type { IJsonModel, Model } from "flexlayout-react";
 
-export const LAYOUT_STORAGE_KEY = "aris_layout_v4";
+export const LAYOUT_STORAGE_KEY = "aris_layout_v5";
 
 export const ANALYTICS_ROW_ID = "analytics-dock-row";
 export const ANALYTICS_ADD_TABSET_ID = "analytics-add-tabset";

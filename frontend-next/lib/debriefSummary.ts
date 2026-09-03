@@ -162,10 +162,12 @@ export function buildRaceStory(opts: {
   compare: GhostVsRealResponse | null;
   ghostData?: GhostTickData | null;
   finish?: RaceFinishSummary | null;
-}): { headline: string; lines: string[] } {
+}): { headline: string; summary: string; lines: string[] } {
   const code = opts.driver.toUpperCase();
   const lines: string[] = [];
-  const realPos = opts.finish?.realPos ?? opts.compare?.real.position.at(-1) ?? null;
+  const pack = opts.field;
+  const last = pack ? lastClassifiedLap(pack, code) : null;
+  const realPos = opts.finish?.realPos ?? opts.compare?.real.position.at(-1) ?? last?.position ?? null;
   const ghostPos = opts.finish?.ghostPos ?? opts.compare?.ghost.position.at(-1) ?? null;
   const headline =
     realPos != null && ghostPos != null
@@ -174,7 +176,6 @@ export function buildRaceStory(opts: {
         ? `${code} finished P${realPos}.`
         : `${code} race summary.`;
 
-  const pack = opts.field;
   const rows = pack
     ? pack.laps.filter((r) => r.driver.toUpperCase() === code).sort((a, b) => a.lap - b.lap)
     : [];
@@ -259,5 +260,47 @@ export function buildRaceStory(opts: {
   if (!lines.length) {
     lines.push("No pit or position swings were logged for this driver in the pack.");
   }
-  return { headline, lines };
+
+  let summary = headline;
+  if (realPos != null && ghostPos != null && realPos !== ghostPos) {
+    const delta = Math.abs(realPos - ghostPos);
+    summary =
+      realPos > ghostPos
+        ? `${code} finished P${realPos}, ${delta} place${delta === 1 ? "" : "s"} behind the ARIS ghost (P${ghostPos}). The chart below marks each pit against the places lost or gained.`
+        : `${code} finished P${realPos}, ${delta} place${delta === 1 ? "" : "s"} ahead of the ARIS ghost (P${ghostPos}). The chart below marks each pit against the places lost or gained.`;
+  } else if (realPos != null) {
+    summary = `${code} finished P${realPos}. Pits, overtakes, and the worst tyre stint are listed below.`;
+  }
+
+  return { headline, summary, lines };
+}
+
+function seriesPosAt(series: { laps: number[]; position: number[] }, lap: number): number | null {
+  const i = series.laps.indexOf(lap);
+  if (i < 0) return null;
+  const p = series.position[i];
+  return p != null && p > 0 ? p : null;
+}
+
+/** Places lost (positive) or gained (negative) on a pit lap vs the previous lap. */
+export function pitPositionSwings(
+  compare: GhostVsRealResponse,
+): { lap: number; realLost: number; ghostLost: number }[] {
+  const laps = [...new Set([...(compare.real.pit_laps ?? []), ...(compare.ghost.pit_laps ?? [])])].sort(
+    (a, b) => a - b,
+  );
+  return laps.map((lap) => {
+    const prevLap = lap - 1;
+    const realNow = seriesPosAt(compare.real, lap);
+    const realPrev = seriesPosAt(compare.real, prevLap) ?? realNow;
+    const ghostNow = seriesPosAt(compare.ghost, lap);
+    const ghostPrev = seriesPosAt(compare.ghost, prevLap) ?? ghostNow;
+    const realPit = (compare.real.pit_laps ?? []).includes(lap);
+    const ghostPit = (compare.ghost.pit_laps ?? []).includes(lap);
+    return {
+      lap,
+      realLost: realPit && realNow != null && realPrev != null ? realNow - realPrev : 0,
+      ghostLost: ghostPit && ghostNow != null && ghostPrev != null ? ghostNow - ghostPrev : 0,
+    };
+  });
 }

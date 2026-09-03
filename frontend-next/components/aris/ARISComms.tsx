@@ -129,9 +129,8 @@ function MainComms() {
   );
 }
 
-function AskARIS() {
+function AskARIS({ threadId }: { threadId: string }) {
   const pushComms = useRaceStore((s) => s.pushComms);
-  const commsLog = useRaceStore((s) => s.commsLog);
   const currentLap = useRaceStore((s) => s.currentLap);
   const session = useRaceStore((s) => s.session);
   const arisDriver = useRaceStore((s) => s.arisDriver);
@@ -142,19 +141,26 @@ function AskARIS() {
   const lastRecommendation = useRaceStore((s) => s.lastRecommendation);
   const ghostPosition = useRaceStore((s) => s.ghostCar?.position ?? null);
   const [pending, setPending] = useState(false);
-  const askEntries = commsLog.filter((c) => c.source === "USER" || c.source === "ARIS_ANALYSIS");
+  const [items, setItems] = useState<{ id: string; source: "USER" | "ARIS_ANALYSIS"; text: string }[]>([]);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    setItems([]);
+    setPending(false);
+  }, [threadId]);
 
   useEffect(() => {
     const el = scrollerRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
-  }, [askEntries.length]);
+  }, [items.length]);
 
   async function send(question: string) {
     if (!question.trim() || pending) return;
     setPending(true);
-    pushComms({ id: nextCommsId("ask"), lap: currentLap, source: "USER", text: question, timestamp: nowTimestamp() });
+    const userId = nextCommsId("ask");
+    setItems((prev) => [...prev, { id: userId, source: "USER", text: question }]);
+    pushComms({ id: userId, lap: currentLap, source: "USER", text: question, timestamp: nowTimestamp() });
     const local = answerFactualLive(question, {
       cars,
       currentLap,
@@ -167,8 +173,10 @@ function AskARIS() {
       ghostPosition,
     });
     if (local) {
+      const ansId = nextCommsId("ans");
+      setItems((prev) => [...prev, { id: ansId, source: "ARIS_ANALYSIS", text: local }]);
       pushComms({
-        id: nextCommsId("ans"),
+        id: ansId,
         lap: currentLap,
         source: "ARIS_ANALYSIS",
         text: local,
@@ -184,11 +192,14 @@ function AskARIS() {
         const winner = rows?.find((r) => r.position === 1);
         if (winner) {
           const circuit = session?.circuitName ?? "this circuit";
+          const text = `${winner.driver_code} won the ${hint.year} ${circuit} race.`;
+          const ansId = nextCommsId("ans");
+          setItems((prev) => [...prev, { id: ansId, source: "ARIS_ANALYSIS", text }]);
           pushComms({
-            id: nextCommsId("ans"),
+            id: ansId,
             lap: currentLap,
             source: "ARIS_ANALYSIS",
-            text: `${winner.driver_code} won the ${hint.year} ${circuit} race.`,
+            text,
             timestamp: nowTimestamp(),
           });
           setPending(false);
@@ -202,8 +213,10 @@ function AskARIS() {
       driver: arisDriver ?? undefined,
       currentLap,
     });
+    const ansId = nextCommsId("ans");
+    setItems((prev) => [...prev, { id: ansId, source: "ARIS_ANALYSIS", text: answer }]);
     pushComms({
-      id: nextCommsId("ans"),
+      id: ansId,
       lap: currentLap,
       source: "ARIS_ANALYSIS",
       text: answer,
@@ -215,13 +228,13 @@ function AskARIS() {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <div ref={scrollerRef} className="min-h-0 flex-1 overflow-y-auto p-2 [overflow-anchor:none]">
-        {askEntries.length === 0 && (
+        {items.length === 0 && (
           <PanelEmpty
             title="Ask ARIS"
             detail="Pick a question below. ARIS answers from the live timing board for this race."
           />
         )}
-        {askEntries.map((m) => (
+        {items.map((m) => (
           <div key={m.id} className="mb-2">
             <SourceLabel source={m.source} />
             <div className="mt-0.5 font-mono-data text-[11px] leading-relaxed text-white/90">{m.text}</div>
@@ -280,15 +293,17 @@ export function ARISComms() {
             {t.label}
           </button>
         ))}
-        {tab === "chat" && (
+        {tabs.some((t) => t.id === "chat") && (
           <button
+            type="button"
             onClick={() => {
+              setTab("chat");
               const next = threadSeq + 1;
               setThreadSeq(next);
               setThreadId(`c${next}`);
               clearAskComms();
             }}
-            className="ml-auto px-2 py-2 font-mono-data text-[9px] uppercase text-muted hover:text-white"
+            className="ml-auto shrink-0 px-2 py-2 font-mono-data text-[9px] uppercase text-muted hover:text-white"
           >
             New chat
           </button>
@@ -296,7 +311,7 @@ export function ARISComms() {
       </div>
       <div className="min-h-0 flex-1">
         {tab === "main" && <MainComms />}
-        {tab === "chat" && (showCopilot ? <CopilotPanel threadId={threadId} /> : <AskARIS />)}
+        {tab === "chat" && (showCopilot ? <CopilotPanel threadId={threadId} /> : <AskARIS threadId={threadId} />)}
       </div>
     </div>
   );
