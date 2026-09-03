@@ -67,9 +67,10 @@ data/ask/index/*
 .dev.vars
 *.key
 
-# Cloudflare / Node (repo-root wrangler)
+# Cloudflare / Node (optional Worker under deploy/cloudflare-worker/)
 node_modules/
 worker-configuration.d.ts
+deploy/cloudflare-worker/node_modules/
 
 # OS / IDE
 .DS_Store
@@ -95,8 +96,17 @@ static_replays/*
 !static_replays/README.md
 !static_replays/.gitkeep
 
-# Logs
+# Logs (never re-commit console / rebuild dumps)
 *.log
+r2_build_log.txt
+aris_rebuild_*.log
+aris_all_drivers*.log
 wandb/
 mlruns/
 .gstack/
+
+# Coverage
+.coverage
+coverage.xml
+htmlcov/
+*.cover

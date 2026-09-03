@@ -26,12 +26,38 @@ jobs:
       # test_zandvoort_identity_with_measured_flag_on — same residual identity lock plus measured SC pit-loss table
       - run: >
           uv run pytest -v
+          --cov=src/aris
+          --cov=backend
+          --cov-report=xml
+          --cov-report=term
           --deselect tests/test_circuit_deg.py::test_zandvoort_identity_flag_off
           --deselect tests/test_degradation_curve.py::test_predicted_increases_with_age_after_outlap
           --deselect tests/test_field_undercut.py::test_zandvoort_identity_with_flag_on_no_field
           --deselect tests/test_ghost_vs_real.py::test_ghost_and_real_pit_counts_match_sample_races
           --deselect tests/test_ghost_vs_real.py::test_ver_zandvoort_ghost_position_anchored_to_real_and_delta
           --deselect tests/test_sc_pit_loss.py::test_zandvoort_identity_with_measured_flag_on
+      - name: Coverage summary
+        if: always()
+        run: |
+          if [ -f coverage.xml ]; then
+            python - <<'PY'
+          import os
+          import xml.etree.ElementTree as ET
+          root = ET.parse("coverage.xml").getroot()
+          line_rate = float(root.attrib.get("line-rate", 0))
+          pct = round(line_rate * 100, 1)
+          print(f"Line coverage: {pct}%")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
+              f.write(f"## Coverage\n\nLine coverage (`src/aris` + `backend`): **{pct}%**\n")
+          PY
+          fi
+      - name: Upload coverage.xml
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: ignore
 
   frontend:
     runs-on: ubuntu-latest

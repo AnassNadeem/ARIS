@@ -100,7 +100,10 @@ Browser: [http://127.0.0.1:8765/health](http://127.0.0.1:8765/health). Leave thi
 
 ## 3. Start the Frontend
 
-T12 lives in **`frontend-next`**. Do **not** run `npm run dev` from the repo root — the root `package.json` is Cloudflare deploy scripts only (`Missing script: "dev"`). The Vite app in `frontend/` (port 5173) also has no Explain tab.
+T12 lives in **`frontend-next`**. Do **not** run `npm run dev` from the repo
+root — there is no root `package.json` for the app (Cloudflare Worker scripts
+live under `deploy/cloudflare-worker/`). The Vite app in `frontend/` (port 5173)
+also has no Explain tab.
 
 New terminal:
 

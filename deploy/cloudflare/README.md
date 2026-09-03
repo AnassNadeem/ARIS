@@ -11,10 +11,11 @@ See [`DEPLOY.md`](../../DEPLOY.md) for the runbook.
 
 ## What this folder is for
 
-`worker.ts` + `wrangler.jsonc` can still publish the Next static export as Workers
-assets (`frontend-next/out`) if you want a Worker URL. `/api` on that Worker is a
-proxy: in production it is unused (the browser calls Heroku via
-`NEXT_PUBLIC_API_BASE`). `API_ORIGIN` is only for **local-dev tunneling**.
+`worker.ts` + `../cloudflare-worker/wrangler.jsonc` can still publish the Next
+static export as Workers assets (`frontend-next/out`) if you want a Worker URL.
+`/api` on that Worker is a proxy: in production it is unused (the browser calls
+Heroku via `NEXT_PUBLIC_API_BASE`). `API_ORIGIN` is only for **local-dev
+tunneling**.
 
 ## Local-dev tunnel (not production)
 
@@ -26,6 +27,7 @@ Local UI: `npm run dev` in `frontend-next/`. Vite is gone from this tree
 
 ## Future option — Workers Paid + Container
 
-`wrangler.containers.jsonc` + `worker.container.ts` + `npm run deploy:container`
-would run FastAPI inside a Cloudflare Container. That needs the **Workers Paid**
-plan. It is **not** the current host. Keep the files; do not treat them as live.
+`../cloudflare-worker/wrangler.containers.jsonc` + `worker.container.ts` +
+`npm run deploy:container` (from `deploy/cloudflare-worker/`) would run FastAPI
+inside a Cloudflare Container. That needs the **Workers Paid** plan. It is
+**not** the current host. Keep the files; do not treat them as live.

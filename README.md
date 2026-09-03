@@ -1,6 +1,7 @@
 # ARIS
 
 [![ci](https://github.com/AnassNadeem/ARIS/actions/workflows/ci.yml/badge.svg)](https://github.com/AnassNadeem/ARIS/actions/workflows/ci.yml)
+[![coverage](https://img.shields.io/badge/coverage-55.8%25-yellow)](https://github.com/AnassNadeem/ARIS/actions/workflows/ci.yml)
 
 > **Disclaimer:** ARIS is an unofficial project. It is not affiliated with,
 > associated with, authorized by, endorsed by, or in any way officially
@@ -174,7 +175,7 @@ ARIS/
 │   └── narrate.py      # Ollama radio-call narration
 ├── frontend-next/      # Next.js Strategy / Replay console (canonical UI)
 ├── backend/            # FastAPI broker (Heroku in production)
-├── apps/               # Streamlit lap explorer (Phase 2)
+├── apps/               # Streamlit lap explorer (Phase 2, superseded by frontend-next/ — kept for the lap/sector MA(2) accuracy canary)
 ├── scripts/            # ingest, train_residual, smoke_strategy, deploy_to_neon
 ├── models/             # gitignored trained artefacts (residual_xgb.json)
 ├── tests/

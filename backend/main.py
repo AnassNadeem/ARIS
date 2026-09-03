@@ -443,23 +443,26 @@ os.makedirs(STATIC_DIR, exist_ok=True)
 # 2. MOUNT FIRST: Ensure this is above all other @app.get routes
 app.mount("/static_replays", StaticFiles(directory=str(STATIC_DIR)), name="static_replays")
 
-# 3. Debug Endpoint to verify paths
-@app.get("/api/debug-static")
-def debug_static():
-    test_file = STATIC_DIR / "2024_zandvoort_r" / "manifest.json"
+# 3. Debug endpoint to verify paths — opt-in only (off in production).
+# Set ARIS_DEBUG_ENDPOINTS=1 locally when you need the filesystem listing.
+if os.getenv("ARIS_DEBUG_ENDPOINTS"):
 
-    try:
-        contents = os.listdir(STATIC_DIR) if STATIC_DIR.exists() else []
-    except Exception as e:
-        contents = [str(e)]
+    @app.get("/api/debug-static")
+    def debug_static():
+        test_file = STATIC_DIR / "2024_zandvoort_r" / "manifest.json"
 
-    return {
-        "backend_file_path": str(Path(__file__).resolve()),
-        "calculated_static_dir": str(STATIC_DIR),
-        "static_dir_exists": STATIC_DIR.exists(),
-        "manifest_exists": test_file.exists(),
-        "files_in_static": contents,
-    }
+        try:
+            contents = os.listdir(STATIC_DIR) if STATIC_DIR.exists() else []
+        except Exception as e:
+            contents = [str(e)]
+
+        return {
+            "backend_file_path": str(Path(__file__).resolve()),
+            "calculated_static_dir": str(STATIC_DIR),
+            "static_dir_exists": STATIC_DIR.exists(),
+            "manifest_exists": test_file.exists(),
+            "files_in_static": contents,
+        }
 
 
 def _parse_as_of(

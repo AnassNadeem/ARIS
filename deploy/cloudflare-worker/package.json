@@ -1,8 +1,8 @@
 {
-  "name": "aris",
+  "name": "aris-cloudflare-worker",
   "private": true,
   "scripts": {
-    "build:ui": "npm --prefix frontend-next ci && npm --prefix frontend-next run build:static",
+    "build:ui": "npm --prefix ../../frontend-next ci && npm --prefix ../../frontend-next run build:static",
     "deploy": "npm run build:ui && wrangler deploy",
     "deploy:container": "npm run build:ui && wrangler deploy --config wrangler.containers.jsonc",
     "types": "wrangler types"

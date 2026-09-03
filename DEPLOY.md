@@ -24,11 +24,24 @@ browser  →  https://arisf1.tech          (Cloudflare Pages, Next static export
                                               └── DATABASE_URL → Neon
 ```
 
-The repo-root Worker (`wrangler.jsonc`) is an optional extra UI host. It is
-**not** the production API. Cloudflare Containers (`wrangler.containers.jsonc`)
-are a **future option** on the Workers Paid plan, not the current backend.
+The optional Worker UI host lives under `deploy/cloudflare-worker/`
+(`wrangler.jsonc`). It is **not** the production API. Cloudflare Containers
+(`deploy/cloudflare-worker/wrangler.containers.jsonc`) are a **future option**
+on the Workers Paid plan, not the current backend.
 
 `scripts/aris-home-tunnel.ps1` is **local-dev only**.
+
+---
+
+## Dependency manifests
+
+| File | Used for |
+|---|---|
+| `requirements.txt` | Heroku Python buildpack slug (see `.slugignore`) and the plain-pip local fallback; also what older Streamlit Cloud setups read at repo root. Includes FastAPI + uvicorn for the web process. |
+| `requirements-scripts.txt` | Offline replay prebuild + R2 upload jobs. **Not** installed on the Heroku API dyno. |
+| `apps/requirements.txt` | Streamlit Community Cloud deploy of the Phase 2 lap explorer (runtime subset the app actually imports). |
+| `deploy/requirements-api.txt` | Slim FastAPI broker image (`Dockerfile` / future Cloudflare Container) — no Streamlit. |
+| `pyproject.toml` | Canonical project metadata and deps for local `uv sync` / editable install; also houses Ruff, pytest, and mypy tool config (`[tool.*]`). Optional extras: `dev`, `cql`. |
 
 ---
 
@@ -161,7 +174,12 @@ The bucket must be publicly readable at `NEXT_PUBLIC_R2_BASE_URL`.
 
 ## 6. Optional Worker UI / future Container
 
+From `deploy/cloudflare-worker/` (package.json and wrangler configs live there
+only — not at repo root):
+
 ```powershell
+cd deploy/cloudflare-worker
+npm install
 npm run deploy              # Workers assets from frontend-next/out (not the live domain)
 npm run deploy:container    # future: FastAPI in a Cloudflare Container (Workers Paid)
 ```

@@ -2,14 +2,15 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "aris",
   // Future option (Workers Paid + Container). Not the current production API — that is Heroku.
-  "main": "deploy/cloudflare/worker.container.ts",
+  // Paths are relative to this file (deploy/cloudflare-worker/).
+  "main": "../cloudflare/worker.container.ts",
   "compatibility_date": "2026-08-22",
   "compatibility_flags": ["nodejs_compat"],
   "observability": {
     "enabled": true
   },
   "assets": {
-    "directory": "./frontend-next/out",
+    "directory": "../../frontend-next/out",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
     "run_worker_first": true
@@ -17,7 +18,7 @@
   "containers": [
     {
       "class_name": "ArisApi",
-      "image": "./Dockerfile",
+      "image": "../../Dockerfile",
       "instance_type": "standard-2",
       "max_instances": 1
     }
