@@ -166,6 +166,7 @@ export interface RaceStore {
   seekToLap: (lap: number) => void;
   clearSeekLap: () => void;
   pushComms: (entry: CommsEntry) => void;
+  clearAskComms: () => void;
   setPendingRecommendation: (rec: ARISRecommendation | null) => void;
   setCopilotEnabled: (on: boolean) => void;
   setStrategyLoading: (on: boolean) => void;
@@ -506,6 +507,10 @@ export const useRaceStore = create<RaceStore>()(
         if (s.commsLog.some((c) => c.id === entry.id)) return s;
         return { commsLog: [...s.commsLog, entry] };
       }),
+    clearAskComms: () =>
+      set((s) => ({
+        commsLog: s.commsLog.filter((c) => c.source !== "USER" && c.source !== "ARIS_ANALYSIS"),
+      })),
     setPendingRecommendation: (pendingRecommendation) =>
       set(
         pendingRecommendation

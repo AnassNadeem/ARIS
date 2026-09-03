@@ -41,6 +41,61 @@ function circuitSlug(name: string | null | undefined): string {
   return (name || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
+/**
+ * Official 2026 championship race start (UTC). Applied in the UI so a stale
+ * Heroku calendar (old 24-round draft, Australia 15 Mar) cannot keep showing
+ * the wrong day after Pages already shipped.
+ */
+const OFFICIAL_2026_BY_CIRCUIT: { needle: string; iso: string }[] = [
+  { needle: "albert", iso: "2026-03-08T04:00:00Z" },
+  { needle: "melbourne", iso: "2026-03-08T04:00:00Z" },
+  { needle: "shanghai", iso: "2026-03-15T07:00:00Z" },
+  { needle: "suzuka", iso: "2026-03-29T05:00:00Z" },
+  { needle: "miami", iso: "2026-05-03T20:00:00Z" },
+  { needle: "villeneuve", iso: "2026-05-24T20:00:00Z" },
+  { needle: "montreal", iso: "2026-05-24T20:00:00Z" },
+  { needle: "monaco", iso: "2026-06-07T13:00:00Z" },
+  { needle: "barcelona", iso: "2026-06-14T13:00:00Z" },
+  { needle: "catalunya", iso: "2026-06-14T13:00:00Z" },
+  { needle: "spielberg", iso: "2026-06-28T13:00:00Z" },
+  { needle: "redbullring", iso: "2026-06-28T13:00:00Z" },
+  { needle: "silverstone", iso: "2026-07-05T14:00:00Z" },
+  { needle: "spa", iso: "2026-07-19T13:00:00Z" },
+  { needle: "hungaroring", iso: "2026-07-26T13:00:00Z" },
+  { needle: "zandvoort", iso: "2026-08-23T13:00:00Z" },
+  { needle: "netherlands", iso: "2026-08-23T13:00:00Z" },
+  { needle: "monza", iso: "2026-09-06T13:00:00Z" },
+  { needle: "madrid", iso: "2026-09-13T13:00:00Z" },
+  { needle: "madring", iso: "2026-09-13T13:00:00Z" },
+  { needle: "baku", iso: "2026-09-26T11:00:00Z" },
+  { needle: "sepang", iso: "2026-10-04T07:00:00Z" },
+  { needle: "malaysia", iso: "2026-10-04T07:00:00Z" },
+  { needle: "marinabay", iso: "2026-10-11T12:00:00Z" },
+  { needle: "singapore", iso: "2026-10-11T12:00:00Z" },
+  { needle: "americas", iso: "2026-10-25T20:00:00Z" },
+  { needle: "austin", iso: "2026-10-25T20:00:00Z" },
+  { needle: "hermanos", iso: "2026-11-01T20:00:00Z" },
+  { needle: "mexicocity", iso: "2026-11-01T20:00:00Z" },
+  { needle: "interlagos", iso: "2026-11-08T17:00:00Z" },
+  { needle: "saopaulo", iso: "2026-11-08T17:00:00Z" },
+  { needle: "vegas", iso: "2026-11-22T04:00:00Z" },
+  { needle: "lusail", iso: "2026-11-29T16:00:00Z" },
+  { needle: "qatar", iso: "2026-11-29T16:00:00Z" },
+  { needle: "yasmarina", iso: "2026-12-06T13:00:00Z" },
+  { needle: "abudhabi", iso: "2026-12-06T13:00:00Z" },
+];
+
+export function overlayOfficial2026Date(
+  year: number,
+  circuitName: string | null | undefined,
+  iso: string,
+): string {
+  if (year !== 2026) return iso;
+  const slug = circuitSlug(circuitName);
+  const hit = OFFICIAL_2026_BY_CIRCUIT.find((row) => slug.includes(row.needle));
+  return hit?.iso ?? iso;
+}
+
 /** Format a race ISO date as "8 Mar" using the calendar day, not local TZ. */
 export function formatRaceDate(iso: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);

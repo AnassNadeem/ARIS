@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ghostVsRealFromField, lastClassifiedLap, raceFinishSummary } from "./debriefSummary";
+import { ghostVsRealFromField, lastClassifiedLap, raceFinishSummary, buildRaceStory } from "./debriefSummary";
 import type { CarState, GhostR2Tick, RaceField } from "./types";
 
 function field(): RaceField {
@@ -118,5 +118,13 @@ describe("ghostVsRealFromField", () => {
     expect(series?.real.position).toEqual([2, 3]);
     expect(series?.ghost.position[0]).toBe(2);
     expect(series?.ghost.position[1]).toBe(2);
+  });
+});
+
+describe("buildRaceStory", () => {
+  it("explains a pit drop as an overtake and a stop", () => {
+    const story = buildRaceStory({ driver: "NOR", field: field(), compare: null });
+    expect(story.headline).toContain("NOR");
+    expect(story.lines.some((l) => /pitted/i.test(l) && /P2/i.test(l))).toBe(true);
   });
 });

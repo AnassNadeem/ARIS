@@ -6,6 +6,7 @@ import {
   mockRoundsForYear,
 } from "@/lib/mockData";
 import { countryFlag } from "@/lib/flags";
+import { overlayOfficial2026Date } from "@/lib/replayFilter";
 import type {
   ARISRecommendation,
   CircuitCoords,
@@ -129,16 +130,25 @@ export async function getStatus(): Promise<StatusResponse> {
 export async function getCalendar(year: number, opts?: { replay?: boolean }): Promise<RoundCard[]> {
   const suffix = opts?.replay ? "?replay=1" : "";
   const mapped = await withCache(
-    `GET:/api/calendar/${year}${suffix}`,
+    `GET:/api/calendar/${year}${suffix}:v2026-23`,
     TTL_MS.calendar,
     async () => {
       const live = await tryFetch<{ rounds?: BackendRound[] }>(`/api/calendar/${year}${suffix}`, undefined, 20000);
       if (!live?.rounds?.length) return null;
-      return live.rounds.map(mapBackendRound);
+      return live.rounds.map((r) => {
+        const card = mapBackendRound(r);
+        return {
+          ...card,
+          date: overlayOfficial2026Date(year, card.circuitName, card.date),
+        };
+      });
     },
     true,
   );
-  return mapped ?? mockRoundsForYear(year);
+  return (mapped ?? mockRoundsForYear(year)).map((r) => ({
+    ...r,
+    date: overlayOfficial2026Date(year, r.circuitName, r.date),
+  }));
 }
 
 interface BackendRound {

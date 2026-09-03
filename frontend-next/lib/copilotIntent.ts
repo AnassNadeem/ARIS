@@ -218,6 +218,35 @@ export function answerFactualLive(question: string, snap: FactualRaceSnapshot): 
   const recAnswer = answerRecommendation(question, snap);
   if (recAnswer) return recAnswer;
 
+  const q0 = question.toLowerCase();
+  if (/\bundercut window\b/.test(q0)) {
+    const focus = focusCar(snap);
+    if (!focus) return "No focus driver on the timing board yet.";
+    const gap = focus.gap_ahead_s;
+    if (gap == null) return `${focus.driver_code} gap ahead is unavailable, so the undercut window cannot be timed.`;
+    if (gap > 0 && gap <= 1.5) {
+      return `${focus.driver_code} is ${gap.toFixed(1)}s behind the car ahead — inside a typical undercut window.`;
+    }
+    if (gap > 1.5 && gap <= 2.5) {
+      return `${focus.driver_code} is ${gap.toFixed(1)}s behind — close to the undercut window, not quite there.`;
+    }
+    return `${focus.driver_code} is ${fmtGap(gap)} to the car ahead — outside a typical undercut window.`;
+  }
+  if (/\bshould we extend\b/.test(q0)) {
+    const rec = snap.lastRecommendation;
+    if (rec) {
+      return appendGhost(
+        `ARIS currently ranks ${rec.label} at ${fmtDelta(rec.delta_vs_stay_out_s)}s vs stay-out on lap ${rec.lap}.`,
+        snap,
+      );
+    }
+    const focus = focusCar(snap);
+    if (focus) {
+      return `${focus.driver_code} is on ${focus.compound}, tyre life ${focus.tyre_life}. No ARIS recommendation is on the table yet — ask again after Get strategy.`;
+    }
+    return "No ARIS recommendation yet. Run Get strategy first.";
+  }
+
   if (classifyIntent(question) !== "factual_live") return null;
   const q = question.toLowerCase();
   const field = classifiedCars(snap.cars);

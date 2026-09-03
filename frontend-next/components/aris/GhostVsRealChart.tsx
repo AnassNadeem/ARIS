@@ -6,6 +6,7 @@ import {
   Legend,
   Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -25,16 +26,19 @@ const SELECT =
 export function GhostVsRealChart({
   sessionId,
   driver,
+  lockDriver = false,
 }: {
   sessionId?: string;
   driver?: string;
+  lockDriver?: boolean;
 }) {
   const session = useRaceStore((s) => s.session);
   const focused = useFocusDriver();
   const [code, setCode] = useState(driver ?? focused);
 
   useEffect(() => {
-    if (!driver && focused) setCode(focused);
+    if (driver) setCode(driver);
+    else if (focused) setCode(focused);
   }, [focused, driver]);
   const [data, setData] = useState<GhostVsRealResponse | null>(null);
   const [pending, setPending] = useState(false);
@@ -89,14 +93,22 @@ export function GhostVsRealChart({
   return (
     <div className="flex h-full min-h-[280px] flex-col bg-carbon p-2">
       <div className="mb-2 flex flex-wrap items-center gap-2 font-mono-data text-[10px]">
-        <span className="text-muted">Driver</span>
-        <select value={code} onChange={(e) => setCode(e.target.value)} className={SELECT}>
-          {driverOptions.map((d) => (
-            <option key={d.driver_code} value={d.driver_code}>
-              {d.driver_code}
-            </option>
-          ))}
-        </select>
+        {lockDriver ? (
+          <span className="text-white">
+            {code} vs ARIS · pits vs position
+          </span>
+        ) : (
+          <>
+            <span className="text-muted">Driver</span>
+            <select value={code} onChange={(e) => setCode(e.target.value)} className={SELECT}>
+              {driverOptions.map((d) => (
+                <option key={d.driver_code} value={d.driver_code}>
+                  {d.driver_code}
+                </option>
+              ))}
+            </select>
+          </>
+        )}
         {data && (
           <span className="text-muted">
             Ghost pits {data.ghost.pit_laps.join(",") || "—"} · Real pits {data.real.pit_laps.join(",") || "—"}
@@ -143,8 +155,28 @@ export function GhostVsRealChart({
               />
               {/* Ghost is always dashed, real is always solid — the same convention as the
                   track map dot and the timing tower row, so a viewer never has to relearn it. */}
-              <Line yAxisId="pos" type="stepAfter" dataKey="realPos" name="Real P" stroke="#ffffff" dot={false} strokeWidth={2} isAnimationActive={false} />
-              <Line yAxisId="pos" type="stepAfter" dataKey="ghostPos" name="Ghost P" stroke="#e8002d" dot={false} strokeWidth={1.5} strokeDasharray="5 4" isAnimationActive={false} />
+              <Line yAxisId="pos" type="stepAfter" dataKey="realPos" name={`${code} P`} stroke="#ffffff" dot={false} strokeWidth={2} isAnimationActive={false} />
+              <Line yAxisId="pos" type="stepAfter" dataKey="ghostPos" name="ARIS P" stroke="#e8002d" dot={false} strokeWidth={1.5} strokeDasharray="5 4" isAnimationActive={false} />
+              {(data?.real.pit_laps ?? []).map((lap) => (
+                <ReferenceLine
+                  key={`real-pit-${lap}`}
+                  x={lap}
+                  stroke="#ffffff"
+                  strokeDasharray="2 2"
+                  strokeOpacity={0.55}
+                  label={{ value: `${code} PIT`, fill: "#ffffff", fontSize: 9, position: "insideTopLeft" }}
+                />
+              ))}
+              {(data?.ghost.pit_laps ?? []).map((lap) => (
+                <ReferenceLine
+                  key={`ghost-pit-${lap}`}
+                  x={lap}
+                  stroke="#e8002d"
+                  strokeDasharray="4 3"
+                  strokeOpacity={0.7}
+                  label={{ value: "ARIS PIT", fill: "#e8002d", fontSize: 9, position: "insideTopRight" }}
+                />
+              ))}
               <Line yAxisId="gap" type="monotone" dataKey="realGap" name="Real gap" stroke="#888888" dot={false} strokeOpacity={0.7} isAnimationActive={false} />
               <Line yAxisId="gap" type="monotone" dataKey="ghostGap" name="Ghost gap" stroke="#e8002d" dot={false} strokeDasharray="5 4" strokeOpacity={0.55} isAnimationActive={false} />
               <Legend wrapperStyle={{ fontFamily: "var(--font-jbmono)", fontSize: 10 }} />

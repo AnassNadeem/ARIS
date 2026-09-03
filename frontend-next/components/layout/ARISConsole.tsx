@@ -6,7 +6,6 @@ import {
   DockLocation,
   Layout,
   Model,
-  type Action,
   type IJsonModel,
   type ILayoutApi,
   type Node as FlexNode,
@@ -37,7 +36,6 @@ import {
   ANALYTICS_ROW_ID,
   componentsFromLayoutJson,
   loadPersistedLayout,
-  rowWeightFromLayout,
   savePersistedLayout,
   clearPersistedLayout,
 } from "@/lib/layoutPersist";
@@ -48,26 +46,6 @@ const MAIN_ROW_ID = "main-dock-row";
 /** Main dock fills one screen; analytics sit on a scrollable canvas below. */
 const MAIN_ROW_VH = 100;
 const ANALYTICS_BASE_VH = 56;
-const GROWTH_PER_TAB_VH = 30;
-const BASE_ANALYTICS_TABS = 3;
-const MAX_EXTRA_VH = 360;
-
-function extraVhFromCount(count: number): number {
-  return Math.max(0, Math.min(MAX_EXTRA_VH, (count - BASE_ANALYTICS_TABS) * GROWTH_PER_TAB_VH));
-}
-
-function countTabsInSubtree(node: FlexNode): number {
-  if (node.getType() === "tab") return 1;
-  return node.getChildren().reduce((sum, child) => sum + countTabsInSubtree(child), 0);
-}
-
-/** Tabs below the main dock (analytics canvas), not lap-times etc. in the top row. */
-function countAnalyticsCanvasTabs(model: Model): number {
-  const main = model.getNodeById(MAIN_ROW_ID);
-  const mainCount = main ? countTabsInSubtree(main) : 0;
-  const all = componentsFromLayoutJson(model.toJson()).filter((id) => id !== "analytics-add").length;
-  return Math.max(0, all - mainCount);
-}
 
 function analyticsIdsFromModel(model: Model): string[] {
   return componentsFromLayoutJson(model.toJson()).filter(
@@ -124,10 +102,16 @@ function buildDefaultModel(isARISOn: boolean): IJsonModel {
     weight: ANALYTICS_BASE_VH,
     children: isARISOn
       ? [
-          { type: "tabset", weight: 25, children: [tab("ghostdelta", "Ghost Δ")] },
-          { type: "tabset", weight: 25, children: [tab("tyredeg")] },
-          { type: "tabset", weight: 25, children: [tab("sectortimes")] },
-          { type: "tabset", weight: 25, children: [tab("gapchart")] },
+          { type: "tabset", weight: 32, children: [tab("ghostdelta", "Ghost Δ")] },
+          {
+            type: "row",
+            weight: 36,
+            children: [
+              { type: "tabset", weight: 50, children: [tab("tyredeg")] },
+              { type: "tabset", weight: 50, children: [tab("sectortimes")] },
+            ],
+          },
+          { type: "tabset", weight: 32, children: [tab("gapchart")] },
         ]
       : [
           { type: "tabset", weight: 34, children: [tab("tyredeg")] },
@@ -237,7 +221,6 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
   const [analyticsSlots, setAnalyticsSlots] = useState<string[]>(() =>
     defaultAnalyticsIds({ arisOn: useRaceStore.getState().isARISOn }),
   );
-  const [extraVh, setExtraVh] = useState(0);
   const [layoutEpoch, setLayoutEpoch] = useState(0);
 
   useEffect(() => {
@@ -250,13 +233,6 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
         const fromLayout = analyticsIdsFromModel(loaded);
         if (fromLayout.length) setAnalyticsSlots(fromLayout);
         else if (extra?.length) setAnalyticsSlots(extra);
-        const count = countAnalyticsCanvasTabs(loaded);
-        const weight = rowWeightFromLayout(saved, ANALYTICS_ROW_ID);
-        if (weight != null && weight > ANALYTICS_BASE_VH) {
-          setExtraVh(Math.min(MAX_EXTRA_VH, weight - ANALYTICS_BASE_VH));
-        } else {
-          setExtraVh(extraVhFromCount(count));
-        }
       } catch {
         if (extra?.length) setAnalyticsSlots(extra);
       }
@@ -405,29 +381,14 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
     });
   }, []);
 
-  const handleModelChange = useCallback((changedModel: Model, action: Action) => {
+  const handleModelChange = useCallback((changedModel: Model) => {
     const ids = analyticsIdsFromModel(changedModel);
     setAnalyticsSlots(ids.length ? ids : defaultAnalyticsIds({ arisOn: isARISOn }));
     saveAnalyticsSlots(ids.length ? ids : defaultAnalyticsIds({ arisOn: isARISOn }));
     if (canPersistLayout.current) {
       savePersistedLayout(changedModel);
     }
-    if (action.type === Actions.ADJUST_WEIGHTS) return;
-    const count = countAnalyticsCanvasTabs(changedModel);
-    setExtraVh((v) => {
-      const next = extraVhFromCount(count);
-      return next === v ? v : next;
-    });
   }, [isARISOn]);
-
-  useEffect(() => {
-    if (!layoutReady || isNarrow) return;
-    const root = model.getRootRow();
-    if (!root) return;
-    const children = root.getChildren();
-    if (children.length !== 2) return;
-    model.doAction(Actions.adjustWeights(root.getId(), [MAIN_ROW_VH, ANALYTICS_BASE_VH + extraVh]));
-  }, [extraVh, model, layoutReady, isNarrow]);
 
   useEffect(() => {
     if (!layoutReady) return;
@@ -468,18 +429,39 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
   }, []);
 
   function handleAddPanel(componentId: string) {
+    if (componentId === "explain") return;
     const entry = catalogueEntry(componentId);
     if (isNarrow) {
       addAnalytics(componentId);
       return;
     }
     if (entry?.category === "analytics") {
-      if (analyticsSlots.includes(componentId)) return;
       const row = model.getNodeById(ANALYTICS_ROW_ID);
+      const active = model.getActiveTabset();
+      if (row && active) {
+        let n: FlexNode | null = active;
+        let underAnalytics = false;
+        while (n) {
+          if (n.getId() === ANALYTICS_ROW_ID) {
+            underAnalytics = true;
+            break;
+          }
+          n = n.getParent() ?? null;
+        }
+        if (underAnalytics) {
+          layoutRef.current?.addTabToActiveTabSet(tab(componentId));
+          addAnalytics(componentId);
+          return;
+        }
+      }
       if (row) {
-        model.doAction(Actions.addNode(tab(componentId), ANALYTICS_ROW_ID, DockLocation.BOTTOM, -1));
-        addAnalytics(componentId);
-        return;
+        const sets = row.getChildren();
+        const last = sets[sets.length - 1];
+        if (last) {
+          model.doAction(Actions.addNode(tab(componentId), last.getId(), DockLocation.CENTER, -1));
+          addAnalytics(componentId);
+          return;
+        }
       }
     }
     layoutRef.current?.addTabToActiveTabSet(tab(componentId));
@@ -493,7 +475,6 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
     clearAnalyticsSlots();
     setModel(next);
     setAnalyticsSlots(defaults);
-    setExtraVh(0);
     setLayoutEpoch((n) => n + 1);
     savePersistedLayout(next);
     saveAnalyticsSlots(defaults);
@@ -502,18 +483,8 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
 
   useEffect(() => {
     if (!explainTabRequest) return;
-    handleAddPanel("explain");
-    // handleAddPanel closes over latest model/slots; fire once per request.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    useRaceStore.getState().setExplainTabRequest(null);
   }, [explainTabRequest]);
-
-  useEffect(() => {
-    if (!layoutReady || !isARISOn) return;
-    handleAddPanel("ghostdelta");
-    // Same as explainTabRequest: add Ghost Δ once ARIS is on so localhost
-    // users don't have to find it in the catalogue.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isARISOn, layoutReady]);
 
   useEffect(() => {
     if (!packToast) return;
@@ -718,7 +689,7 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
             {layoutReady ? (
               <div
                 className="relative w-full"
-                style={{ height: `${MAIN_ROW_VH + ANALYTICS_BASE_VH + extraVh}vh` }}
+                style={{ height: `${MAIN_ROW_VH + ANALYTICS_BASE_VH}vh` }}
               >
                 <Layout
                   key={layoutEpoch}

@@ -16,7 +16,9 @@ export function AnalyticsCatalogue({
   const [open, setOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
   const [menuPos, setMenuPos] = useState({ top: 0, right: 0 });
-  const analytics = categories.includes("analytics") ? PANEL_CATALOGUE.filter((p) => p.category === "analytics") : [];
+  const analytics = categories.includes("analytics")
+    ? PANEL_CATALOGUE.filter((p) => p.category === "analytics" && p.componentId !== "explain")
+    : [];
   const core = categories.includes("core") ? PANEL_CATALOGUE.filter((p) => p.category === "core") : [];
 
   useEffect(() => {

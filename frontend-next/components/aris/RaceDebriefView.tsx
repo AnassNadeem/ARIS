@@ -25,9 +25,11 @@ const SELECT =
 export function RaceDebriefView({
   sessionId,
   focusDriver,
+  lockDriver = false,
 }: {
   sessionId?: string;
   focusDriver?: string;
+  lockDriver?: boolean;
 }) {
   const session = useRaceStore((s) => s.session);
   const focused = useFocusDriver();
@@ -37,7 +39,8 @@ export function RaceDebriefView({
   const [code, setCode] = useState(focusDriver ?? focused);
 
   useEffect(() => {
-    if (!focusDriver && focused) setCode(focused);
+    if (focusDriver) setCode(focusDriver);
+    else if (focused) setCode(focused);
   }, [focused, focusDriver]);
   const [data, setData] = useState<RaceDebriefResponse | null>(null);
   const [pending, setPending] = useState(false);
@@ -76,14 +79,20 @@ export function RaceDebriefView({
   return (
     <div className="flex h-full min-h-[280px] flex-col overflow-hidden bg-carbon p-2">
       <div className="mb-2 flex flex-wrap items-center gap-2 font-mono-data text-[10px]">
-        <span className="text-muted">Driver</span>
-        <select value={code} onChange={(e) => setCode(e.target.value)} className={SELECT}>
-          {driverOptions.map((d) => (
-            <option key={d.driver_code} value={d.driver_code}>
-              {d.driver_code}
-            </option>
-          ))}
-        </select>
+        {lockDriver ? (
+          <span className="text-white">{code} · decisions</span>
+        ) : (
+          <>
+            <span className="text-muted">Driver</span>
+            <select value={code} onChange={(e) => setCode(e.target.value)} className={SELECT}>
+              {driverOptions.map((d) => (
+                <option key={d.driver_code} value={d.driver_code}>
+                  {d.driver_code}
+                </option>
+              ))}
+            </select>
+          </>
+        )}
         {data && (
           <span className="text-muted">
             {data.metadata.circuit} {data.metadata.season} · {data.metadata.total_laps} laps

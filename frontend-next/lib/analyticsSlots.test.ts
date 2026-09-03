@@ -17,6 +17,7 @@ describe("moveAnalyticsSlot", () => {
 describe("defaultAnalyticsIds", () => {
   it("puts Ghost Δ first when ARIS is on", () => {
     expect(defaultAnalyticsIds({ arisOn: true })[0]).toBe("ghostdelta");
+    expect(defaultAnalyticsIds({ arisOn: true })).not.toContain("explain");
     expect(defaultAnalyticsIds({ arisOn: false })).not.toContain("ghostdelta");
   });
 });

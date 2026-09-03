@@ -17,7 +17,7 @@ export function AnalyticsAddSlot({
   const btnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0, maxHeight: 320 });
-  const analytics = PANEL_CATALOGUE.filter((p) => p.category === "analytics");
+  const analytics = PANEL_CATALOGUE.filter((p) => p.category === "analytics" && p.componentId !== "explain");
   const taken = new Set(already);
 
   useEffect(() => {

@@ -196,7 +196,7 @@ function AskARIS() {
         }
       }
     }
-    const { answer, offline } = await askARIS(question, undefined, {
+    const { answer } = await askARIS(question, undefined, {
       year: session?.year,
       round: session?.round,
       driver: arisDriver ?? undefined,
@@ -208,8 +208,6 @@ function AskARIS() {
       source: "ARIS_ANALYSIS",
       text: answer,
       timestamp: nowTimestamp(),
-      // Never silently pass a canned fallback off as a live answer.
-      offlineAnswer: offline,
     });
     setPending(false);
   }
@@ -227,11 +225,6 @@ function AskARIS() {
           <div key={m.id} className="mb-2">
             <SourceLabel source={m.source} />
             <div className="mt-0.5 font-mono-data text-[11px] leading-relaxed text-white/90">{m.text}</div>
-            {m.offlineAnswer && (
-              <div className="mt-1 inline-block rounded bg-amber/15 px-1.5 py-0.5 font-mono-data text-[9px] text-amber">
-                ⚠ OFFLINE — backend unreachable, showing a cached local answer
-              </div>
-            )}
           </div>
         ))}
         {pending && <div className="font-mono-data text-[10px] text-muted">Thinking…</div>}
@@ -257,6 +250,7 @@ export function ARISComms() {
   const [tab, setTab] = useState<"main" | "chat">("main");
   const [threadId, setThreadId] = useState("c1");
   const [threadSeq, setThreadSeq] = useState(1);
+  const clearAskComms = useRaceStore((s) => s.clearAskComms);
   // Canonical chat panel: Copilot (tool-calling, cites retrieved chunks,
   // supports approve/deny/alter) is preferred over the plain Ask ARIS panel.
   // `copilotFeatureEnabled()` is on by default outside production and off in
@@ -292,6 +286,7 @@ export function ARISComms() {
               const next = threadSeq + 1;
               setThreadSeq(next);
               setThreadId(`c${next}`);
+              clearAskComms();
             }}
             className="ml-auto px-2 py-2 font-mono-data text-[9px] uppercase text-muted hover:text-white"
           >

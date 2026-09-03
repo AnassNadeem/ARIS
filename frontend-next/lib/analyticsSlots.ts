@@ -1,13 +1,10 @@
-import { explainFeatureEnabled } from "@/lib/api";
-
-export const ANALYTICS_SLOTS_KEY = "aris_analytics_slots_v1";
+export const ANALYTICS_SLOTS_KEY = "aris_analytics_slots_v2";
 
 export const DEFAULT_ANALYTICS_IDS = ["tyredeg", "sectortimes", "gapchart"] as const;
 
 export function defaultAnalyticsIds(opts?: { arisOn?: boolean }): string[] {
   const ids: string[] = [...DEFAULT_ANALYTICS_IDS];
   if (opts?.arisOn && !ids.includes("ghostdelta")) ids.unshift("ghostdelta");
-  if (explainFeatureEnabled()) ids.push("explain");
   return ids;
 }
 
