@@ -1,0 +1,27 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "aris",
+  // Required at repo root: Cloudflare Workers Builds runs `npx wrangler deploy`
+  // from the clone root. Local deploys can still use deploy/cloudflare-worker/.
+  // Canonical production UI remains Cloudflare Pages (DEPLOY.md).
+  "main": "deploy/cloudflare/worker.ts",
+  "compatibility_date": "2026-08-22",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "./frontend-next/out",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": true
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ARIS_API",
+        "class_name": "ArisApi"
+      }
+    ]
+  }
+}

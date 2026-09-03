@@ -174,8 +174,10 @@ The bucket must be publicly readable at `NEXT_PUBLIC_R2_BASE_URL`.
 
 ## 6. Optional Worker UI / future Container
 
-From `deploy/cloudflare-worker/` (package.json and wrangler configs live there
-only — not at repo root):
+Root `wrangler.jsonc` must stay at the repo root so Cloudflare Workers Builds
+(`npx wrangler deploy` after `cd frontend-next && npm run dev`) can find
+`frontend-next/out`. Local / package scripts still live under
+`deploy/cloudflare-worker/`:
 
 ```powershell
 cd deploy/cloudflare-worker
