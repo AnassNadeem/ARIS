@@ -1732,17 +1732,17 @@ def debrief(year: int, round_number: int, driver_code: str) -> DebriefResponse:
 
 
 def model_stats() -> ArisStatsResponse:
-    match = 0.325
+    match = 0.345
     return ArisStatsResponse(
         lap_time_mae_s=0.583,
         decision_match_rate=match,
-        never_pit_baseline=0.250,
+        never_pit_baseline=0.276,
         avg_position_delta=-1.73,
         clean_delta=-1.49,
         disrupted_delta=-2.38,
         version="v0.3",
         match_rate=match,
-        match_rate_fraction="28/87 dry",
+        match_rate_fraction="30/87 dry",
         last_gate="T4-final",
         timestamp=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     )

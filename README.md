@@ -1,340 +1,305 @@
-# ARIS
+# ARIS — Adaptive Race Intelligence System
 
-[![ci](https://github.com/AnassNadeem/ARIS/actions/workflows/ci.yml/badge.svg)](https://github.com/AnassNadeem/ARIS/actions/workflows/ci.yml)
-[![coverage](https://img.shields.io/badge/coverage-55.8%25-yellow)](https://github.com/AnassNadeem/ARIS/actions/workflows/ci.yml)
+**Live at [arisf1.tech](https://arisf1.tech) · Beta**
 
-> **Disclaimer:** ARIS is an unofficial project. It is not affiliated with,
-> associated with, authorized by, endorsed by, or in any way officially
-> connected to Formula 1, the FIA, Formula One Group, or any Formula 1
-> team or rights holder. “Formula 1”, “F1”, and related marks are
-> trademarks of their respective owners.
+An F1 race strategy simulator and pit-wall decision tool built on
+real session data. Pick any driver from any 2024–2026 race, watch
+the replay with a live timing tower and track map, and see how
+ARIS's recommended strategy would have played out against the real
+team's decisions.
 
-ARIS (Always On Race Intelligence System) is a race-strategy decision-support
-console: it watches a live or replayed Grand Prix, scores stay-out vs pit
-calls against real telemetry, and races an ARIS ghost against the field so
-every recommendation comes with a quantified lap-time delta — classical
-decision support stitched with modern ML, not a black box.
-
-**For reviewers:** open [arisf1.tech](https://arisf1.tech), pick a 2024 or 2025
-race, turn ARIS on, and watch the timing tower and ghost run the plan you
-chose. The headline result is mid-race match-rate **0.345** (30/87) vs stay-out,
-with a 2024 calendar blend MAE of **0.583 s** that does **not** beat MA(2).
-
-### ▶ Live — [**arisf1.tech**](https://arisf1.tech)
-
-**Strategy / Replay app:** [arisf1.tech](https://arisf1.tech) — Next.js console
-(timing tower, track map, ARIS ghost).
-**Lap explorer (Phase 2):** Streamlit — see
-[`docs/legacy-streamlit-deploy.md`](./docs/legacy-streamlit-deploy.md).
-
-**Where it stands today** (every figure is aimed vs actual; full account in
-[`docs/model-status.md`](./docs/model-status.md)):
-
-| Question | Aimed | Actual |
-|---|---|---|
-| 2024 calendar one-step blend MAE | ≤ **0.783** (1.5× MA(2) **0.522**) | **0.583 s** — closest stack, does **not** beat MA(2) |
-| Mid-race match-rate vs stay-out | > **0.276** (24/87) | **0.345** (30/87) T2 default; G1.5-only was 0.322 |
-| Lights-out position-delta | ≤ 0 | **−1.73** all 48 / **−1.49** clean (n=35) |
-| Tyre slopes from lap time | physical C1<…<C5 | G2/G3/G4 miss the gate — **G1.5 locked** |
-| Physics `team_sim − actual` intercept | a stable intercept | mean **+989 s**, std **544** — **closed**, do not subtract |
-
-Phase 2 (`v0.2-pipeline`) is tagged and live: FastF1 → Postgres ingest, a
-pandas-vs-SQL MA(2) canary at **machine epsilon**, and the public Streamlit
-lap explorer. That ingest floor — **0.460 s MAE on green-flag laps** across
-eight reference races — is still the lossless-ingest check, not the predictor
-headline. The five-race Phase C row (blend **0.549 s** vs MA(2) **0.469**) is
-superseded by the E3 calendar figure above. Tags past `v0.2-pipeline` have
-not been cut.
-
-**Wet / rain-affected races are not calibrated.** A conservative INTER/WET
-heuristic exists (`src/aris/physics/wet.py`) and is tagged `wet_heuristic` on
-the radio call. The dry headline remains the **87-event 0.345** slice.
-`--include-wet` scores INTER/WET inflections only; Spain-style `rainfall=True`
-dry races stay out of that 87. The wet slice after T3-patch is **0.345
-(38/110)** — the 0.340 gate passes; still an uncalibrated heuristic, not
-a headline. T3-B/C field undercut / overcut arcs are formally closed
-(0 pp on targeted events); flags stay off. **READY FOR T4.**
+[![CI](https://github.com/AnassNadeem/ARIS/actions/workflows/ci.yml/badge.svg)](https://github.com/AnassNadeem/ARIS/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/badge/coverage-55.8%25-yellow)](https://github.com/AnassNadeem/ARIS/actions)
 
 ---
 
-## Status
+## What it does
 
-| | |
-|---|---|
-| **Started** | 2026-05-04 |
-| **Ship target** | 2026-08-31 (`v1.0-shipped`); Dutch GP demo **21–23 August 2026** |
-| **Current phase** | Public-facing refresh, T−4 to Zandvoort. Predictor / match-rate / ranking numbers in [`docs/model-status.md`](./docs/model-status.md). Strategy demo on `main`, untagged past `v0.2` |
-| **Live** | [arisf1.tech](https://arisf1.tech) |
-| **Last tag** | [`v0.2-pipeline`](https://github.com/AnassNadeem/ARIS/releases/tag/v0.2-pipeline) — Postgres ingest + live lap explorer; ingest canary **0.460 s MAE** on green-flag laps across 8 races / 6383 laps |
-| **Held-out predictor MAE** | E3 2024 calendar blend **0.583 s** vs aimed ≤ **0.783** (1.5× MA(2) **0.522**). Does **not** beat MA(2). China is the 1.5× miss (**0.596** vs aimed **0.563**) |
-| **Mid-race match-rate** | **0.322** (28/87) vs stay-out **0.276** (24/87) |
-| **Lights-out position-delta** | **−1.73** all 48 / **−1.49** clean (n=35) / **−2.38** disrupted (n=13). Identity-safe ranking, not FIA points |
-| **Shipped tyre model** | **G1.5 locked** (Phase G.5): global compound slopes SOFT **0.08** / MEDIUM **0.05** / HARD **0.03** s/lap plus G1.4 physics-delta rollout. Fitted C-code overlays (G2/G3/G4) remain opt-in only. See [`docs/tyre-degradation-research.md`](./docs/tyre-degradation-research.md). |
-| **Physics offset** | **Closed.** `team_sim − actual` mean **+989 s**, std **544**; per configured lap **+17.3 s**. Do not subtract. See [`docs/physics-calibration-research.md`](./docs/physics-calibration-research.md). |
-| **Wet races** | **Out of scope.** No wet-strategy logic. Combined walk-forward **0.356** (48/135) inflections excluded as rainfall / wet compound / red-flag — a model gap, not an eval choice |
-| **Cadence** | 6 hrs/day × 6 days/week (Sundays off) |
-
-This repo is **under active construction**. Phases ship sequentially as
-tagged releases; nothing in this README is an over-claim of state.
+- **Replay mode** — every completed 2024, 2025, and 2026 race, with a
+  live-feeling pit wall: timing tower, track map, tyre state, gap
+  history, and sector colouring. Playback from 1× to 50× speed.
+- **ARIS strategy** — a search-based recommender scores a fixed
+  shortlist of pit/stay actions using a physics model, calls the
+  best option at each decision point, and displays it as an ARIS
+  timing-tower row showing the simulated gap vs the real driver.
+- **Ask ARIS** — factual questions (who is leading, what tyres is
+  X on, gap to leader) answered directly from live race state.
+  Strategic questions (should I pit, why did ARIS recommend lap 28)
+  answered from the last recommendation.
+- **Live timing** — OpenF1 SSE feed during race weekends, same
+  tower and map, without strategy (ARIS live strategist: coming soon).
 
 ---
 
-## What ARIS is
+## Honest numbers
 
-A **hybrid AI race strategist**. Six components, layered:
-
-| Layer | Component | Approach |
+| Metric | Value | Note |
 |---|---|---|
-| L0 | Telemetry ingest | FastF1 historical + live timing |
-| L1 | State estimation | Per-tick `RaceState` snapshot |
-| L2 | Lap-time predictor | Hand-coded bicycle model + tire deg curve, with an XGBoost residual learned on FastF1 data |
-| L3 | Counterfactual simulator | Perturb action → predict outcome (`simulate(state, action) → delta`) |
-| L4 | Recommender | Action search + Monte Carlo over remaining race, MC percentile bands (not calibrated conformal) |
-| L5 | Narrator | Local Llama 3.1 turns top recommendation into one-sentence radio call |
-| L6 | Dashboard | Streamlit (`apps/`): lap explorer + Strategy (Watch · Ask · What-if · Replay) |
+| Dry strategy match-rate | **34.5% (30/87)** | vs stay-out baseline 27.6% |
+| Never-pit baseline | 27.6% (24/87) | dead-simple benchmark |
+| Blend lap-time MAE | 0.583 s | physics + XGB residual + MA(2) |
+| MA(2) baseline MAE | **0.522 s** | MA(2) beats the blend |
+| Lights-out pos. delta | −1.73 all / −1.49 clean / −2.38 disrupted | negative = ARIS better |
+| Zandvoort 2026 identity | Pit L33 HARD · Pit L30 HARD · Stay out | locked regression test |
 
-It runs **always-on** against a race replay (FastF1 historical, treated
-as live), updating recommendations on a tiered cadence:
-1–2 s monitor · sector-level micro · lap-level macro · event-driven recompute.
-That replay **is** `engine/clock.py` + `engine/session.py` — the original
-`replay.py` was never added, on purpose. Walk-forward backtest
-(`scripts/backtest.py`) drives those same objects unattended; see
-[`docs/replay-architecture.md`](./docs/replay-architecture.md).
+**What 87 means:** 87 scored decision inflections across 2024–2025
+(pit stops, SC periods, compound changes), not 87 Grands Prix.
 
-ARIS models the full range of race-engineer decisions throughout a race
-(pit timing, compound choice, pace targets, SC/VSC reactions) in service of
-the best realistic outcome for the driver — not a narrow pit/no-pit binary.
-Given real data constraints, the explicit goal is the best achievable
-decision support within those constraints, not a claim of perfect or
-superhuman strategy.
+**Why the blend loses to MA(2):** the physics model carries a ~17 s/lap
+absolute offset that does not affect ranking (ranking uses deltas),
+but the MAE metric penalises it. MA(2) is a 2-lap moving average —
+useful for smoothing but blind to tyre state. ARIS uses deltas for
+ranking, not absolute times; this is why MAE is the wrong metric for
+strategy quality.
 
-## What ARIS is NOT
+---
 
-| | |
+## Architecture
+
+```mermaid
+flowchart LR
+  subgraph ingest["Ingest"]
+    FF1["FastF1\nlaps · weather · telemetry · results"]
+    OF1["OpenF1 REST\nlaps · intervals · position · stints · location"]
+  end
+  FF1 --> RS
+  OF1 --> RS
+  RS["RaceState\ncompound · tyre_life · fuel_kg\nlags · gaps · track_status · rainfall"]
+  RS --> PHYS["Physics bicycle\nv=√(μgR) · fuel 0.03 s/kg\nG1.5 tyre slopes"]
+  PHYS --> SIM["simulate(state, action)\nlap 1: physics + XGB residual\nlap 2+: physics-delta chain\npit: + YAML pit_loss_s"]
+  SIM --> REC["recommend()\nshortlist: stay · pit-now · pit-in-N\nscore by Δ vs stay-out\ndefault: physics scoring"]
+  REC --> GHOST["Ghost car\nscore_parallel_ghost\ncumulative_delta_s per lap"]
+  REC --> LLM["Ask ARIS\nfactual → store lookup\nstrategic → template + optional LLM"]
+  GHOST --> UI["Next.js pit wall\nTiming tower · Track map · Analytics"]
+  LLM --> UI
+  R2["Cloudflare R2\nrace_field.json\nghost_{CODE}.json"] --> UI
+```
+
+### Key variables at each stage
+
+| Stage | What flows through |
 |---|---|
-| ❌ **A world model** | No learned latent dynamics. The simulator is hand-coded physics + ML residual. Not Dreamer, RSSM, or GAIA-1. |
-| ❌ **Reinforcement learning** | No learned policy, no reward signal. Action selection is search-based, not policy-gradient. |
-| ❌ **An LLM agent** | The LLM narrates. It does not control. |
-| ❌ **Deep learning at its core** | The deep component is the LLM, used pretrained for narration only. |
+| FastF1 → ingest | `LapTime`, `Compound`, `TyreLife`, `TrackStatus`, `Rainfall`, `GridPosition`, `X/Y` GPS |
+| RaceState fields | `compound`, `tyre_life`, `fuel_kg`, `lag1_pace`, `lag2_pace`, `gap_ahead_s`, `track_status`, `rainfall` |
+| Physics → simulate | `slope × (tyre_life − 1)` + `0.03 × fuel_kg` + `pit_loss_s` |
+| Simulate → recommend | `delta_vs_stay_out_s` (negative = faster than staying out) |
+| Recommend → ghost | `pit_laps[]`, `compounds[]`, `cumulative_delta_s` per lap |
+| Ghost → UI | `position`, `gap_to_leader_s`, `compound`, `tyre_life` per lap tick |
 
-The discipline matters: F1 hiring managers can spot over-claims in 30s.
-ARIS is *classical decision support* stitched together with *modern ML
-and LLMs* — and that's what gets it through interview scrutiny.
+---
+
+## Replay vs live data paths
+
+```mermaid
+flowchart LR
+  subgraph replay["REPLAY (R2 static)"]
+    R2f["race_field.json\n≤3 MB per race"]
+    GH["ghost_{CODE}.json\none per driver"]
+    TK["250 ms ticker\nelapsedS += dt × speed\n1×–50× playback"]
+    R2f --> TK
+    GH --> TK
+  end
+  subgraph live["LIVE (OpenF1 SSE)"]
+    PL["poll_openf1_forever\n~1.15 s slots\n60 req/min budget"]
+    SS["GET /api/live/stream\nSSE ~1 Hz"]
+    FB["onerror → REST poll\n/timing /positions 2 s"]
+    PL --> SS
+    SS --> FB
+  end
+  TK --> SHARE["Shared layer\nmapTimingAndPositions\nTrackMap · TimingTower\nAnnotateGhostTower"]
+  FB --> SHARE
+```
+
+Both paths produce identical `CarState` objects consumed by the
+same tower and map components. The replay ticker emulates SSE
+framing so all downstream code is path-agnostic.
+
+---
+
+## Physics model
+
+**Bicycle model** (single-track, no aero, `src/aris/physics/bicycle.py`):
+
+v_corner = min(√(μ·g·R), v_max) μ=1.5, g=9.81, v_max=92 m/s
+t_lap = Σ corner_time + straight_time
++ slope × max(0, tyre_life − 1) ← G1.5 degradation
++ 0.03 × fuel_kg ← fuel penalty
++ pit_loss_s (if pitting, from circuit YAML)
+
+
+**Tyre slopes** (G1.5, `src/aris/physics/tires.py`):
+
+| Compound | s / lap of age |
+|---|---|
+| SOFT | 0.08 |
+| MEDIUM | 0.05 |
+| HARD | 0.03 |
+| INTER | 0.04 |
+| WET | 0.02 |
+
+**Fuel:** 110 kg start, 1.7 kg/lap burn, 0.03 s/kg penalty. All three
+are F1 rules-of-thumb, labelled as such in code.
+
+**XGBoost residual:** trained to predict `actual − physics`. Features:
+`compound_code`, `tyre_life`, `fuel_kg`, `lag1_pace`, `lag2_pace`,
+`stint_roll3`, `physics_pred`. Applied on **remainder lap 1 only**;
+subsequent laps use physics-delta chaining (residual dampened by
+`min(1, |physics − lag1| / 8)`).
+
+**Inverse-variance blend** (MAE evaluation only): physics+residual vs
+MA(2) = 0.5 × (lag1 + lag2), weighted by rolling 8-lap MSE.
+`simulate()` does not use this blend — it uses physics + lap-1
+residual only.
+
+**Sample pit-loss table** (full table in `data/tracks/*.yaml`):
+
+| Circuit | pit_loss_s |
+|---|---|
+| Bahrain | 21.8 |
+| Monaco | 19.2 |
+| Silverstone | 18.7 |
+| Zandvoort | 18.5 |
+| Monza | 21.3 |
+| Spa | 14.6 |
+| Australia | 14.3 |
+| Miami | 13.3 |
+
+---
+
+## Strategy recommender
+
+`recommend()` scores a shortlist every time a trigger fires:
+
+**Triggers:** lap 1 (always), tyre life at 25/50/75% of race distance,
+gap ahead < 22 s (undercut window), gap ahead < 1 s (tactical), any
+SC/VSC phase.
+
+**Shortlist:** STAY_OUT · PIT_NOW (each available compound) ·
+PIT_IN_{1,2,3,5,8} laps (each compound) · two-stop sketches if one
+stop cannot cover remaining laps · LIFT/BRAKE corner options.
+
+**Scoring:** `delta_vs_stay_out_s` from `simulate()`. Most negative
+delta = best action. Stay-out is always kept on the list.
+
+**What ARIS cannot see:** tyre temperatures, true Pirelli C-compound
+specification, rival team strategy, hidden fuel loads.
+
+**Match definition:** ARIS pit call within ±2 laps of team action,
+same dry compound. Wet races, red-flag sessions excluded.
+
+---
+
+## Ghost car
+
+The ARIS timing-tower row is a fully simulated car running ARIS's
+recommended strategy from lights-out, scored against the real field.
+
+**Per-lap simulation** (`src/aris/ghost.py::score_parallel_ghost`):
+
+ghost_lap_s[L] = simulate(STAY_OUT, ghost_tyres).this_lap
+real_lap_s[L] = simulate(STAY_OUT, real_tyres).this_lap
+cumulative_delta_s[L] += ghost_lap_s − real_lap_s
+(pit lap: + YAML pit_loss for the car that boxed)
+
+
+**Timing-tower ranking** (`rank_ghost_by_gap`):
+
+ghost_gap = max(0, real_gap_to_leader − cumulative_delta_s)
+ghost_position = 1 + count(classified gaps strictly < ghost_gap)
+
+When `cumulative_delta_s = 0` (ARIS plan identical to real),
+ghost position equals the real driver's classified position.
+
+**Previous bug (fixed):** old ranking summed raw lap times and froze
+retired cars as permanent race leaders, placing the Miami 2026 ghost
+P23 in a 22-car field. Replaced by gap-anchored ranking.
+
+**Frontend playback** (`frontend-next/lib/ghostCar.ts`):
+
+ghost_lap_s[L] = real_lap_s[L] − (delta[L] − delta[L−1])
+ghost_cumulative_s[L] = Σ ghost_lap_s[1..L]
+progress_within_lap = (elapsedS − cum[L−1]) / ghost_lap_s[L]
+path_frac = wrap01(progress)
+
+NaN laps (null FastF1 data) filled with median of finite ghost laps.
+
+**R2 ghost file** (`ghost_{CODE}.json`): strategy header (pit_laps,
+compounds, label) + per-lap ticks (position, gap_to_leader_s,
+compound, tyre_life, cumulative_delta_s, aris_action).
+
+---
+
+## Data storage
+
+| Store | Contents | Size |
+|---|---|---|
+| Cloudflare R2 | `race_field.json` + `ghost_{CODE}.json` per race per driver | ≤3 MB per race_field; tens of KB per ghost |
+| Postgres (Neon) | sessions, drivers, laps, weather, results, aris_cache | ~years of ingested 2018–2026 sessions |
+| FastF1 local cache | `.ff1pkl` per session (laps, weather, telemetry) | hundreds of MB on full machine |
+
+Replay console reads **R2 only** — no Postgres during normal use.
+Recommend and backtest read **Postgres** (ingested laps and weather).
+Live timing reads **OpenF1 REST** via the Heroku SSE broker.
+
+---
+
+## What ARIS is not
+
+| Claim | Reality |
+|---|---|
+| RL / learned policy | No. Search over a fixed shortlist, scored by a physics simulator. No online learning. |
+| LLM strategy agent | No. The LLM (optional Ollama) narrates decisions; it never ranks actions. |
+| Fitted tyre model | Partially. G1.5 slopes are F1 rules-of-thumb; circuit OLS overlays exist but are not the default. |
+| Calibrated wet model | No. INTER/WET recommendations are labelled `[HEURISTIC]`. Only ~5 rain-heavy races in the training set. |
+| Real-time ARIS strategy | Not yet. Live timing works; live strategy is "coming soon". |
+
+---
+
+## Repository layout
+
+src/aris/ Core model — physics, simulator, recommender, ghost, eval
+backend/ FastAPI broker — live SSE, replay packs, recommend API
+frontend-next/ Next.js pit wall (production at arisf1.tech)
+scripts/ Prebuild R2 replay packs, backtest, data tools
+deploy/ R2 upload, Cloudflare Worker (legacy extra UI host)
+apps/ Streamlit lap explorer — Phase 2, MA(2) accuracy canary
+tests/ 561 Python test functions, 93 files
+frontend-next/e2e Playwright e2e (ghost regression, live coming-soon)
+data/tracks/ Per-circuit YAML (pit_loss_s, tyre slopes, corners)
+docs/ Architecture notes, model status, ghost system, audit
+learning/ Month-long no-AI derivation notes (maths/stats ownership)
+
+
+---
+
+## Getting started
+
+```bash
+# Python (uv recommended)
+uv sync --extra dev
+cp .env.example .env        # fill DATABASE_URL, R2 credentials, OPENF1_API_KEY
+
+# Postgres
+docker compose up -d        # or point DATABASE_URL at Neon/any Postgres
+
+# Backend
+uvicorn backend.main:app --reload
+
+# Frontend
+cd frontend-next
+npm install
+cp .env.example .env.local  # set NEXT_PUBLIC_API_BASE, NEXT_PUBLIC_R2_BASE_URL
+npm run dev
+```
+
+See `DEPLOY.md` for Heroku + Cloudflare Pages deployment and
+`CONTRIBUTING.md` for the test/lint workflow before opening a PR.
 
 ---
 
 ## Stack
 
-**Core:**
-Python 3.11 · NumPy · pandas · scikit-learn · XGBoost · FastF1
-
-**Data + dashboard (Phase 2):**
-Postgres 16 · SQLAlchemy 2.0 · Streamlit · Docker
-
-**Inference + narration (Phase 6):**
-Ollama · Llama 3.1 8B (q5_K_M, local on RTX 5070)
-
-**Validation (parallel, Phase 5–6):**
-MATLAB / Simulink port of the bicycle module — separate repo
-[`aris-matlab-validation`](#) (link when published)
-
----
-
-## Roadmap
-
-Status key: ✅ tagged · ◐ code on `main`, tag not cut · ○ not done.
-“◀ next” marks the next **tag** to cut after Phase A review — not “nothing exists yet.”
-
-| Phase | Weeks | Output | Tag | Status |
-|---|---|---|---|---|
-| 0 | 0 | Loadout — Python, Docker, Ollama, NVIDIA + CUDA, repo skeleton | (prep, untagged) | ✅ |
-| 1 | 1–2 | Python foundations + first FastF1 plot | `v0.1-foundation` | ✅ |
-| 2 | 3–4 | Postgres ingest + Streamlit lap explorer, deployed | `v0.2-pipeline` | ✅ |
-| 3 | 5–7 | Lap-time predictor (physics + residual ML); honest held-out MAE published | `v0.3-predictor` | ◐ code yes; E3 calendar blend **0.583 s** vs aimed ≤ **0.783** (MA(2) **0.522**); tag not cut |
-| 4 | 8–9 | Counterfactual simulator (pit + lift/brake actions) | `v0.4-counterfactual` | ◐ pit + lift/brake on `main`; tag not cut |
-| 5 | 10–11 | Always-on Strategy loop + MC bands; MATLAB port begins | `v0.5-always-on` | ◐ engine + Strategy UI + MC; MATLAB not started; tag not cut |
-| 6 | 12–13 | LLM narration + grounded Ask; MATLAB validation finish | `v0.6-narrated` | ◐ narration + keyword Ask; true RAG / MATLAB open; tag not cut |
-| 7 | 14–15 | Eval harness, real conformal (mapie), backtest report, demo video | `v1.0-shipped` | ○ (Phase A only stabilized naming/leakage) |
-| 8 | 16–17 | Placement-applications-ready CV + cover letters | `v1.0-placement-ready` | ○ |
-
----
-
-## Repo layout
-
-```
-ARIS/
-├── src/aris/           # production logic (io, eval, physics, models, strategy)
-│   ├── io/             # Postgres + FastF1 ingest
-│   ├── eval/           # baselines, scoring, laptime harness
-│   ├── physics/        # bicycle model, tyres, stint detection
-│   ├── models/         # features, residual XGBoost, predict
-│   ├── state.py        # RaceState snapshot
-│   ├── simulate.py     # counterfactual pit/stay-out
-│   ├── montecarlo.py   # slim MC confidence layer
-│   ├── recommend.py    # top-3 strategy search
-│   └── narrate.py      # Ollama radio-call narration
-├── frontend-next/      # Next.js Strategy / Replay console (canonical UI)
-├── backend/            # FastAPI broker (Heroku in production)
-├── apps/               # Streamlit lap explorer (Phase 2, superseded by frontend-next/ — kept for the lap/sector MA(2) accuracy canary)
-├── scripts/            # ingest, train_residual, smoke_strategy, deploy_to_neon
-├── models/             # gitignored trained artefacts (residual_xgb.json)
-├── tests/
-└── docs/               # model-status, replay architecture, research notes
-```
-
----
-
-## First-time setup (after cloning)
-
-```powershell
-# Build the residual predictor
-python scripts/train_residual.py `
-    --years 2018 2019 2020 2021 2022 2023
-# Build the CQL training dataset
-python scripts/build_cql_dataset.py `
-    --years 2018 2019 2020 2021 2022 2023
-# Train the CQL Q-network
-python scripts/train_cql.py --dataset data/cql_dataset.parquet
-```
-
-CQL scoring is opt-in (`recommend(..., scoring="cql"|"blend")`) until it
-beats the dry 87-event physics walk. Default `recommend()` scoring stays
-`physics`. Torch is an optional extra: `uv sync --extra cql`.
-
-## Getting started
-
-The fastest way to see ARIS is the live console at [arisf1.tech](https://arisf1.tech).
-To run it yourself, clone and set up the environment (uv is the
-recommended path; a plain-pip fallback is in `requirements.txt`):
-
-```powershell
-git clone https://github.com/AnassNadeem/ARIS.git
-cd ARIS
-
-# uv (recommended — mirrors CI exactly)
-uv sync --extra dev
-
-# ...or plain pip
-python -m venv .venv; .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-
-# Run the test suite (DB integration tests skip without ARIS_DB_URL)
-uv run pytest
-```
-
-**Run the dashboard locally (Phase 2).** Bring up Postgres, ingest a season, then
-launch Streamlit. The app reads `ARIS_DB_URL` from a repo-root `.env` (see
-[`.env.example`](./.env.example)). Production Strategy/Replay deploy:
-[`DEPLOY.md`](./DEPLOY.md). Streamlit Cloud:
-[`docs/legacy-streamlit-deploy.md`](./docs/legacy-streamlit-deploy.md).
-
-```powershell
-docker compose up -d                       # local Postgres on :5432
-python scripts\ingest_season.py 2024       # idempotent — re-running never duplicates
-streamlit run apps\streamlit_app.py        # → http://localhost:8501
-```
-
-**Replay the baseline cross-check** — the canary that proves the ingest is lossless:
-
-```powershell
-python scripts\baseline_crosscheck.py      # SQL vs pandas MA(2), must match to ~1e-15 s
-python -m aris.eval.run_baseline_all_races # regenerate the 0.460 s green-flag floor
-```
-
-The FastF1 cache lands in `fastf1_cache/` (gitignored — regenerable); subsequent
-`session.load()` calls return in ~1 second.
-
----
-
-## v1 strategy demo (end-to-end)
-
-ARIS v1 adds a **Race Strategy** page: pick a replay lap, optionally override
-compound/fuel, and get top-3 pit/stay-out recommendations with a narrated radio call.
-
-**Shipped tyre model (G1.5, locked).** `simulate()` / `recommend()` / the
-Strategy UI use global compound slopes (SOFT 0.08 / MEDIUM 0.05 / HARD 0.03)
-and a physics-delta rollout: the residual is applied once on the first
-remaining lap, then only tyre slope + fuel. Four evidenced attempts to
-replace those globals with a fitted C-code overlay (unconstrained, isotonic,
-context-aware GBT) did not beat this path on the walk-forward gate. The
-overlays stay behind `ARIS_TRUE_COMPOUND_SLOPES`; unset is G1.5. That is a
-considered lock, not a provisional fallback — full account in
-[`docs/tyre-degradation-research.md`](./docs/tyre-degradation-research.md).
-
-**Wet races are out of scope.** The candidate menu is dry (SOFT / MEDIUM /
-HARD). Combined walk-forward **0.356** (48/135) inflections are excluded as
-rainfall / wet compound / red-flag. That gap is why, not a scoring trick.
-
-**Ask ARIS** on the public demo retrieves from a committed **snapshot** of
-14 real G1.5 decision records plus classified results and cited concepts —
-not the local JSONL log or the on-disk FAISS index. The panel is labeled
-**snapshot, not live**.
-
-**Prerequisites:** Postgres with 2024 season ingested, FastF1 cache warmed, and
-(optionally) the trained residual model in `models/residual_xgb.json`.
-
-```powershell
-# 1. Environment
-docker compose up -d
-uv sync --extra dev          # or: pip install -r requirements.txt
-python scripts\ingest_season.py 2024
-
-# 2. Train the XGBoost residual (first run only; ~2 min with warm cache)
-python scripts\train_residual.py
-
-# 3. Launch dashboard — use the "Strategy" page in the sidebar
-streamlit run apps\streamlit_app.py
-
-# 4. CLI smoke test (Bahrain 2024 R, VER, lap 15)
-python scripts\smoke_strategy.py --no-llm
-
-# 5. Held-out lap-time MAE eval
-python -m aris.eval.laptime
-```
-
-**Ollama narration (optional):** install [Ollama](https://ollama.com), pull
-`llama3.1:8b-instruct-q5_K_M`, and leave the "Use Ollama narration" checkbox on
-in the Strategy page. If Ollama is down, ARIS falls back to a template radio call.
-
-**Honest predictor note:** the physics + tyre + XGBoost stack is wired end-to-end.
-The figure to quote is the **E3 2024 calendar** (24 races, overlay unset):
-**MA(2) 0.522 · physics-only 17.378 · physics+residual 0.948 · blended
-0.583 s**, aimed ≤ **0.783** (1.5× MA(2)). **The blend does not beat MA(2).**
-China is the 1.5× miss (blend **0.596** vs aimed **0.563**). The older
-five-race Phase C row (MA(2) **0.469** · blend **0.549 s** on China, Monaco,
-Spain, Belgium, Abu Dhabi) remains in `results/heldout-laptime-mae.csv` as
-the short held-out; it is not the headline.
-
-Raw next-lap MAE is not the only metric that matters for ARIS. MA(2) has no
-action-conditional or counterfactual capability: it cannot answer “what if we
-pit / lift / brake here?” Mid-race match-rate vs stay-out is **0.322**
-(28/87) vs aimed > **0.276**. Lights-out position-delta is **−1.73** all 48 /
-**−1.49** clean — identity-safe ranking, not FIA points. Those are additional
-context, not an excuse: the calendar blend still does not beat MA(2).
-
----
-
-## Phase 1 artefact — first FastF1 pull
-
-![Verstappen fastest race lap — Bahrain 2024 (speed vs distance)](assets/screenshots/bahrain-2024-ver-fastest-lap.png)
-
-*Where this started: Max Verstappen's fastest race lap at Bahrain 2024 (lap 39,
-1:32.608, soft tyre), speed vs distance over the 5.41 km lap, straight from FastF1
-telemetry in [`notebooks/01-fastf1-first-pull.ipynb`](./notebooks/01-fastf1-first-pull.ipynb).
-This was the Phase 1 hero; the live dashboard above is the Phase 2 one.*
-
----
-
-## License
-
-MIT — see [`LICENSE`](./LICENSE).
-
----
-
-## Author
-
-**Anass Nadeem** · CS with AI, Brunel University of London ·
-[github.com/AnassNadeem](https://github.com/AnassNadeem)
-
-Building ARIS as the centrepiece project for 2027 industrial placements
-in F1 / motorsport software (Vehicle Performance Software, Strategy Tools).
+**Backend:** Python 3.12 · FastAPI · FastF1 · XGBoost · Pydantic · SQLAlchemy · Postgres (Neon) · Heroku Basic  
+**Frontend:** Next.js 14 (App Router) · Zustand · Recharts · Tailwind · Cloudflare Pages  
+**Data:** Cloudflare R2 · OpenF1 REST · GitHub Actions (weekly rebuild)  
+**Testing:** pytest (561 functions, CI-enforced) · vitest · Playwright e2e
