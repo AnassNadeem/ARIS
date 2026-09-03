@@ -1,4 +1,4 @@
-# ARIS — Adaptive Race Intelligence System
+# ARIS - Always-on Race Intelligence System
 
 **Live at [arisf1.tech](https://arisf1.tech) · Beta**
 
