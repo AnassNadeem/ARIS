@@ -5,6 +5,7 @@ import { useRaceStore } from "@/store/raceStore";
 import { usePanelHistory } from "@/lib/usePanelHistory";
 import { TyreIcon } from "@/components/ui/TyreIcon";
 import { PanelEmpty, PanelSkeleton, usePanelFeedLoading } from "@/components/ui/PanelStates";
+import type { Compound } from "@/lib/types";
 
 export function StintSummary() {
   const arisDriver = useRaceStore((s) => s.arisDriver) ?? "VER";
@@ -15,13 +16,13 @@ export function StintSummary() {
   const loading = usePanelFeedLoading();
   const ghostRows = Object.values(ghostTicks)
     .sort((a, b) => a.lap - b.lap)
-    .reduce<Array<{ driverCode: string; stintNumber: number; compound: string; startLap: number; endLap: number; avgLapTimeS: number }>>((acc, tick) => {
+    .reduce<Array<{ driverCode: string; stintNumber: number; compound: Compound; startLap: number; endLap: number; avgLapTimeS: number }>>((acc, tick) => {
       const last = acc[acc.length - 1];
       if (!last || last.compound !== tick.compound) {
         acc.push({
           driverCode: "ARIS",
           stintNumber: acc.length + 1,
-          compound: tick.compound,
+          compound: tick.compound as Compound,
           startLap: tick.lap,
           endLap: tick.lap,
           avgLapTimeS: 0,
