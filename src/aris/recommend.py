@@ -1195,10 +1195,16 @@ def recommend(
                             confidence_std_s=0.0,
                             p10_delta_s=0.0,
                             p90_delta_s=0.0,
-                            evidence=f"Race phase: {phase_config.phase.name} — strategy recalculating",
+                            evidence=(
+                                "Race phase: "
+                                f"{phase_config.phase.name} — strategy recalculating"
+                            ),
                             narration_context={
                                 "action": "STRATEGY_RESET",
-                                "reason": f"Race phase: {phase_config.phase.name} — strategy recalculating",
+                                "reason": (
+                                    "Race phase: "
+                                    f"{phase_config.phase.name} — strategy recalculating"
+                                ),
                                 "phase": phase_config.phase.name,
                                 "free_tyre_change": phase_config.free_tyre_change,
                             },
@@ -1361,7 +1367,11 @@ def recommend(
         evidence = outcome.evidence
         if state.confidence_caveat and state.confidence_caveat not in evidence:
             evidence = f"{evidence} | caveat: {state.confidence_caveat}"
-        if bonus < 0 and undercut_source in {"t2d", "t2d_missing"} and state.gap_ahead_s is not None:
+        if (
+            bonus < 0
+            and undercut_source in {"t2d", "t2d_missing"}
+            and state.gap_ahead_s is not None
+        ):
             note = f"Gap {state.gap_ahead_s:.1f}s — undercut bonus active."
             if note not in evidence:
                 evidence = f"{evidence} | {note}"

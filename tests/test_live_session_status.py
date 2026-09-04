@@ -651,25 +651,25 @@ def test_monza_2026_fp1_is_live_at_official_1230_cest():
     from backend.calendar import get_round_sessions
     from backend.live_hub import build_live_hub_fast
 
-    as_of = datetime(2026, 9, 4, 10, 45, tzinfo=timezone.utc)
+    as_of = datetime(2026, 9, 4, 10, 45, tzinfo=UTC)
     weekend = get_round_sessions(2026, 13, as_of=as_of)
     by = {s.session_type: s for s in weekend.sessions}
     assert by["FP1"].status == "LIVE"
-    assert by["FP1"].datetime_utc == datetime(2026, 9, 4, 10, 30, tzinfo=timezone.utc)
+    assert by["FP1"].datetime_utc == datetime(2026, 9, 4, 10, 30, tzinfo=UTC)
     assert by["FP2"].status == "UPCOMING"
-    assert by["FP2"].datetime_utc == datetime(2026, 9, 4, 14, 0, tzinfo=timezone.utc)
+    assert by["FP2"].datetime_utc == datetime(2026, 9, 4, 14, 0, tzinfo=UTC)
 
     hub = build_live_hub_fast(as_of)
     assert hub.mode == "live_session"
     fp1 = next(s for s in hub.weekend_sessions if s.session_type == "FP1")
     assert fp1.live is True
-    assert hub.countdown_target == datetime(2026, 9, 4, 10, 30, tzinfo=timezone.utc)
+    assert hub.countdown_target == datetime(2026, 9, 4, 10, 30, tzinfo=UTC)
 
 
 def test_monza_2026_fp1_still_upcoming_before_1030z():
     from backend.calendar import get_round_sessions
 
-    weekend = get_round_sessions(2026, 13, as_of=datetime(2026, 9, 4, 10, 0, tzinfo=timezone.utc))
+    weekend = get_round_sessions(2026, 13, as_of=datetime(2026, 9, 4, 10, 0, tzinfo=UTC))
     by = {s.session_type: s.status for s in weekend.sessions}
     assert by["FP1"] == "UPCOMING"
 
