@@ -674,6 +674,64 @@ def test_monza_2026_fp1_still_upcoming_before_1030z():
     assert by["FP1"] == "UPCOMING"
 
 
+def test_live_status_round_matches_monza_weekend(monkeypatch):
+    import asyncio
+
+    from backend import live as live_mod
+
+    sess = {
+        "session_key": 11354,
+        "session_name": "Practice 1",
+        "session_type": "Practice",
+        "year": 2026,
+        "circuit_short_name": "Monza",
+        "location": "Monza",
+        "date_start": "2026-09-04T10:30:00+00:00",
+        "date_end": "2026-09-04T11:30:00+00:00",
+    }
+
+    async def fake_peek(_as_of=None):
+        return sess
+
+    async def boom_round(_as_of=None):
+        raise TimeoutError("meetings too slow")
+
+    monkeypatch.setattr(live_mod, "peek_live_session", fake_peek)
+    monkeypatch.setattr(live_mod, "peek_live_round", boom_round)
+    status = asyncio.run(live_mod.live_status(datetime(2026, 9, 4, 11, 20, tzinfo=UTC)))
+    assert status.is_live is True
+    assert status.session_key == 11354
+    assert status.round_number == 13
+    assert status.source == "openf1"
+
+
+def test_weekend_calendar_attaches_live_fp1(monkeypatch):
+    import asyncio
+
+    from backend import live as live_mod
+
+    captured: dict[str, object] = {}
+
+    async def fake_resolve(year: int, round_number: int, session_type: str):
+        captured["year"] = year
+        captured["round"] = round_number
+        captured["type"] = session_type
+        return {
+            "session_key": 10601,
+            "session_name": "Practice 1",
+            "session_type": "Practice 1",
+            "year": year,
+            "circuit_short_name": "Monza",
+        }
+
+    monkeypatch.setattr(live_mod, "resolve_openf1_session", fake_resolve)
+    as_of = datetime(2026, 9, 4, 11, 20, tzinfo=UTC)
+    sess = asyncio.run(live_mod._session_from_weekend_calendar(as_of))
+    assert sess is not None
+    assert sess["session_key"] == 10601
+    assert captured == {"year": 2026, "round": 13, "type": "FP1"}
+
+
 def test_imola_2026_is_not_on_the_calendar():
     from backend.calendar import _SCHED_MEM, get_calendar
 
@@ -734,6 +792,16 @@ def test_session_window_ends_after_short_grace():
     done_at = datetime(2026, 8, 21, 15, 30, tzinfo=timezone.utc)
     assert _session_window_live(sess, live_at) is True
     assert _session_window_live(sess, done_at) is False
+
+
+def test_practice_window_stays_live_after_official_hour():
+    sess = {
+        "session_name": "Practice 1",
+        "date_start": "2026-09-04T10:30:00+00:00",
+        "date_end": "2026-09-04T11:30:00+00:00",
+    }
+    assert _session_window_live(sess, datetime(2026, 9, 4, 11, 40, tzinfo=UTC)) is True
+    assert _session_window_live(sess, datetime(2026, 9, 4, 12, 25, tzinfo=UTC)) is False
 
 
 def test_session_type_map_sprint_qualifying():

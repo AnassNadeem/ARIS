@@ -1,4 +1,4 @@
-import type { HubSession, SessionType } from "@/lib/types";
+import type { HubSession, LiveHub, SessionType } from "@/lib/types";
 import { sessionIsLiveNow } from "@/lib/sessionWindow";
 
 const SESSION_TYPES = new Set<string>(["R", "S", "Q", "FP1", "FP2", "FP3", "SS", "SQ"]);
@@ -17,4 +17,10 @@ export function pickDefaultHubSession(sessions: HubSession[]): HubSession | null
     .slice()
     .sort((a, b) => String(a.datetime_utc).localeCompare(String(b.datetime_utc)));
   return upcoming[0] ?? sessions[0];
+}
+
+/** Live weekends skip the picker and open the pit wall immediately. */
+export function shouldAutoStartLiveSession(hub: LiveHub, now = Date.now()): boolean {
+  if (hub.mode === "live_session" || hub.live.is_live) return true;
+  return hub.weekend_sessions.some((s) => sessionIsLiveNow(s, now));
 }

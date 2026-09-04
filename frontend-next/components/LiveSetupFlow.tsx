@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ARISConfigPanel } from "@/components/ARISConfigPanel";
 import { LiveSessionPicker } from "@/components/LiveSessionPicker";
 import { getDrivers, getQuickAnalysis } from "@/lib/api";
-import { asSessionType, pickDefaultHubSession } from "@/lib/liveSetup";
+import { asSessionType, pickDefaultHubSession, shouldAutoStartLiveSession } from "@/lib/liveSetup";
 import { MOCK_DRIVERS_2025 } from "@/lib/mockData";
 import {
   canStartRace,
@@ -46,6 +46,7 @@ export function LiveSetupFlow({
   const [driver, setDriver] = useState<string | null>(null);
   const [drivers, setDrivers] = useState(MOCK_DRIVERS_2025);
   const [analysisPending, setAnalysisPending] = useState(false);
+  const autoStarted = useRef(false);
 
   const year = hub.next.year;
   const round = hub.next.round_number;
@@ -127,6 +128,13 @@ export function LiveSetupFlow({
       onLoaded,
     ],
   );
+
+  useEffect(() => {
+    if (autoStarted.current || !picked) return;
+    if (!shouldAutoStartLiveSession(hub)) return;
+    autoStarted.current = true;
+    commitLive(false);
+  }, [hub, picked, commitLive]);
 
   function continueFromWeekend() {
     if (!picked) return;

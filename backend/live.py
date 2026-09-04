@@ -609,7 +609,12 @@ def _session_window_live(sess: dict[str, Any], as_of: datetime) -> bool:
         return False
     name = str(sess.get("session_name") or sess.get("session_type") or "").lower()
     lead_min = 75 if name in {"race", "r"} else 20
-    return start - timedelta(minutes=lead_min) <= as_of <= end + timedelta(minutes=3)
+    grace_min = 3
+    if "practice" in name or name in {"fp1", "fp2", "fp3"}:
+        # Official FP is 60 min; keep the feed through the 90-min calendar LIVE window.
+        grace_min = 20
+        end = max(end, start + timedelta(minutes=90))
+    return start - timedelta(minutes=lead_min) <= as_of <= end + timedelta(minutes=grace_min)
 
 
 async def peek_live_session(as_of: datetime | None = None) -> dict[str, Any] | None:
@@ -665,43 +670,60 @@ async def peek_live_session(as_of: datetime | None = None) -> dict[str, Any] | N
 
 
 async def _session_from_weekend_calendar(as_of: datetime) -> dict[str, Any] | None:
-    """Attach the next weekend session even when OpenF1 `latest` is still yesterday."""
+    """Attach the live (or imminent) weekend session even when OpenF1 `latest` is stale."""
     try:
-        from backend.calendar import next_race
+        from backend.calendar import get_round_sessions, next_race
 
         nxt = next_race(as_of=as_of)
     except Exception:
         return None
-    start = nxt.next_session_datetime
-    if start is None:
-        return None
-    mapped_guess = _session_type_map(str(nxt.next_session_name or ""), "")
-    lead_min = 75 if (mapped_guess or "").upper() == "R" or "race" in str(nxt.next_session_name or "").lower() else 20
-    after_h = {"R": 2.5, "Q": 1.75, "SQ": 1.0, "S": 1.25}.get((mapped_guess or "").upper(), 1.25)
-    if as_of < start - timedelta(minutes=lead_min) or as_of > start + timedelta(hours=after_h):
-        return None
-    mapped = _session_type_map(str(nxt.next_session_name or ""), "")
-    if not mapped:
-        raw = str(nxt.next_session_name or "").upper()
-        if "SPRINT QUALI" in raw or "SHOOTOUT" in raw:
-            mapped = "SQ"
-        elif "SPRINT" in raw:
-            mapped = "S"
-        elif "QUALI" in raw:
-            mapped = "Q"
-        elif raw.startswith("FP") or "PRACTICE" in raw:
-            mapped = "FP1"
-        else:
-            mapped = "R"
+    mapped: str | None = None
     try:
-        from backend.calendar import get_round_sessions
-
         weekend = get_round_sessions(int(nxt.year), int(nxt.round_number), as_of=as_of)
-        match = next((s for s in weekend.sessions if s.session_type == mapped), None)
-        if match is not None and match.status == "COMPLETED":
+        live_match = next((s for s in weekend.sessions if s.status == "LIVE"), None)
+        if live_match is not None:
+            mapped = str(live_match.session_type)
+        elif any(s.status == "COMPLETED" for s in weekend.sessions) and not any(
+            s.status in {"LIVE", "UPCOMING"} for s in weekend.sessions
+        ):
             return None
     except Exception:
-        pass
+        weekend = None
+    if not mapped:
+        start = nxt.next_session_datetime
+        if start is None:
+            return None
+        mapped_guess = _session_type_map(str(nxt.next_session_name or ""), "")
+        is_race = (mapped_guess or "").upper() == "R" or "race" in str(nxt.next_session_name or "").lower()
+        lead_min = 75 if is_race else 20
+        after_h = {
+            "R": 2.5,
+            "Q": 1.75,
+            "SQ": 1.0,
+            "S": 1.25,
+            "FP1": 1.6,
+            "FP2": 1.6,
+            "FP3": 1.6,
+        }.get((mapped_guess or "").upper(), 1.6)
+        if as_of < start - timedelta(minutes=lead_min) or as_of > start + timedelta(hours=after_h):
+            return None
+        mapped = mapped_guess
+        if not mapped:
+            raw = str(nxt.next_session_name or "").upper()
+            if "SPRINT QUALI" in raw or "SHOOTOUT" in raw:
+                mapped = "SQ"
+            elif "SPRINT" in raw:
+                mapped = "S"
+            elif "QUALI" in raw:
+                mapped = "Q"
+            elif raw.startswith("FP") or "PRACTICE" in raw:
+                mapped = "FP1"
+            else:
+                mapped = "R"
+        if weekend is not None:
+            match = next((s for s in weekend.sessions if s.session_type == mapped), None)
+            if match is not None and match.status == "COMPLETED":
+                return None
     try:
         return await resolve_openf1_session(int(nxt.year), int(nxt.round_number), mapped)
     except Exception:
@@ -1272,7 +1294,17 @@ async def live_status(
 
             nxt = next_race(as_of=as_of)
             place = str(sess.get("circuit_short_name") or sess.get("location") or "").lower()
-            if "zandvoort" in place or "nether" in str(nxt.circuit_key or nxt.name or "").lower():
+            nxt_blob = " ".join(
+                [
+                    str(nxt.circuit_key or ""),
+                    str(nxt.circuit_name or ""),
+                    str(nxt.name or ""),
+                    str(nxt.city or ""),
+                    str(nxt.country or ""),
+                ]
+            ).lower()
+            tokens = [p for p in place.split() if len(p) > 3]
+            if place and (place in nxt_blob or any(p in nxt_blob for p in tokens)):
                 round_number = nxt.round_number
                 year = nxt.year or year
         except Exception:
