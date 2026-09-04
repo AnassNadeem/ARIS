@@ -1,7 +1,7 @@
 "use client";
 
 import { useCountdown } from "@/lib/useCountdown";
-import { hubSessionCta } from "@/lib/liveSetup";
+import { hubSessionCtaCopy } from "@/lib/liveSetup";
 import { isArisCapableSession, sessionLabel } from "@/lib/sessionFlow";
 import { sessionIsLiveNow } from "@/lib/sessionWindow";
 import type { HubSession, LiveHub } from "@/lib/types";
@@ -49,12 +49,8 @@ function sessionClock(session: HubSession): string {
   });
 }
 
-function ctaLabel(session: HubSession): string {
-  const name = sessionLabel(session.session_type);
-  const cta = hubSessionCta(session);
-  if (cta === "live") return `Go Live · ${name} →`;
-  if (cta === "replay") return `Replay ${name} →`;
-  return `Open console · ${name} →`;
+function ctaCopy(session: HubSession): { label: string; disabled: boolean } {
+  return hubSessionCtaCopy(session);
 }
 
 export function LiveSessionPicker({
@@ -173,14 +169,14 @@ export function LiveSessionPicker({
         <button
           type="button"
           onClick={onContinue}
-          disabled={arisBlocked}
+          disabled={arisBlocked || ctaCopy(selected).disabled}
           className={`self-start rounded-[8px] border px-5 py-2.5 font-mono-data text-[11px] uppercase tracking-widest ${
-            arisBlocked
+            arisBlocked || ctaCopy(selected).disabled
               ? "cursor-not-allowed border-border text-muted-2"
               : "border-red bg-red/10 text-red hover:bg-red/20"
           }`}
         >
-          {ctaLabel(selected)}
+          {ctaCopy(selected).label}
         </button>
       )}
     </section>

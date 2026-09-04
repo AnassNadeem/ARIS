@@ -23,6 +23,7 @@ function LivePageInner() {
   const watch = search.get("watch") === "1";
   const autoSession = search.get("session");
   const autoAris = search.get("aris") === "1";
+  const autoDriver = search.get("driver");
   const [hub, setHub] = useState<LiveHub | null>(null);
   const [hubTried, setHubTried] = useState(false);
   const [consoleMode, setConsoleMode] = useState<"live" | "replay" | null>(null);
@@ -96,6 +97,7 @@ function LivePageInner() {
           autoEnter={watch}
           autoSession={autoSession}
           autoAris={autoAris}
+          autoDriver={autoDriver}
           onLoaded={(mode) => setConsoleMode(mode)}
         />
       )}

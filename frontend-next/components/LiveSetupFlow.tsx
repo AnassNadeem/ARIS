@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ARISConfigPanel } from "@/components/ARISConfigPanel";
 import { LiveSessionPicker } from "@/components/LiveSessionPicker";
-import { getDrivers, getQuickAnalysis } from "@/lib/api";
-import { asSessionType, autoArisForHubSession, hubSessionCta, liveHubSession, pickArisHubSession, pickDefaultHubSession, shouldAutoStartLiveSession } from "@/lib/liveSetup";
+import { LoadingTransition } from "@/components/LoadingTransition";
+import { getDrivers, getQuickAnalysis, getReplayPackStatus, initReplay } from "@/lib/api";
+import { asSessionType, hubSessionCta, liveHubSession, pickArisHubSession, pickDefaultHubSession, shouldAutoStartLiveSession } from "@/lib/liveSetup";
 import { MOCK_DRIVERS_2025 } from "@/lib/mockData";
 import {
   canStartRace,
@@ -23,12 +24,14 @@ export function LiveSetupFlow({
   autoEnter = false,
   autoSession = null,
   autoAris = false,
+  autoDriver = null,
   onLoaded,
 }: {
   hub: LiveHub;
   autoEnter?: boolean;
   autoSession?: string | null;
   autoAris?: boolean;
+  autoDriver?: string | null;
   onLoaded: (mode: "live" | "replay") => void;
 }) {
   const [now, setNow] = useState(() => Date.now());
@@ -59,10 +62,14 @@ export function LiveSetupFlow({
     }
     return pickDefaultHubSession(weekend);
   });
-  const [driver, setDriver] = useState<string | null>(null);
+  const [driver, setDriver] = useState<string | null>(autoDriver);
   const [drivers, setDrivers] = useState(MOCK_DRIVERS_2025);
   const [analysisPending, setAnalysisPending] = useState(false);
+  const [loadReady, setLoadReady] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const autoStarted = useRef(false);
+  const navigated = useRef(false);
+  const autoFetched = useRef(false);
 
   const year = hub.next.year;
   const round = hub.next.round_number;
@@ -106,14 +113,10 @@ export function LiveSetupFlow({
     setFocusDriver(driver);
   }, [driver, setARISDriver, setFocusDriver]);
 
-  const arisDefaulted = useRef(false);
   useEffect(() => {
-    if (arisDefaulted.current) return;
-    if (autoAris || isArisCapableSession(picked?.session_type)) {
-      arisDefaulted.current = true;
-      setARISOn(true);
-    }
-  }, [autoAris, picked?.session_type, setARISOn]);
+    if (autoEnter && !autoAris) setARISOn(false);
+    else setARISOn(true);
+  }, [autoEnter, autoAris, setARISOn]);
 
   useEffect(() => {
     if (picked && !isArisCapableSession(picked.session_type) && arisEnabled) {
@@ -121,14 +124,30 @@ export function LiveSetupFlow({
     }
   }, [picked, arisEnabled, setARISOn]);
 
+  const finish = useCallback(
+    (mode: "live" | "replay") => {
+      if (navigated.current) return;
+      navigated.current = true;
+      onLoaded(mode);
+    },
+    [onLoaded],
+  );
+
+  const pendingMode = useRef<"live" | "replay">("live");
+
   const commitSession = useCallback(
-    (withARIS: boolean, session: HubSession | null = picked) => {
+    async (withARIS: boolean, session: HubSession | null = picked) => {
       if (!session) return;
       const stype = asSessionType(session.session_type);
       const total = hub.circuit.total_laps ?? hub.live.total_laps ?? 72;
       const code = driver ?? "VER";
       const cta = hubSessionCta(session);
       const mode: "live" | "replay" = cta === "replay" ? "replay" : "live";
+      pendingMode.current = mode;
+      navigated.current = false;
+      setLoadReady(false);
+      setLoadError(null);
+      setStep("loading");
       setARISOn(withARIS);
       setSession({
         year,
@@ -146,7 +165,53 @@ export function LiveSetupFlow({
       setFocusDriver(code);
       useRaceStore.getState().setARISModeLocked(withARIS && sessionNeedsStrategyPick(stype));
       useRaceStore.getState().setConsoleMode(mode);
-      onLoaded(mode);
+
+      if (mode === "live") {
+        setLoadReady(true);
+        return;
+      }
+
+      try {
+        const init = await initReplay({
+          year,
+          round_number: round,
+          session_type: stype,
+        });
+        if (init?.stage) {
+          useRaceStore.getState().setPackStatus({
+            stage: init.stage,
+            progress: init.progress,
+            gpsReady: Boolean(init.flags?.gps_ready),
+          });
+        }
+        const key = init?.session_key;
+        if (key) {
+          const deadline = Date.now() + 20_000;
+          while (!navigated.current && Date.now() < deadline) {
+            const st = await getReplayPackStatus({
+              session_key: key,
+              year,
+              round_number: round,
+              session_type: stype,
+            });
+            const stage = st?.stage ?? "metadata";
+            useRaceStore.getState().setPackStatus({
+              stage,
+              progress: st?.progress,
+              gpsReady: Boolean(st?.flags?.gps_ready ?? st?.gps_ready),
+            });
+            if (stage === "minimal" || stage === "full" || st?.ready) {
+              setLoadReady(true);
+              return;
+            }
+            if (st?.status === "error") break;
+            await new Promise((r) => window.setTimeout(r, 800));
+          }
+        }
+        setLoadReady(true);
+      } catch {
+        setLoadReady(true);
+      }
     },
     [
       picked,
@@ -161,35 +226,39 @@ export function LiveSetupFlow({
       setGridDrivers,
       setARISDriver,
       setFocusDriver,
-      onLoaded,
     ],
   );
 
   useEffect(() => {
     if (autoStarted.current) return;
     const liveSess = liveHubSession(hub);
-    const shouldStart = autoEnter || shouldAutoStartLiveSession(hub);
+    const shouldStart = shouldAutoStartLiveSession(hub, Date.now(), {
+      watch: autoEnter,
+      session: autoSession,
+    });
     if (!shouldStart || !liveSess) return;
     autoStarted.current = true;
     setPicked(liveSess);
-    const arisOn = autoAris || autoArisForHubSession(liveSess);
+    if (autoDriver) setDriver(autoDriver);
+    const arisOn = Boolean(autoAris);
     if (arisOn && sessionNeedsStrategyPick(liveSess.session_type)) {
       setARISOn(true);
       setStep(nextSelectorStep("circuit", "aris", { arisEnabled: true }));
       return;
     }
-    commitSession(arisOn, liveSess);
-  }, [hub, commitSession, autoEnter, autoAris, setARISOn]);
+    void commitSession(arisOn, liveSess);
+  }, [hub, commitSession, autoEnter, autoSession, autoAris, autoDriver, setARISOn]);
 
   function continueFromWeekend() {
     if (!picked) return;
+    if (hubSessionCta(picked) === "wait") return;
     const arisOn = arisEnabled && isArisCapableSession(picked.session_type);
     if (arisOn && sessionNeedsStrategyPick(picked.session_type)) {
       setARISOn(true);
       setStep(nextSelectorStep("circuit", "aris", { arisEnabled: true }));
       return;
     }
-    commitSession(arisOn);
+    void commitSession(arisOn);
   }
 
   async function fetchStrategies() {
@@ -204,6 +273,13 @@ export function LiveSetupFlow({
     setSelectedStrategy(null);
     setAnalysisPending(false);
   }
+
+  useEffect(() => {
+    if (autoFetched.current || step !== "driver" || !autoDriver || !driver || !picked) return;
+    autoFetched.current = true;
+    void fetchStrategies();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, autoDriver, driver, picked]);
 
   const back = () => {
     setStep(nextSelectorStep(step, "back", { arisEnabled }));
@@ -235,7 +311,7 @@ export function LiveSetupFlow({
             <h1 className="font-mono-data text-[10px] uppercase tracking-[0.28em] text-muted">Live setup</h1>
             {summary && <p className="mt-1 font-mono-data text-[12px] text-white">{summary}</p>}
           </div>
-          {step !== "circuit" && (
+          {step !== "circuit" && step !== "loading" && (
             <button
               type="button"
               onClick={back}
@@ -350,15 +426,26 @@ export function LiveSetupFlow({
                 const hit = (strategies ?? []).find((p) => p.id === id) ?? null;
                 setSelectedStrategy(hit);
               }}
-              continueLabel="Go Live"
+              continueLabel={picked && hubSessionCta(picked) === "replay" ? "Replay" : "Join Live"}
               onContinue={() => {
                 if (!startEnabled) return;
-                commitSession(true);
+                void commitSession(true);
               }}
             />
           </div>
         )}
       </div>
+
+      {step === "loading" && (
+        <LoadingTransition
+          ready={loadReady}
+          error={loadError}
+          circuitName={hub.circuit.circuit_name || hub.next.name}
+          sessionLabel={picked ? sessionLabel(picked.session_type) : "Session"}
+          onRetry={() => void commitSession(arisEnabled, picked)}
+          onComplete={() => finish(pendingMode.current)}
+        />
+      )}
     </main>
   );
 }

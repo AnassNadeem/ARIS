@@ -2,15 +2,24 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { getLiveHub } from "@/lib/api";
+import { ArisHomeControls } from "@/components/home/ArisHomeControls";
+import { getDrivers, getLiveHub, getLiveLeaderCode } from "@/lib/api";
+import { isRaceSession } from "@/lib/liveSetup";
+import { MOCK_DRIVERS_2025 } from "@/lib/mockData";
 import { sessionLabel } from "@/lib/sessionFlow";
 import { applyLiveHubSessionWindows, featuredHubSession, sessionIsLiveNow } from "@/lib/sessionWindow";
-import type { LiveHub } from "@/lib/types";
+import { useRaceStore } from "@/store/raceStore";
+import type { DriverListing, LiveHub } from "@/lib/types";
 
 export function LiveRacePreview() {
   const [raw, setRaw] = useState<LiveHub | null>(null);
   const [failed, setFailed] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const [drivers, setDrivers] = useState<DriverListing[]>(MOCK_DRIVERS_2025);
+  const [arisOn, setArisOn] = useState(true);
+  const [driver, setDriver] = useState<string | null>(null);
+  const setARISOn = useRaceStore((s) => s.setARISOn);
+  const setARISDriver = useRaceStore((s) => s.setARISDriver);
 
   useEffect(() => {
     let cancelled = false;
@@ -37,7 +46,50 @@ export function LiveRacePreview() {
     return () => clearInterval(id);
   }, []);
 
-  if (!raw) {
+  useEffect(() => {
+    if (!raw) return;
+    let cancelled = false;
+    getDrivers(raw.next.year).then((d) => {
+      if (!cancelled && d.length) setDrivers(d);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [raw]);
+
+  const info = raw ? applyLiveHubSessionWindows(raw, now) : null;
+  const liveSession = info?.weekend_sessions.find((s) => sessionIsLiveNow(s, now)) ?? null;
+  const featured = info ? featuredHubSession(info.weekend_sessions, now) : null;
+  const raceControls = Boolean(
+    (liveSession && isRaceSession(liveSession.session_type)) ||
+      (!liveSession && featured && isRaceSession(featured.session_type)),
+  );
+
+  useEffect(() => {
+    if (driver || !drivers.length) return;
+    setDriver(drivers.find((d) => d.driver_code === "VER")?.driver_code ?? drivers[0]?.driver_code ?? null);
+  }, [drivers, driver]);
+
+  useEffect(() => {
+    if (!raceControls) return;
+    let cancelled = false;
+    getLiveLeaderCode().then((code) => {
+      if (cancelled || !code) return;
+      if (!drivers.some((d) => d.driver_code === code)) return;
+      setDriver(code);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [raceControls, drivers]);
+
+  function applyArisChoice(on: boolean, code: string | null) {
+    setArisOn(on);
+    setARISOn(on);
+    if (on && code) setARISDriver(code);
+  }
+
+  if (!raw || !info) {
     return (
       <div className="flex flex-1 flex-col rounded-[8px] border border-border bg-surface p-5">
         <div className="font-mono-data text-xs uppercase text-muted">
@@ -52,9 +104,6 @@ export function LiveRacePreview() {
     );
   }
 
-  const info = applyLiveHubSessionWindows(raw, now);
-  const liveSession = info.weekend_sessions.find((s) => sessionIsLiveNow(s, now));
-  const featured = featuredHubSession(info.weekend_sessions, now);
   const isLive = Boolean(liveSession) || info.mode === "live_session" || info.live.is_live;
   const targetIso =
     liveSession?.datetime_utc ?? featured?.datetime_utc ?? info.countdown_target ?? info.next.next_session_datetime;
@@ -69,11 +118,16 @@ export function LiveRacePreview() {
     { label: "S", value: Math.max(0, Math.floor((diff % 60_000) / 1000)) },
   ];
 
-  const watchHref = liveSession
-    ? `/live?watch=1&session=${encodeURIComponent(liveSession.session_type)}${
-        liveSession.session_type.toUpperCase() === "FP2" ? "&aris=1" : ""
-      }`
-    : "/live";
+  const liveRace = Boolean(liveSession && isRaceSession(liveSession.session_type));
+  let watchHref = "/live";
+  if (liveSession && isRaceSession(liveSession.session_type)) {
+    const qs = new URLSearchParams({ watch: "1", session: liveSession.session_type });
+    if (arisOn) {
+      qs.set("aris", "1");
+      if (driver) qs.set("driver", driver);
+    }
+    watchHref = `/live?${qs.toString()}`;
+  }
 
   return (
     <div className="flex flex-1 flex-col justify-between rounded-[8px] border border-border bg-surface p-5 text-left">
@@ -94,14 +148,27 @@ export function LiveRacePreview() {
           {info.circuit.country_flag} {info.next.name}
         </h3>
         <p className="mt-0.5 font-mono-data text-[11px] text-muted">{info.circuit.circuit_name}</p>
+        {raceControls && (
+          <ArisHomeControls
+            arisOn={arisOn}
+            drivers={drivers}
+            driver={driver}
+            onArisChange={(on) => applyArisChoice(on, driver)}
+            onDriverChange={(code) => {
+              setDriver(code);
+              applyArisChoice(true, code);
+            }}
+          />
+        )}
       </div>
 
       {isLive ? (
         <Link
           href={watchHref}
+          onClick={() => applyArisChoice(arisOn && liveRace, driver)}
           className="mt-4 inline-flex items-center justify-center gap-2 rounded-[8px] bg-red px-5 py-2.5 font-mono-data text-xs font-semibold uppercase tracking-wide text-white transition-transform hover:scale-[1.02] hover:brightness-110"
         >
-          ● WATCH LIVE →
+          {liveRace ? "● WATCH LIVE →" : "● LIVE HUB →"}
         </Link>
       ) : (
         <>

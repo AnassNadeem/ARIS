@@ -2456,11 +2456,12 @@ def synthetic_pos_from_laps(
     path_x: list[float],
     path_y: list[float],
     *,
-    step_s: float = 2.0,
+    step_s: float = 0.5,
 ) -> dict[str, list[tuple[float, float, float, str]]]:
     """Place cars on the circuit outline from lap timing (no FastF1 GPS).
 
-    Enough for map motion during the minimal replay stage.
+    Dense enough (~2 Hz) that the map interpolator does not look like
+    a handful of teleporting sector ticks when OpenF1 GPS is missing.
     """
     if not path_x or not path_y or not laps:
         return {}
@@ -2490,7 +2491,7 @@ def synthetic_pos_from_laps(
             pit = bool(row.get("is_pit_in_lap") or row.get("is_pit_out_lap"))
             st = "PitLane" if pit else "OnTrack"
             t0 = start.timestamp()
-            n = max(2, int(dur / max(0.5, step_s)))
+            n = max(4, int(dur / max(0.25, step_s)))
             for i in range(n + 1):
                 u = i / n
                 px, py = point_on_path(path_x, path_y, u)

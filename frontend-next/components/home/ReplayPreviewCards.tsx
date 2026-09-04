@@ -3,42 +3,70 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { getRecentRaces } from "@/lib/api";
+import { ArisHomeControls } from "@/components/home/ArisHomeControls";
+import { getDrivers, getRecentRaces } from "@/lib/api";
+import { MOCK_DRIVERS_2025 } from "@/lib/mockData";
 import { useRaceStore } from "@/store/raceStore";
-import type { RecentRaceCard } from "@/lib/types";
+import type { DriverListing, RecentRaceCard } from "@/lib/types";
 
 export function ReplayPreviewCards() {
   const router = useRouter();
   const [races, setRaces] = useState<RecentRaceCard[]>([]);
-  const setSession = useRaceStore((s) => s.setSession);
-  const setARISDriver = useRaceStore((s) => s.setARISDriver);
+  const [drivers, setDrivers] = useState<DriverListing[]>(MOCK_DRIVERS_2025);
+  const [arisOn, setArisOn] = useState(true);
+  const [driver, setDriver] = useState<string | null>(null);
   const setARISOn = useRaceStore((s) => s.setARISOn);
+  const setARISDriver = useRaceStore((s) => s.setARISDriver);
 
   useEffect(() => {
     getRecentRaces(3).then(setRaces);
   }, []);
 
-  function jumpToReplay(r: RecentRaceCard) {
-    // Previews skip the full selector — ARIS defaults off, driver defaults
-    // to the race winner. Both are still adjustable inside the console.
-    setARISOn(false);
-    setARISDriver(r.winnerCode);
-    setSession({
-      year: r.year,
-      round: r.round,
-      sessionType: "R",
-      circuitName: r.circuitName,
-      countryFlag: r.countryFlag,
-      totalLaps: 72,
-      date: r.date,
-      driverCode: r.winnerCode,
+  useEffect(() => {
+    const year = races[0]?.year;
+    if (!year) return;
+    let cancelled = false;
+    getDrivers(year).then((d) => {
+      if (cancelled || !d.length) return;
+      setDrivers(d);
+      setDriver((cur) => cur ?? d.find((x) => x.driver_code === races[0]?.winnerCode)?.driver_code ?? d[0]?.driver_code ?? null);
     });
-    router.push("/replay/console");
+    return () => {
+      cancelled = true;
+    };
+  }, [races]);
+
+  function applyArisChoice(on: boolean, code: string | null) {
+    setArisOn(on);
+    setARISOn(on);
+    if (on && code) setARISDriver(code);
+  }
+
+  function jumpToReplay(r: RecentRaceCard) {
+    applyArisChoice(arisOn, driver ?? r.winnerCode);
+    const qs = new URLSearchParams({ year: String(r.year), round: String(r.round) });
+    if (arisOn) {
+      qs.set("aris", "1");
+      if (driver ?? r.winnerCode) qs.set("driver", driver ?? r.winnerCode);
+    } else {
+      qs.set("start", "1");
+    }
+    router.push(`/replay?${qs.toString()}`);
   }
 
   return (
     <div className="flex flex-1 flex-col rounded-[8px] border border-border bg-surface p-5 text-left">
       <div className="font-mono-data text-[11px] uppercase tracking-widest text-muted">Replay a race</div>
+      <ArisHomeControls
+        arisOn={arisOn}
+        drivers={drivers}
+        driver={driver}
+        onArisChange={(on) => applyArisChoice(on, driver)}
+        onDriverChange={(code) => {
+          setDriver(code);
+          applyArisChoice(true, code);
+        }}
+      />
       <div className="mt-3 flex flex-1 flex-col gap-2">
         {races.length === 0 &&
           [0, 1, 2].map((i) => (
@@ -52,7 +80,9 @@ export function ReplayPreviewCards() {
           >
             <span className="flex items-center gap-2 truncate font-mono-data text-[12px] text-white">
               <span>{r.countryFlag}</span>
-              <span className="truncate">{r.circuitName}</span>
+              <span className="truncate">
+                {r.year} · {r.circuitName}
+              </span>
               {r.sessionType === "R" && (
                 <span className="rounded bg-red/15 px-1 text-[9px] text-red">RACE</span>
               )}

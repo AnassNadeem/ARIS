@@ -53,8 +53,8 @@ export function HeroSection() {
         </p>
 
         <div className="mt-10 grid w-full max-w-3xl grid-cols-1 gap-4 sm:grid-cols-2">
-          <LiveRacePreview />
           <ReplayPreviewCards />
+          <LiveRacePreview />
         </div>
 
         <div className="mt-8 font-mono-data text-[12px] text-muted">

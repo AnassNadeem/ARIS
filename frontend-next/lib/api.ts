@@ -390,6 +390,16 @@ export async function getRecentRaces(limit = 3): Promise<RecentRaceCard[]> {
   return live ?? mockRecentRaces(limit);
 }
 
+export async function getLiveLeaderCode(): Promise<string | null> {
+  const timing = await tryFetch<{ rows?: { position?: number; driver_code?: string }[] }>(
+    "/api/live/timing",
+    undefined,
+    4000,
+  );
+  const p1 = timing?.rows?.find((r) => r.position === 1);
+  return p1?.driver_code ?? null;
+}
+
 export async function getNextRace(): Promise<NextRaceInfo> {
   const live = await tryFetch<NextRaceInfo>("/api/next-race", undefined, 8000);
   if (live && "raceName" in live) return live;

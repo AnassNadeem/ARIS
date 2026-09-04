@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from backend.live import (
     _PACK_LOAD_ERROR,
@@ -43,7 +43,7 @@ def test_stamp_openf1_driver_codes_fills_missing_acronyms():
 
 
 def test_apply_openf1_to_pack_reaches_minimal_with_synthetic_gps():
-    start = datetime(2026, 9, 4, 10, 30, tzinfo=timezone.utc)
+    start = datetime(2026, 9, 4, 10, 30, tzinfo=UTC)
     pack = _new_replay_pack(801_026_131, 2026, 13, "FP1", start, None)
     pack["path_x"] = [0.0, 10.0, 10.0, 0.0, 0.0]
     pack["path_y"] = [0.0, 0.0, 10.0, 10.0, 0.0]
@@ -84,6 +84,9 @@ def test_apply_openf1_to_pack_reaches_minimal_with_synthetic_gps():
     assert replay_pack_stage(pack) == "minimal"
     assert (pack.get("ff1") or {}).get("synthetic_gps") is True
     assert "VER" in ((pack.get("ff1") or {}).get("pos_samples") or {})
+    samples = (pack.get("ff1") or {}).get("pos_samples")["VER"]
+    # ~80s lap at 0.5s steps should be tens of points, not 4–6 sector ticks.
+    assert len(samples) >= 20
     assert 801_026_131 not in _PACK_LOAD_ERROR
 
 
@@ -97,14 +100,18 @@ def test_fill_pack_openf1_uses_resolved_session(monkeypatch):
         2026,
         13,
         "FP1",
-        datetime(2026, 9, 4, 10, 30, tzinfo=timezone.utc),
+        datetime(2026, 9, 4, 10, 30, tzinfo=UTC),
         None,
     )
     calls: list[str] = []
 
     async def fake_resolve(year, round_number, session_type):
         assert (year, round_number, session_type) == (2026, 13, "FP1")
-        return {"session_key": 7777, "date_start": "2026-09-04T10:30:00Z", "date_end": "2026-09-04T11:40:00Z"}
+        return {
+            "session_key": 7777,
+            "date_start": "2026-09-04T10:30:00Z",
+            "date_end": "2026-09-04T11:40:00Z",
+        }
 
     async def fake_openf1(path, params=None, *, timeout=None):
         calls.append(path)
@@ -133,3 +140,20 @@ def test_fill_pack_openf1_uses_resolved_session(monkeypatch):
     assert pack["laps"][0]["driver_code"] == "PIA"
     assert "laps" in calls
     assert "drivers" in calls
+
+
+def test_synthetic_pos_from_laps_is_dense():
+    from backend.sessions import synthetic_pos_from_laps
+
+    laps = [
+        {
+            "driver_code": "VER",
+            "lap_number": 1,
+            "date_start": "2026-09-04T10:32:00+00:00",
+            "lap_duration": 90.0,
+        }
+    ]
+    samples = synthetic_pos_from_laps(
+        laps, [0.0, 10.0, 10.0, 0.0, 0.0], [0.0, 0.0, 10.0, 10.0, 0.0]
+    )
+    assert len(samples["VER"]) >= 80

@@ -1,5 +1,5 @@
 import type { HubSession, LiveHub, SessionType } from "@/lib/types";
-import { isArisCapableSession } from "@/lib/sessionFlow";
+import { isArisCapableSession, sessionLabel } from "@/lib/sessionFlow";
 import { sessionIsLiveNow } from "@/lib/sessionWindow";
 
 const SESSION_TYPES = new Set<string>(["R", "S", "Q", "FP1", "FP2", "FP3", "SS", "SQ"]);
@@ -40,19 +40,36 @@ export function hubSessionCta(session: HubSession, now = Date.now()): "live" | "
   return "wait";
 }
 
-/** Live weekend session that should open the console immediately (FP2, race, …). */
+export function hubSessionCtaCopy(session: HubSession, now = Date.now()): { label: string; disabled: boolean } {
+  const name = sessionLabel(session.session_type);
+  const cta = hubSessionCta(session, now);
+  if (cta === "live") return { label: `Join Live · ${name}`, disabled: false };
+  if (cta === "replay") return { label: `Replay ${name}`, disabled: false };
+  return { label: "Waiting for Session to Start", disabled: true };
+}
+
 export function liveHubSession(hub: LiveHub, now = Date.now()): HubSession | null {
   return hub.weekend_sessions.find((s) => sessionIsLiveNow(s, now)) ?? null;
 }
 
-/** Visiting /live during a live window skips the picker and opens the console. */
-export function shouldAutoStartLiveSession(hub: LiveHub, now = Date.now()): boolean {
-  if (liveHubSession(hub, now)) return true;
-  if (hub.mode === "live_session" || hub.live.is_live) return true;
-  return false;
+/** Race-only: homepage Watch Live may skip the picker. /live itself never auto-starts. */
+export function shouldAutoStartLiveSession(
+  hub: LiveHub,
+  now = Date.now(),
+  opts?: { watch?: boolean; session?: string | null },
+): boolean {
+  if (!opts?.watch) return false;
+  const wanted = asSessionType(opts.session);
+  if (wanted !== "R") return false;
+  const live = liveHubSession(hub, now);
+  return Boolean(live && asSessionType(live.session_type) === "R");
 }
 
-/** FP2 and Race turn ARIS on when the live console auto-starts. */
+/** Race and FP2 can run ARIS from the live picker. */
 export function autoArisForHubSession(session: HubSession | null | undefined): boolean {
   return isArisCapableSession(session?.session_type);
+}
+
+export function isRaceSession(sessionType: string | null | undefined): boolean {
+  return asSessionType(sessionType) === "R";
 }

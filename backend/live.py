@@ -1427,7 +1427,7 @@ _PACK_JOBS: dict[int, asyncio.Task] = {}
 _REPLAY_PACK_DISK_PREFIX = "replay_pack_v1:"
 _LOC_BUCKETS: dict[tuple[int, int], list[Any]] = {}
 _CAR_BUCKETS: dict[tuple[int, int], list[Any]] = {}
-_LOC_BUCKET_S = 30
+_LOC_BUCKET_S = 10
 _LOC_BUCKET_KEEP = 80
 
 
@@ -2480,9 +2480,11 @@ def _stamp_openf1_driver_codes(rows: list[Any], codes: dict[int, str]) -> list[d
         num = item.get("driver_number")
         if num is not None and not item.get("driver_code"):
             try:
-                item["driver_code"] = codes.get(int(num), "")
+                n = int(num)
             except (TypeError, ValueError):
-                pass
+                n = None
+            if n is not None:
+                item["driver_code"] = codes.get(n, "")
         out.append(item)
     return out
 
@@ -2926,7 +2928,8 @@ async def _cold_load_minimal(
         f"{pack_year} R{pack_round} {mapped}",
     )
     _log.info(
-        "replay pack MISS session_key=%s year=%s round=%s type=%s start_utc=%s — FastF1 then OpenF1",
+        "replay pack MISS session_key=%s year=%s round=%s type=%s "
+        "start_utc=%s — FastF1 then OpenF1",
         session_key,
         pack_year,
         pack_round,
@@ -2947,7 +2950,9 @@ async def _cold_load_minimal(
         )
         if pack_year and pack_round:
             if not pack.get("path_x"):
-                await _fill_pack_map(session_key, int(pack_year), int(pack_round), executor=executor)
+                await _fill_pack_map(
+                    session_key, int(pack_year), int(pack_round), executor=executor
+                )
                 pack = _REPLAY_PACKS.get(session_key) or pack
             await _fill_pack_openf1(pack, session_key, int(pack_year), int(pack_round), mapped)
             pack = _REPLAY_PACKS.get(session_key) or pack
@@ -3241,7 +3246,8 @@ async def _upgrade_pack_fastf1(
             )
         if not (isinstance(ff1, dict) and ff1.get("ok")):
             _log.info(
-                "FastF1 replay assets unavailable session_key=%s year=%s round=%s type=%s — OpenF1 fallback may fill",
+                "FastF1 replay assets unavailable session_key=%s year=%s "
+                "round=%s type=%s — OpenF1 fallback may fill",
                 session_key,
                 year,
                 round_number,
@@ -3697,8 +3703,11 @@ async def _empty_rows() -> list[Any]:
 
 
 async def _prefetch_replay_feed(session_key: int, start: datetime) -> None:
-    """Replay GPS is FastF1; OpenF1 location/car buckets are live-only."""
-    return
+    """Warm the OpenF1 location bucket around `start` for OpenF1-sourced replay."""
+    try:
+        await _location_bucket(session_key, start)
+    except Exception:
+        return
 
 
 def _cars_from_samples(pack: dict[str, Any], clock: datetime) -> dict[int, dict[str, Any]]:
@@ -4131,8 +4140,22 @@ async def replay_frame(
                 eliminated.add(code)
     locations: dict[int, dict[str, Any]] = {}
     cars = _cars_from_samples(pack, clock)
-    has_ff1_pos = bool((ff1.get("pos_samples") or {}))
-    if has_ff1_pos:
+    has_real_ff1_pos = bool(ff1.get("pos_samples")) and not ff1.get("synthetic_gps")
+    of1_key = pack.get("openf1_session_key")
+    if not has_real_ff1_pos and of1_key:
+        try:
+            loc_rows = await _location_bucket(int(of1_key), clock)
+            ahead = clock + timedelta(seconds=_LOC_BUCKET_S)
+            asyncio.create_task(_location_bucket(int(of1_key), ahead))
+            locations = {
+                n: r
+                for n, r in _locations_at(loc_rows, clock).items()
+                if isinstance(r, dict) and _gps_usable(r, now=clock, max_age_s=90.0)
+            }
+        except Exception:
+            locations = {}
+    has_ff1_pos = has_real_ff1_pos or (bool(ff1.get("pos_samples")) and not locations)
+    if has_real_ff1_pos:
         source = "fastf1"
         pack["source"] = "fastf1"
     if not has_ff1_pos:
@@ -4942,7 +4965,7 @@ async def live_positions(
     if not latest and not _STATE.get("locations"):
         now = now_utc(as_of)
         loc: list[Any] = []
-        windows = (8, 120, 600)
+        windows = (8, 12, 20)
         sess_row = _STATE.get("session") if _feed_session_key() == status.session_key else None
         end = _parse_dt((sess_row or {}).get("date_end")) if isinstance(sess_row, dict) else None
         if end is None:
@@ -5678,7 +5701,9 @@ async def sse_generator(replay_session_key: int | None = None):
 async def _poll_location(session_key: int) -> None:
     now = datetime.now(timezone.utc)
     have = bool(_STATE.get("locations"))
-    windows = (8, 20) if have else (12, 60, 300)
+    # Small windows only — a 60s+ dump of every car is truncated by OpenF1
+    # to a handful of points per lap, which makes the map teleport.
+    windows = (6, 10) if have else (8, 12)
     loc: list[Any] = []
     for window in windows:
         since = (now - timedelta(seconds=window)).strftime("%Y-%m-%dT%H:%M:%S")

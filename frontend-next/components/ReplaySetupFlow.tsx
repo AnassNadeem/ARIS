@@ -48,6 +48,9 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
   const urlYear = urlYearRaw != null && urlYearRaw !== "" ? Number(urlYearRaw) : null;
   const yearBlocked = urlYear != null && Number.isFinite(urlYear) && !isAllowedReplayYear(urlYear);
   const urlRound = Number(search.get("round"));
+  const urlAris = search.get("aris") === "1";
+  const urlDriver = search.get("driver");
+  const urlStart = search.get("start") === "1";
 
   const setSession = useRaceStore((s) => s.setSession);
   const setARISDriver = useRaceStore((s) => s.setARISDriver);
@@ -72,13 +75,14 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
   const [roundsLoading, setRoundsLoading] = useState(true);
   const [round, setRound] = useState<RoundCard | null>(null);
   const [mode, setMode] = useState<ReplayMode | null>(null);
-  const [driver, setDriver] = useState<string | null>(null);
+  const [driver, setDriver] = useState<string | null>(urlDriver);
   const [drivers, setDrivers] = useState<DriverListing[]>([]);
   const [driversLoading, setDriversLoading] = useState(false);
   const [analysisPending, setAnalysisPending] = useState(false);
   const [loadReady, setLoadReady] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const navigated = useRef(false);
+  const urlBooted = useRef(false);
 
   function storeReplayOutline(src: Parameters<typeof circuitCoordsFromReplayOutline>[0]) {
     const coords = circuitCoordsFromReplayOutline(src);
@@ -153,6 +157,11 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
   }, [year, round]);
 
   useEffect(() => {
+    if (urlStart) setARISOn(false);
+    else setARISOn(true);
+  }, [urlStart, setARISOn]);
+
+  useEffect(() => {
     if (!driver) return;
     setARISDriver(driver);
     setFocusDriver(driver);
@@ -162,6 +171,10 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
     if (!round || r2Configured()) return;
     void prewarmSession({ year, round_number: round.round, session_type: RACE_SESSION });
   }, [year, round]);
+
+  const dataReady = r2Configured()
+    ? !driversLoading && drivers.length > 0
+    : !roundsLoading && Boolean(round);
 
   const commitSession = useCallback(
     async (withARIS: boolean) => {
@@ -340,7 +353,7 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
   }
 
   function continueFromCircuit() {
-    if (!round) return;
+    if (!round || !dataReady) return;
     if (arisEnabled) {
       setMode("aris");
       setARISOn(true);
@@ -362,6 +375,30 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
     setSelectedStrategy(null);
     setAnalysisPending(false);
   }
+
+  useEffect(() => {
+    if (urlBooted.current || !round || roundsLoading || !dataReady) return;
+    if (urlAris) {
+      urlBooted.current = true;
+      setARISOn(true);
+      if (urlDriver) setDriver(urlDriver);
+      setMode("aris");
+      setStep("driver");
+      return;
+    }
+    if (urlStart) {
+      urlBooted.current = true;
+      void commitSession(false);
+    }
+  }, [round, roundsLoading, dataReady, urlAris, urlStart, urlDriver, setARISOn, commitSession]);
+
+  const autoFetched = useRef(false);
+  useEffect(() => {
+    if (autoFetched.current || step !== "driver" || !urlDriver || !driver || !round) return;
+    autoFetched.current = true;
+    void fetchStrategies();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, urlDriver, driver, round]);
 
   const back = () => {
     if (step === "loading") return;
@@ -458,6 +495,8 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
             loading={roundsLoading}
             yearBlocked={yearBlocked}
             arisEnabled={arisEnabled}
+            continueDisabled={!dataReady}
+            continueHint="Waiting for race data…"
             onYearChange={(y) => {
               setYear(y);
               setRoundsLoading(true);

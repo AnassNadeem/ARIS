@@ -14,6 +14,8 @@ export function ReplaySelector({
   loading,
   yearBlocked,
   arisEnabled,
+  continueDisabled,
+  continueHint,
   onYearChange,
   onSelect,
   onContinue,
@@ -26,6 +28,8 @@ export function ReplaySelector({
   loading?: boolean;
   yearBlocked?: boolean;
   arisEnabled: boolean;
+  continueDisabled?: boolean;
+  continueHint?: string;
   onYearChange: (year: number) => void;
   onSelect: (round: RoundCard) => void;
   onContinue: () => void;
@@ -161,9 +165,19 @@ export function ReplaySelector({
         <button
           type="button"
           onClick={onContinue}
-          className="self-start rounded-[8px] border border-red bg-red/10 px-5 py-2.5 font-mono-data text-[11px] uppercase tracking-widest text-red hover:bg-red/20"
+          disabled={Boolean(continueDisabled)}
+          title={continueDisabled ? continueHint : undefined}
+          className={`self-start rounded-[8px] border px-5 py-2.5 font-mono-data text-[11px] uppercase tracking-widest ${
+            continueDisabled
+              ? "cursor-not-allowed border-border text-muted-2"
+              : "border-red bg-red/10 text-red hover:bg-red/20"
+          }`}
         >
-          {arisEnabled ? `Continue with ${selected.circuitName} →` : `Start Race · ${selected.circuitName} →`}
+          {continueDisabled
+            ? continueHint || "Waiting for race data…"
+            : arisEnabled
+              ? `Continue with ${selected.circuitName} →`
+              : `Start Race · ${selected.circuitName} →`}
         </button>
       )}
     </section>
