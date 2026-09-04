@@ -541,7 +541,7 @@ export class ReplayFrameFeed {
     store.setCurrentLap(0);
     store.setPlaybackSpeed(1);
     store.setIsPlaying(false);
-    store.setCars({});
+    if (!store.r2RaceField) store.setCars({});
     store.setLapRows([]);
     store.setStintRows([]);
     store.setWaiting(true, "Loading session data…");

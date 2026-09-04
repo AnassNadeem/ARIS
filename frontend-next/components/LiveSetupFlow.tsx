@@ -185,32 +185,37 @@ export function LiveSetupFlow({
           });
         }
         const key = init?.session_key;
-        if (key) {
-          const deadline = Date.now() + 20_000;
-          while (!navigated.current && Date.now() < deadline) {
-            const st = await getReplayPackStatus({
-              session_key: key,
-              year,
-              round_number: round,
-              session_type: stype,
-            });
-            const stage = st?.stage ?? "metadata";
-            useRaceStore.getState().setPackStatus({
-              stage,
-              progress: st?.progress,
-              gpsReady: Boolean(st?.flags?.gps_ready ?? st?.gps_ready),
-            });
-            if (stage === "minimal" || stage === "full" || st?.ready) {
-              setLoadReady(true);
-              return;
-            }
-            if (st?.status === "error") break;
-            await new Promise((r) => window.setTimeout(r, 800));
-          }
+        if (!key) {
+          setLoadError("Couldn't start replay. Try another session or retry.");
+          return;
         }
-        setLoadReady(true);
+        const deadline = Date.now() + 20_000;
+        while (!navigated.current && Date.now() < deadline) {
+          const st = await getReplayPackStatus({
+            session_key: key,
+            year,
+            round_number: round,
+            session_type: stype,
+          });
+          const stage = st?.stage ?? "metadata";
+          useRaceStore.getState().setPackStatus({
+            stage,
+            progress: st?.progress,
+            gpsReady: Boolean(st?.flags?.gps_ready ?? st?.gps_ready),
+          });
+          if (stage === "minimal" || stage === "full" || st?.ready) {
+            setLoadReady(true);
+            return;
+          }
+          if (st?.status === "error") {
+            setLoadError(st.error || "Couldn't load session data. Try another session or retry.");
+            return;
+          }
+          await new Promise((r) => window.setTimeout(r, 800));
+        }
+        setLoadError("Session data took too long to load. Retry, or try another session.");
       } catch {
-        setLoadReady(true);
+        setLoadError("Couldn't load session data. Try another session or retry.");
       }
     },
     [

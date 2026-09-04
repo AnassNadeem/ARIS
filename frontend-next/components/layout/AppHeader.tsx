@@ -12,17 +12,20 @@ import { NAV_LINKS } from "@/lib/navLinks";
  */
 export function AppHeader({
   backHref,
+  onBack,
   right,
   compact,
 }: {
   /** Explicit back target. Omit to use browser history; pass null to hide the arrow. */
   backHref?: string | null;
+  /** In-page back (e.g. /live console → picker). Wins over backHref. */
+  onBack?: () => void;
   right?: ReactNode;
   compact?: boolean;
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const showBack = backHref !== null && pathname !== "/";
+  const showBack = (onBack != null || backHref !== null) && pathname !== "/";
 
   return (
     <header
@@ -32,7 +35,11 @@ export function AppHeader({
     >
       {showBack && (
         <button
-          onClick={() => (backHref ? router.push(backHref) : router.back())}
+          onClick={() => {
+            if (onBack) onBack();
+            else if (backHref) router.push(backHref);
+            else router.back();
+          }}
           title="Back"
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-lg text-muted hover:bg-surface hover:text-white"
         >

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArisHomeControls } from "@/components/home/ArisHomeControls";
 import { getDrivers, getLiveHub, getLiveLeaderCode } from "@/lib/api";
-import { isRaceSession } from "@/lib/liveSetup";
+import { isRaceSession, liveHubEnterHref } from "@/lib/liveSetup";
 import { MOCK_DRIVERS_2025 } from "@/lib/mockData";
 import { sessionLabel } from "@/lib/sessionFlow";
 import { applyLiveHubSessionWindows, featuredHubSession, sessionIsLiveNow } from "@/lib/sessionWindow";
@@ -119,15 +119,7 @@ export function LiveRacePreview() {
   ];
 
   const liveRace = Boolean(liveSession && isRaceSession(liveSession.session_type));
-  let watchHref = "/live";
-  if (liveSession && isRaceSession(liveSession.session_type)) {
-    const qs = new URLSearchParams({ watch: "1", session: liveSession.session_type });
-    if (arisOn) {
-      qs.set("aris", "1");
-      if (driver) qs.set("driver", driver);
-    }
-    watchHref = `/live?${qs.toString()}`;
-  }
+  const watchHref = liveHubEnterHref(liveSession, { arisOn, driver });
 
   return (
     <div className="flex flex-1 flex-col justify-between rounded-[8px] border border-border bg-surface p-5 text-left">

@@ -73,3 +73,20 @@ export function autoArisForHubSession(session: HubSession | null | undefined): b
 export function isRaceSession(sessionType: string | null | undefined): boolean {
   return asSessionType(sessionType) === "R";
 }
+
+/** Homepage live card: Race can skip the picker; other live sessions only preselect. */
+export function liveHubEnterHref(
+  session: HubSession | null,
+  opts?: { arisOn?: boolean; driver?: string | null },
+): string {
+  if (!session) return "/live";
+  const qs = new URLSearchParams({ session: session.session_type });
+  if (isRaceSession(session.session_type)) {
+    qs.set("watch", "1");
+    if (opts?.arisOn) {
+      qs.set("aris", "1");
+      if (opts.driver) qs.set("driver", opts.driver);
+    }
+  }
+  return `/live?${qs.toString()}`;
+}

@@ -74,6 +74,7 @@ async function startReplay(page: Page, year: number, round: number, driver = "VE
   // clock never advances and seeks land but time never moves afterwards.
   const consoleStart = page.getByRole("button", { name: /Start Race/i });
   if (await consoleStart.isVisible().catch(() => false)) {
+    await expect(consoleStart).toBeEnabled({ timeout: 60_000 });
     await consoleStart.click();
   }
   await waitForTower(page);

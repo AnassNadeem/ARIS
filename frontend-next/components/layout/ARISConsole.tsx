@@ -30,7 +30,7 @@ import { RaceFinishedDebrief } from "@/components/aris/RaceFinishedDebrief";
 import { StrategyChangeBanner } from "@/components/aris/StrategyChangeBanner";
 import { useArisRecommendLoop } from "@/lib/useArisRecommendLoop";
 import { formatLapCompact, formatLapHeader } from "@/lib/formatLap";
-import { canToggleArisInConsole, sessionLabel } from "@/lib/sessionFlow";
+import { canToggleArisInConsole, replayStartReady, sessionLabel } from "@/lib/sessionFlow";
 import { useCountdown } from "@/lib/useCountdown";
 import {
   ANALYTICS_ROW_ID,
@@ -209,7 +209,15 @@ function LiveWaitWithCountdown({
   );
 }
 
-export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "live"; allowMock?: boolean }) {
+export function ARISConsole({
+  mode,
+  allowMock = false,
+  onBack,
+}: {
+  mode: "replay" | "live";
+  allowMock?: boolean;
+  onBack?: () => void;
+}) {
   const session = useRaceStore((s) => s.session);
   const isARISOn = useRaceStore((s) => s.isARISOn);
   const arisDriver = useRaceStore((s) => s.arisDriver);
@@ -270,10 +278,19 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
 
   const arisCapable = !session || canToggleArisInConsole(session.sessionType);
   const canEnableStrategy = arisCapable;
-  const packReady = mode === "replay" ? packStage === "minimal" || packStage === "full" : Boolean(session);
+  const packReady = packStage === "minimal" || packStage === "full";
   const lightsOut = consolePlayState === "starting";
   const replayNotRacing = consolePlayState !== "racing";
-  const startEnabled = packReady && consolePlayState === "ready";
+  const startEnabled = replayStartReady({
+    packStage,
+    waitingForRace,
+    carCount,
+    playState: consolePlayState,
+  });
+  const replayDataPending = mode === "replay" && (waitingForRace || carCount === 0 || !packReady);
+  const startHint = !startEnabled
+    ? (waitingMessage ?? "Loading session data…")
+    : "Lights-out on the track, then replay from lap 1";
 
   useEffect(() => {
     setConsoleMode(mode);
@@ -513,7 +530,7 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
     <div className="flex h-screen w-screen flex-col bg-carbon">
       <AppHeader
         compact
-        backHref={mode === "replay" ? "/replay" : "/live"}
+        onBack={onBack}
         right={
           <>
             <span className="hidden font-sans text-xs font-medium text-white md:inline">
@@ -538,7 +555,7 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
                 type="button"
                 disabled={!startEnabled || lightsOut}
                 onClick={() => beginLightsOut()}
-                title={!packReady ? "Waiting for laps and circuit map…" : "Lights-out on the track, then replay from lap 1"}
+                title={startHint}
                 className={`hidden shrink-0 rounded px-3 py-1 font-mono-data text-[11px] uppercase tracking-wide md:inline-flex ${
                   !startEnabled || lightsOut
                     ? "cursor-not-allowed border border-border text-muted-2 opacity-50"
@@ -599,7 +616,7 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
               type="button"
               disabled={!startEnabled || lightsOut}
               onClick={() => beginLightsOut()}
-              title={!packReady ? "Waiting for laps and circuit map…" : "Lights-out on the track, then replay from lap 1"}
+              title={startHint}
               className={`rounded px-3 py-1 font-mono-data text-[11px] uppercase tracking-wide ${
                 !startEnabled || lightsOut
                   ? "cursor-not-allowed border border-border text-muted-2 opacity-50"
@@ -635,12 +652,14 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
       <div>
         {consolePlayState === "racing" && <SpeedWidget />}
       </div>
-      {mode === "replay" && !packReady && (
+      {replayDataPending && (
         <div className="shrink-0 bg-amber/10 px-4 py-2 font-sans text-xs text-amber">
           {waitingMessage ??
             (packStage === "metadata" || packStage === "empty"
               ? "Loading session metadata…"
-              : "Preparing race data (laps, map)…")}
+              : !packReady
+                ? "Preparing race data (laps, map)…"
+                : "Loading session data…")}
         </div>
       )}
       {packToast && (
@@ -659,11 +678,6 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
           sessionType={session?.sessionType ?? "R"}
           note={waitingMessage ?? "Waiting for live data to come."}
         />
-      )}
-      {consolePlayState === "racing" && mode === "replay" && (waitingForRace || carCount === 0) && (
-        <div className="shrink-0 bg-amber/10 px-4 py-2 font-sans text-xs text-amber">
-          {waitingMessage ?? "Loading replay from lights out at 1×…"}
-        </div>
       )}
       {isARISOn && racePhase !== "GREEN" && racePhase !== "FORMATION_LAP" && (
         <div

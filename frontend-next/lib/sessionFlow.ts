@@ -107,6 +107,17 @@ export function canStartRace(opts: {
   );
 }
 
+/** Console Start Race: pack must be ready, the feed must have stopped waiting, and at least one car must exist. */
+export function replayStartReady(opts: {
+  packStage: string;
+  waitingForRace: boolean;
+  carCount: number;
+  playState: string;
+}): boolean {
+  const packOk = opts.packStage === "minimal" || opts.packStage === "full";
+  return packOk && !opts.waitingForRace && opts.carCount > 0 && opts.playState === "ready";
+}
+
 export function commsTabs(opts: { arisOn: boolean; copilotOn: boolean; copilotDocked: boolean }): {
   id: "main" | "chat";
   label: string;

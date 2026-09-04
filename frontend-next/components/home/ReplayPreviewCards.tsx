@@ -17,6 +17,9 @@ export function ReplayPreviewCards() {
   const [driver, setDriver] = useState<string | null>(null);
   const setARISOn = useRaceStore((s) => s.setARISOn);
   const setARISDriver = useRaceStore((s) => s.setARISDriver);
+  const setSession = useRaceStore((s) => s.setSession);
+  const setConsoleMode = useRaceStore((s) => s.setConsoleMode);
+  const setFocusDriver = useRaceStore((s) => s.setFocusDriver);
 
   useEffect(() => {
     getRecentRaces(3).then(setRaces);
@@ -43,15 +46,21 @@ export function ReplayPreviewCards() {
   }
 
   function jumpToReplay(r: RecentRaceCard) {
-    applyArisChoice(arisOn, driver ?? r.winnerCode);
-    const qs = new URLSearchParams({ year: String(r.year), round: String(r.round) });
-    if (arisOn) {
-      qs.set("aris", "1");
-      if (driver ?? r.winnerCode) qs.set("driver", driver ?? r.winnerCode);
-    } else {
-      qs.set("start", "1");
-    }
-    router.push(`/replay?${qs.toString()}`);
+    const code = driver ?? r.winnerCode;
+    applyArisChoice(arisOn, code);
+    setSession({
+      year: r.year,
+      round: r.round,
+      sessionType: r.sessionType,
+      circuitName: r.circuitName,
+      countryFlag: r.countryFlag,
+      totalLaps: 0,
+      date: r.date,
+      driverCode: code,
+    });
+    setConsoleMode("replay");
+    if (code) setFocusDriver(code);
+    router.push("/replay/console");
   }
 
   return (

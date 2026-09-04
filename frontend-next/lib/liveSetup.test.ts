@@ -8,6 +8,7 @@ import {
   pickArisHubSession,
   pickDefaultHubSession,
   shouldAutoStartLiveSession,
+  liveHubEnterHref,
 } from "./liveSetup";
 import type { HubSession, LiveHub } from "./types";
 
@@ -160,5 +161,21 @@ describe("pickArisHubSession", () => {
         sess({ session_type: "R", status: "UPCOMING", datetime_utc: "2099-01-01T12:00:00Z" }),
       ])?.session_type,
     ).toBe("R");
+  });
+});
+
+describe("liveHubEnterHref", () => {
+  it("preselects a live FP session without skipping the picker", () => {
+    expect(liveHubEnterHref(sess({ session_type: "FP2", status: "LIVE", live: true }))).toBe("/live?session=FP2");
+  });
+
+  it("skips the picker for a live Race from the homepage Watch Live link", () => {
+    expect(
+      liveHubEnterHref(sess({ session_type: "R", status: "LIVE", live: true }), { arisOn: true, driver: "VER" }),
+    ).toBe("/live?session=R&watch=1&aris=1&driver=VER");
+  });
+
+  it("falls back to the live hub when nothing is live", () => {
+    expect(liveHubEnterHref(null)).toBe("/live");
   });
 });

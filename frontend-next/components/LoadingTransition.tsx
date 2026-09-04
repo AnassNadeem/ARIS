@@ -9,7 +9,7 @@ function statusCopy(stage: string, ready: boolean, error: string | null): { titl
     return { title: error, detail: "This session has not been published yet. Try another race, or check back later." };
   }
   if (error) {
-    return { title: error, detail: "The replay files could not be fetched. Check NEXT_PUBLIC_R2_BASE_URL and retry." };
+    return { title: error, detail: "Retry, or try another session." };
   }
   if (ready || stage === "minimal" || stage === "full") {
     return { title: "Race data ready", detail: "You can start as soon as the console opens." };
@@ -54,8 +54,11 @@ export function LoadingTransition({
       return;
     }
     if (finished.current) return;
-    finished.current = true;
-    const t = window.setTimeout(onComplete, 420);
+    const t = window.setTimeout(() => {
+      if (finished.current) return;
+      finished.current = true;
+      onComplete();
+    }, 420);
     return () => window.clearTimeout(t);
   }, [ready, error, onComplete]);
 

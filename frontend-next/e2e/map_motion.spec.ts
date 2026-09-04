@@ -50,6 +50,7 @@ async function startReplay(page: Page, opts: { startRace?: boolean } = {}) {
   }
   const consoleStart = page.getByRole("button", { name: /Start Race/i });
   if (await consoleStart.isVisible().catch(() => false)) {
+    await expect(consoleStart).toBeEnabled({ timeout: 60_000 });
     await consoleStart.click();
   }
   await expect.poll(async () => page.locator('[data-testid^="tower-row-"]').count(), { timeout: 30_000 }).toBeGreaterThanOrEqual(10);

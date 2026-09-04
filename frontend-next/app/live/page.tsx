@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useRaceStore } from "@/store/raceStore";
 import { ARISConsole } from "@/components/layout/ARISConsole";
@@ -27,6 +27,7 @@ function LivePageInner() {
   const [hub, setHub] = useState<LiveHub | null>(null);
   const [hubTried, setHubTried] = useState(false);
   const [consoleMode, setConsoleMode] = useState<"live" | "replay" | null>(null);
+  const [didEnterConsole, setDidEnterConsole] = useState(false);
   const [mockConsole, setMockConsole] = useState(false);
   const setSession = useRaceStore((s) => s.setSession);
   const arisDriver = useRaceStore((s) => s.arisDriver);
@@ -75,11 +76,23 @@ function LivePageInner() {
     setWaiting(true, "Waiting for live data to come.");
     setTotalLaps(72);
     setMockConsole(true);
+    setDidEnterConsole(true);
     setConsoleMode("live");
   }
 
+  const enterConsole = useCallback((mode: "live" | "replay") => {
+    setDidEnterConsole(true);
+    setConsoleMode(mode);
+  }, []);
+
   if (consoleMode) {
-    return <ARISConsole mode={consoleMode} allowMock={demo || mockConsole} />;
+    return (
+      <ARISConsole
+        mode={consoleMode}
+        allowMock={demo || mockConsole}
+        onBack={() => setConsoleMode(null)}
+      />
+    );
   }
 
   return (
@@ -94,11 +107,11 @@ function LivePageInner() {
       ) : (
         <LiveSetupFlow
           hub={hub}
-          autoEnter={watch}
+          autoEnter={watch && !didEnterConsole}
           autoSession={autoSession}
           autoAris={autoAris}
           autoDriver={autoDriver}
-          onLoaded={(mode) => setConsoleMode(mode)}
+          onLoaded={enterConsole}
         />
       )}
     </>

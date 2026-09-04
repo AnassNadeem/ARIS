@@ -3,6 +3,7 @@ import {
   SESSION_OPTIONS,
   canStartRace,
   canToggleArisInConsole,
+  replayStartReady,
   circuitBadge,
   isArisCapableSession,
   nextSelectorStep,
@@ -104,5 +105,26 @@ describe("canStartRace", () => {
     expect(canStartRace({ arisEnabled: false, selectedDriver: null, strategies: null, selectedStrategy: null })).toBe(
       true,
     );
+  });
+});
+
+describe("replayStartReady", () => {
+  const ready = {
+    packStage: "minimal",
+    waitingForRace: false,
+    carCount: 20,
+    playState: "ready",
+  };
+
+  it("enables Start only when pack, cars, and play state are all ready", () => {
+    expect(replayStartReady(ready)).toBe(true);
+    expect(replayStartReady({ ...ready, packStage: "full" })).toBe(true);
+  });
+
+  it("stays disabled while the feed is still loading or cars are missing", () => {
+    expect(replayStartReady({ ...ready, packStage: "metadata" })).toBe(false);
+    expect(replayStartReady({ ...ready, waitingForRace: true })).toBe(false);
+    expect(replayStartReady({ ...ready, carCount: 0 })).toBe(false);
+    expect(replayStartReady({ ...ready, playState: "starting" })).toBe(false);
   });
 });
