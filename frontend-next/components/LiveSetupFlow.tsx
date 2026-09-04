@@ -172,8 +172,14 @@ export function LiveSetupFlow({
     if (!shouldStart || !liveSess) return;
     autoStarted.current = true;
     setPicked(liveSess);
-    commitSession(autoAris || autoArisForHubSession(liveSess), liveSess);
-  }, [hub, commitSession, autoEnter, autoAris]);
+    const arisOn = autoAris || autoArisForHubSession(liveSess);
+    if (arisOn && sessionNeedsStrategyPick(liveSess.session_type)) {
+      setARISOn(true);
+      setStep(nextSelectorStep("circuit", "aris", { arisEnabled: true }));
+      return;
+    }
+    commitSession(arisOn, liveSess);
+  }, [hub, commitSession, autoEnter, autoAris, setARISOn]);
 
   function continueFromWeekend() {
     if (!picked) return;

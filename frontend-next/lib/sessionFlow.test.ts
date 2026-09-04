@@ -32,9 +32,11 @@ describe("canToggleArisInConsole", () => {
 });
 
 describe("sessionNeedsStrategyPick", () => {
-  it("is Race-only", () => {
+  it("is required for Race and the FP2 ARIS probe", () => {
     expect(sessionNeedsStrategyPick("R")).toBe(true);
-    expect(sessionNeedsStrategyPick("FP2")).toBe(false);
+    expect(sessionNeedsStrategyPick("FP2")).toBe(true);
+    expect(sessionNeedsStrategyPick("FP1")).toBe(false);
+    expect(sessionNeedsStrategyPick("Q")).toBe(false);
   });
 });
 

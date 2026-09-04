@@ -29,9 +29,9 @@ export function canToggleArisInConsole(sessionType: string | null | undefined): 
   return isArisCapableSession(sessionType);
 }
 
-/** Pre-race strategy cards are Race-only. FP2 ARIS goes straight to the console. */
+/** Race and FP2 ARIS both pick a driver and a strategy before the console. */
 export function sessionNeedsStrategyPick(sessionType: string | null | undefined): boolean {
-  return String(sessionType ?? "").toUpperCase() === "R";
+  return isArisCapableSession(sessionType);
 }
 
 export function sessionLabel(sessionType: string | null | undefined): string {
