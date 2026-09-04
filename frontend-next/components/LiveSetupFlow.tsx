@@ -5,7 +5,7 @@ import { ARISConfigPanel } from "@/components/ARISConfigPanel";
 import { LiveSessionPicker } from "@/components/LiveSessionPicker";
 import { LoadingTransition } from "@/components/LoadingTransition";
 import { getDrivers, getQuickAnalysis, getReplayPackStatus, initReplay } from "@/lib/api";
-import { asSessionType, hubSessionCta, liveHubSession, pickArisHubSession, pickDefaultHubSession, shouldAutoStartLiveSession } from "@/lib/liveSetup";
+import { asSessionType, hubSessionCta, liveHubSession, pickArisHubSession, pickDefaultHubSession, replayPackWaitMs, shouldAutoStartLiveSession } from "@/lib/liveSetup";
 import { MOCK_DRIVERS_2025 } from "@/lib/mockData";
 import {
   canStartRace,
@@ -189,7 +189,7 @@ export function LiveSetupFlow({
           setLoadError("Couldn't start replay. Try another session or retry.");
           return;
         }
-        const deadline = Date.now() + 20_000;
+        const deadline = Date.now() + replayPackWaitMs(stype);
         while (!navigated.current && Date.now() < deadline) {
           const st = await getReplayPackStatus({
             session_key: key,

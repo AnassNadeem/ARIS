@@ -18,8 +18,8 @@ function statusCopy(stage: string, ready: boolean, error: string | null): { titl
     return { title: "Loading session metadata…", detail: "Circuit, session type, and race distance." };
   }
   return {
-    title: "Preparing race data (laps, map)…",
-    detail: "FastF1 laps and circuit outline. Full GPS continues in the background.",
+    title: "Preparing session data (laps, map)…",
+    detail: "OpenF1 laps and circuit outline. Track GPS continues in the background.",
   };
 }
 
@@ -90,7 +90,7 @@ export function LoadingTransition({
           </li>
           <li className={packStage === "minimal" || packStage === "full" || ready ? "text-red" : "text-muted"}>
             <span className="mr-2">{packStage === "minimal" || packStage === "full" || ready ? "✓" : "·"}</span>
-            Preparing race data (laps, map)…
+            Preparing session data (laps, map)…
           </li>
           <li className={packStage === "full" ? "text-red" : "text-muted"}>
             <span className="mr-2">{packStage === "full" ? "✓" : "·"}</span>

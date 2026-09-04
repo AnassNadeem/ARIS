@@ -7,6 +7,7 @@ import {
   liveHubSession,
   pickArisHubSession,
   pickDefaultHubSession,
+  replayPackWaitMs,
   shouldAutoStartLiveSession,
   liveHubEnterHref,
 } from "./liveSetup";
@@ -177,5 +178,13 @@ describe("liveHubEnterHref", () => {
 
   it("falls back to the live hub when nothing is live", () => {
     expect(liveHubEnterHref(null)).toBe("/live");
+  });
+});
+
+describe("replayPackWaitMs", () => {
+  it("waits longer for OpenF1 practice packs than for race R2", () => {
+    expect(replayPackWaitMs("FP1")).toBe(90_000);
+    expect(replayPackWaitMs("FP2")).toBe(90_000);
+    expect(replayPackWaitMs("R")).toBe(20_000);
   });
 });

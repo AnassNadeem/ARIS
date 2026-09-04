@@ -74,6 +74,13 @@ export function isRaceSession(sessionType: string | null | undefined): boolean {
   return asSessionType(sessionType) === "R";
 }
 
+/** Practice packs load from OpenF1; give FastF1-fallback more than the race R2 window. */
+export function replayPackWaitMs(sessionType: string | null | undefined): number {
+  const t = asSessionType(sessionType);
+  if (t === "FP1" || t === "FP2" || t === "FP3") return 90_000;
+  return 20_000;
+}
+
 /** Homepage live card: Race can skip the picker; other live sessions only preselect. */
 export function liveHubEnterHref(
   session: HubSession | null,
