@@ -103,7 +103,21 @@ NOTES_OVERLAY: dict[int, list[dict[str, Any]]] = {
             "date_sprint": "2026-08-22T10:00:00Z",
             "date_quali": "2026-08-22T14:00:00Z",
         },
-        {"round_number": 13, "name": "Italy", "circuit_name": "Autodromo Nazionale Monza", "country": "Italy", "city": "Monza", "date_race": "2026-09-06T13:00:00Z", "is_sprint_weekend": False},
+        {
+            "round_number": 13,
+            "name": "Italy",
+            "circuit_name": "Autodromo Nazionale Monza",
+            "circuit_key": "italy",
+            "country": "Italy",
+            "city": "Monza",
+            "date_race": "2026-09-06T13:00:00Z",
+            "is_sprint_weekend": False,
+            # Official F1 Monza 2026 timetable (local CEST = UTC+2).
+            "date_fp1": "2026-09-04T10:30:00Z",
+            "date_fp2": "2026-09-04T14:00:00Z",
+            "date_fp3": "2026-09-05T10:30:00Z",
+            "date_quali": "2026-09-05T14:00:00Z",
+        },
         {"round_number": 14, "name": "Madrid", "circuit_name": "Madring", "circuit_key": "madrid", "country": "Spain", "city": "Madrid", "date_race": "2026-09-13T13:00:00Z", "is_sprint_weekend": False},
         {"round_number": 15, "name": "Azerbaijan", "circuit_name": "Baku City Circuit", "country": "Azerbaijan", "city": "Baku", "date_race": "2026-09-26T11:00:00Z", "is_sprint_weekend": False},
         {"round_number": 16, "name": "Malaysia", "circuit_name": "Sepang International Circuit", "circuit_key": "sepang", "country": "Malaysia", "city": "Sepang", "date_race": "2026-10-04T07:00:00Z", "is_sprint_weekend": False},
@@ -590,9 +604,12 @@ def _estimated_session_starts(race_dt: datetime | None, is_sprint: bool) -> dict
             "Qualifying": saturday.replace(hour=14, minute=0),
             "Race": race,
         }
+    # 2026 conventional European weekends: FP1/FP3 12:30 local, FP2/Q 16:00 local.
+    # CEST (UTC+2) is the usual Friday/Saturday offset for remaining flyaways too
+    # until a round overlay supplies exact stamps.
     return {
-        "FP1": friday.replace(hour=11, minute=30),
-        "FP2": friday.replace(hour=15, minute=0),
+        "FP1": friday.replace(hour=10, minute=30),
+        "FP2": friday.replace(hour=14, minute=0),
         "FP3": saturday.replace(hour=10, minute=30),
         "Qualifying": saturday.replace(hour=14, minute=0),
         "Race": race,
@@ -814,7 +831,7 @@ def get_calendar(year: int, as_of: datetime | None = None, *, for_replay: bool =
     wall = datetime.now(timezone.utc)
     as_of = now_utc(as_of)
     near_now = abs((as_of - wall).total_seconds()) < 180
-    cache_key = f"calbuild_jolpica23_{year}" if near_now else f"calbuild_jolpica23_{year}_{as_of.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+    cache_key = f"calbuild_jolpica23st_{year}" if near_now else f"calbuild_jolpica23st_{year}_{as_of.strftime('%Y-%m-%dT%H:%M:%SZ')}"
     hit = mem_cache.get(cache_key, TTL_CALENDAR)
     if hit is not None:
         return hit
@@ -885,9 +902,9 @@ def get_round(year: int, round_number: int, as_of: datetime | None = None) -> Ca
 def peek_round_meta(year: int, round_number: int) -> tuple[str, str]:
     """Country + circuit_key from memory/overlay only — never loads FastF1."""
     wall = datetime.now(timezone.utc)
-    hit = mem_cache.get(f"calbuild_jolpica23_{year}", TTL_CALENDAR)
+    hit = mem_cache.get(f"calbuild_jolpica23st_{year}", TTL_CALENDAR)
     if hit is None:
-        hit = mem_cache.get(f"calbuild_jolpica23_{year}_{wall.strftime('%Y-%m-%dT%H:%M:%SZ')}", TTL_CALENDAR)
+        hit = mem_cache.get(f"calbuild_jolpica23st_{year}_{wall.strftime('%Y-%m-%dT%H:%M:%SZ')}", TTL_CALENDAR)
     if hit is not None:
         for rnd in getattr(hit, "rounds", []):
             if int(getattr(rnd, "round_number", 0) or 0) == int(round_number):

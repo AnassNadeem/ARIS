@@ -7,6 +7,7 @@ import {
 } from "@/lib/mockData";
 import { countryFlag } from "@/lib/flags";
 import { overlayOfficial2026Date } from "@/lib/replayFilter";
+import { applyLiveHubSessionWindows } from "@/lib/sessionWindow";
 import type {
   ARISRecommendation,
   CircuitCoords,
@@ -331,11 +332,11 @@ export async function getLiveHub(): Promise<LiveHub | null> {
     const date = hub.next.date_race
       ? overlayOfficial2026Date(hub.next.year, hub.next.circuit_name, hub.next.date_race)
       : hub.next.date_race;
-    return { ...hub, next: { ...hub.next, date_race: date } };
+    return applyLiveHubSessionWindows({ ...hub, next: { ...hub.next, date_race: date } });
   }
   const nxt = await tryFetch<LiveHub["next"]>("/api/live/next", undefined, 6000);
   if (!nxt) return null;
-  return {
+  return applyLiveHubSessionWindows({
     mode: nxt.is_this_weekend ? "waiting_for_session" : "next_weekend",
     waiting_reason: nxt.is_this_weekend ? "Waiting for session data." : null,
     countdown_seconds: nxt.countdown_seconds,
@@ -369,7 +370,7 @@ export async function getLiveHub(): Promise<LiveHub | null> {
       notes: nxt.notes ?? [],
     },
     as_of: new Date().toISOString(),
-  };
+  });
 }
 
 export async function getRaceHistory(circuit: string): Promise<RaceHistoryRow[]> {

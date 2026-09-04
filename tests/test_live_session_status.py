@@ -330,7 +330,7 @@ def test_precompute_ghost_from_lap_one():
     from backend.live import precompute_ghost_for_session
 
     laps = []
-    for i in range(1, 9):
+    for i in range(1, 25):
         laps.append(
             {
                 "lap_number": i,
@@ -348,24 +348,25 @@ def test_precompute_ghost_from_lap_one():
         "year": 2025,
         "round_no": 15,
         "country": "Netherlands",
-        "total_laps": 8,
+        "total_laps": 24,
         "driver_id": 1,
         "laps": laps,
     }
+    # Pit after MIN_STINT_LAPS so the ghost bake clamp does not rewrite the plan.
     recs = [
         {
             "lap": 1,
-            "label": "Pit lap 4 for HARD",
-            "action": {"kind": "pit_lap", "pit_lap": 4, "pit_compound": "HARD"},
+            "label": "Pit lap 18 for HARD",
+            "action": {"kind": "pit_lap", "pit_lap": 18, "pit_compound": "HARD"},
         }
     ]
     result = precompute_ghost_for_session(session_data, "VER", recs)
     assert result.get(1) is not None
     assert result[1]["from_lap_one"] is True
     assert result[1]["driver_code"] == "VER"
-    assert result.get(8) is not None
-    assert result[4]["ghost_cumulative_delta"] < result[1]["ghost_cumulative_delta"]
-    assert result[8]["ghost_tyre"] == "HARD"
+    assert result.get(24) is not None
+    assert result[18]["ghost_cumulative_delta"] < result[1]["ghost_cumulative_delta"]
+    assert result[24]["ghost_tyre"] == "HARD"
 
 
 def test_precompute_ghost_uses_selected_plan_not_recommend_default():
@@ -644,6 +645,33 @@ def test_after_zandvoort_race_next_is_monza():
     nxt = next_race(as_of=as_of)
     assert nxt.round_number == 13
     assert "ital" in (nxt.name or "").lower() or "monza" in (nxt.circuit_name or "").lower()
+
+
+def test_monza_2026_fp1_is_live_at_official_1230_cest():
+    from backend.calendar import get_round_sessions
+    from backend.live_hub import build_live_hub_fast
+
+    as_of = datetime(2026, 9, 4, 10, 45, tzinfo=timezone.utc)
+    weekend = get_round_sessions(2026, 13, as_of=as_of)
+    by = {s.session_type: s for s in weekend.sessions}
+    assert by["FP1"].status == "LIVE"
+    assert by["FP1"].datetime_utc == datetime(2026, 9, 4, 10, 30, tzinfo=timezone.utc)
+    assert by["FP2"].status == "UPCOMING"
+    assert by["FP2"].datetime_utc == datetime(2026, 9, 4, 14, 0, tzinfo=timezone.utc)
+
+    hub = build_live_hub_fast(as_of)
+    assert hub.mode == "live_session"
+    fp1 = next(s for s in hub.weekend_sessions if s.session_type == "FP1")
+    assert fp1.live is True
+    assert hub.countdown_target == datetime(2026, 9, 4, 10, 30, tzinfo=timezone.utc)
+
+
+def test_monza_2026_fp1_still_upcoming_before_1030z():
+    from backend.calendar import get_round_sessions
+
+    weekend = get_round_sessions(2026, 13, as_of=datetime(2026, 9, 4, 10, 0, tzinfo=timezone.utc))
+    by = {s.session_type: s.status for s in weekend.sessions}
+    assert by["FP1"] == "UPCOMING"
 
 
 def test_imola_2026_is_not_on_the_calendar():

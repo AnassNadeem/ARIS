@@ -31,6 +31,15 @@ describe("pickDefaultHubSession", () => {
     ];
     expect(pickDefaultHubSession(sessions)?.session_type).toBe("Q");
   });
+
+  it("treats an in-window session as live even if the API flag lagged", () => {
+    const start = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    const sessions = [
+      sess({ session_type: "FP1", status: "UPCOMING", datetime_utc: start }),
+      sess({ session_type: "R", status: "UPCOMING", datetime_utc: "2099-01-01T12:00:00Z" }),
+    ];
+    expect(pickDefaultHubSession(sessions)?.session_type).toBe("FP1");
+  });
 });
 
 describe("asSessionType", () => {

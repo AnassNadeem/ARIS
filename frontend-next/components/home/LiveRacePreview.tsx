@@ -3,14 +3,32 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { getLiveHub } from "@/lib/api";
+import { sessionIsLiveNow } from "@/lib/sessionWindow";
 import type { LiveHub } from "@/lib/types";
 
 export function LiveRacePreview() {
   const [info, setInfo] = useState<LiveHub | null>(null);
+  const [failed, setFailed] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    getLiveHub().then(setInfo);
+    let cancelled = false;
+    async function load() {
+      const next = await getLiveHub();
+      if (cancelled) return;
+      if (next) {
+        setInfo(next);
+        setFailed(false);
+      } else {
+        setFailed(true);
+      }
+    }
+    void load();
+    const id = setInterval(() => void load(), 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
   }, []);
 
   useEffect(() => {
@@ -21,15 +39,25 @@ export function LiveRacePreview() {
   if (!info) {
     return (
       <div className="flex flex-1 flex-col rounded-[8px] border border-border bg-surface p-5">
-        <div className="font-mono-data text-xs uppercase text-muted">Loading next race…</div>
+        <div className="font-mono-data text-xs uppercase text-muted">
+          {failed ? "Live hub unreachable" : "Loading next race…"}
+        </div>
+        {failed && (
+          <Link href="/live" className="mt-4 font-mono-data text-[11px] uppercase text-muted hover:text-white">
+            → LIVE HUB
+          </Link>
+        )}
       </div>
     );
   }
 
-  const target = new Date(info.countdown_target ?? info.next.next_session_datetime ?? Date.now()).getTime();
+  const liveSession = info.weekend_sessions.find((s) => sessionIsLiveNow(s, now));
+  const target = new Date(
+    liveSession?.datetime_utc ?? info.countdown_target ?? info.next.next_session_datetime ?? Date.now(),
+  ).getTime();
   const diff = target - now;
-  const isLive = info.mode === "live_session";
-  const waiting = info.mode === "waiting_for_session";
+  const isLive = info.mode === "live_session" || info.live.is_live || Boolean(liveSession);
+  const waiting = !isLive && info.mode === "waiting_for_session";
 
   const parts = [
     { label: "D", value: Math.max(0, Math.floor(diff / 86_400_000)) },
@@ -45,6 +73,7 @@ export function LiveRacePreview() {
           {isLive ? (
             <span className="flex items-center gap-1.5 text-red">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red" /> Live now
+              {liveSession ? ` · ${liveSession.session_type}` : ""}
             </span>
           ) : waiting ? (
             "This weekend"

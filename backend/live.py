@@ -677,7 +677,8 @@ async def _session_from_weekend_calendar(as_of: datetime) -> dict[str, Any] | No
         return None
     mapped_guess = _session_type_map(str(nxt.next_session_name or ""), "")
     lead_min = 75 if (mapped_guess or "").upper() == "R" or "race" in str(nxt.next_session_name or "").lower() else 20
-    if as_of < start - timedelta(minutes=lead_min) or as_of > start + timedelta(minutes=25):
+    after_h = {"R": 2.5, "Q": 1.75, "SQ": 1.0, "S": 1.25}.get((mapped_guess or "").upper(), 1.25)
+    if as_of < start - timedelta(minutes=lead_min) or as_of > start + timedelta(hours=after_h):
         return None
     mapped = _session_type_map(str(nxt.next_session_name or ""), "")
     if not mapped:

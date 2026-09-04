@@ -2,6 +2,7 @@
 
 import { useCountdown } from "@/lib/useCountdown";
 import { sessionLabel } from "@/lib/sessionFlow";
+import { sessionIsLiveNow } from "@/lib/sessionWindow";
 import type { HubSession, LiveHub } from "@/lib/types";
 
 function UpcomingCountdown({ iso }: { iso: string }) {
@@ -10,13 +11,14 @@ function UpcomingCountdown({ iso }: { iso: string }) {
 }
 
 function SessionTimer({ session }: { session: HubSession }) {
+  const live = sessionIsLiveNow(session);
   const upcoming =
-    !session.live &&
+    !live &&
     session.status === "UPCOMING" &&
     Boolean(session.datetime_utc) &&
     new Date(session.datetime_utc!).getTime() > Date.now();
 
-  if (session.live) {
+  if (live) {
     return (
       <span className="flex items-center gap-1.5 font-mono-data text-[12px] text-red">
         <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red" />
@@ -131,7 +133,7 @@ export function LiveSessionPicker({
                 <span className="font-mono-data text-[12px] font-semibold text-white">
                   {sessionLabel(s.session_type)}
                 </span>
-                {s.live && (
+                {sessionIsLiveNow(s) && (
                   <span className="rounded bg-red/20 px-1.5 py-0.5 font-mono-data text-[9px] uppercase tracking-wide text-red">
                     Live
                   </span>

@@ -150,7 +150,7 @@ def warmup_startup() -> dict[str, int]:
     for year in years:
         try:
             cal = calendar.get_calendar(year)
-            put_both(f"calendar_jolpica23_{year}_now", cal, TTL_CALENDAR)
+            put_both(f"calendar_jolpica23st_{year}_now", cal, TTL_CALENDAR)
             calendars += 1
             print(f"[ARIS] Calendar {year} cached OK ({len(cal.rounds)} rounds)", flush=True)
         except Exception as e:
@@ -682,14 +682,14 @@ async def api_calendar(
         raise HTTPException(400, f"year must be 2018–{max(now_year, 2026)}")
     if replay:
         _require_replay_year(year)
-    key = f"calendar_jolpica23_{year}_{_as_of_key(as_of)}_{'replay' if replay else 'full'}"
+    key = f"calendar_jolpica23st_{year}_{_as_of_key(as_of)}_{'replay' if replay else 'full'}"
     try:
         cal = await asyncio.wait_for(
             _cached_sync(key, TTL_CALENDAR, calendar.get_calendar, year, as_of=as_of, for_replay=replay),
             timeout=20.0,
         )
     except Exception:
-        stale = cache.peek(key) or cache.peek(f"calendar_jolpica23_{year}_now")
+        stale = cache.peek(key) or cache.peek(f"calendar_jolpica23st_{year}_now")
         if stale is not None:
             cal = stale
         else:

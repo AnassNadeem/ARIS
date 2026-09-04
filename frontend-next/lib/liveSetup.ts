@@ -1,4 +1,5 @@
 import type { HubSession, SessionType } from "@/lib/types";
+import { sessionIsLiveNow } from "@/lib/sessionWindow";
 
 const SESSION_TYPES = new Set<string>(["R", "S", "Q", "FP1", "FP2", "FP3", "SS", "SQ"]);
 
@@ -9,7 +10,7 @@ export function asSessionType(raw: string | null | undefined): SessionType {
 
 export function pickDefaultHubSession(sessions: HubSession[]): HubSession | null {
   if (!sessions.length) return null;
-  const live = sessions.find((s) => s.live);
+  const live = sessions.find((s) => sessionIsLiveNow(s));
   if (live) return live;
   const upcoming = sessions
     .filter((s) => s.status === "UPCOMING" && s.datetime_utc)
