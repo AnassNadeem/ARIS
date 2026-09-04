@@ -230,6 +230,11 @@ export function r2Configured(): boolean {
   return Boolean(R2_BASE);
 }
 
+/** R2 `race_field.json` packs are Race-only. FP/Q replay uses the FastF1 pack path. */
+export function replayUsesR2Pack(sessionType: string | null | undefined): boolean {
+  return String(sessionType || "R").toUpperCase() === "R";
+}
+
 const raceFieldPromises = new Map<string, Promise<RaceField>>();
 
 function raceFieldCacheKey(year: number, round: number): string {

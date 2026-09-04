@@ -2,20 +2,39 @@ import { describe, expect, it } from "vitest";
 import {
   SESSION_OPTIONS,
   canStartRace,
+  canToggleArisInConsole,
   circuitBadge,
   isArisCapableSession,
   nextSelectorStep,
   sessionAvailability,
   sessionLabel,
+  sessionNeedsStrategyPick,
 } from "./sessionFlow";
 
 describe("isArisCapableSession", () => {
-  it("allows Race only", () => {
+  it("allows Race and the FP2 live-wiring probe", () => {
     expect(isArisCapableSession("R")).toBe(true);
+    expect(isArisCapableSession("FP2")).toBe(true);
     expect(isArisCapableSession("S")).toBe(false);
     expect(isArisCapableSession("Q")).toBe(false);
     expect(isArisCapableSession("FP1")).toBe(false);
     expect(isArisCapableSession("SQ")).toBe(false);
+  });
+});
+
+describe("canToggleArisInConsole", () => {
+  it("allows Race and FP2 in the console, including after a replay enter", () => {
+    expect(canToggleArisInConsole("R")).toBe(true);
+    expect(canToggleArisInConsole("FP2")).toBe(true);
+    expect(canToggleArisInConsole("FP1")).toBe(false);
+    expect(canToggleArisInConsole("Q")).toBe(false);
+  });
+});
+
+describe("sessionNeedsStrategyPick", () => {
+  it("is Race-only", () => {
+    expect(sessionNeedsStrategyPick("R")).toBe(true);
+    expect(sessionNeedsStrategyPick("FP2")).toBe(false);
   });
 });
 

@@ -4,7 +4,7 @@ import { circuitCoordsFromReplayOutline } from "@/lib/api";
 import { postGhostRecompute } from "@/lib/api";
 import { isFullCircuitOutline, shouldApplyFallbackOutline } from "@/lib/circuitCache";
 import { annotateGhostTower, mapTimingAndPositions, mergeByDriverCode, mergeCars, sessionFlagToPhase, timingFingerprint } from "@/lib/mapCars";
-import { asGhostTick, ghostCarFromTick, ghostLastLapS, ghostPlaybackAt, ghostStartFracFromSamples, maybeLogGhostDiagnostics, syntheticGhostCar, syntheticGhostTick } from "@/lib/ghostCar";
+import { asGhostTick, ghostCarFromTick, ghostLastLapS, ghostPlaybackAt, ghostStartFracFromSamples, maybeLogGhostDiagnostics, probeGhostCar, syntheticGhostCar, syntheticGhostTick } from "@/lib/ghostCar";
 import { normalizeCompound } from "@/lib/compounds";
 import {
   fetchGhost,
@@ -22,6 +22,7 @@ import {
   pathFracAtLap,
   posSamplesFor,
   r2Configured,
+  replayUsesR2Pack,
   r2FrameAt,
   r2TickToGhostTick,
   raceDurationS,
@@ -40,6 +41,8 @@ function setFeedStatus(status: "connecting" | "connected" | "disconnected" | "re
 }
 
 type SsePayload = {
+  seq?: number;
+  full?: boolean;
   status?: {
     is_live?: boolean;
     current_lap?: number | null;
@@ -307,6 +310,13 @@ function applyGhost(payload: SsePayload) {
     store.setGhostReason(null);
     return;
   }
+  if (real && store.consoleMode === "live") {
+    const car = finalizeGhostCar(probeGhostCar(real, store.currentLap, store.totalLaps), real);
+    maybeAnnounceGhostBoxing(car, driver);
+    store.setGhostCar(car);
+    store.setGhostReason(store.ghostReason === "live_probe" ? "live_probe" : payload.ghost_reason ?? "live_probe");
+    return;
+  }
   store.setGhostCar(null);
   store.setGhostData(null);
   const keep = store.ghostReason;
@@ -350,6 +360,7 @@ export class LiveSseFeed {
     this.closed = false;
     clearLiveReplayGhost();
     setFeedStatus("connecting");
+    void this.pollSnapshot();
     try {
       this.es = new EventSource(`${API_BASE}/api/live/stream`);
     } catch {
@@ -383,6 +394,8 @@ export class LiveSseFeed {
     const status = payload.status;
     const timingRows = payload.timing?.rows ?? [];
     const positions = payload.positions?.positions ?? [];
+    const stub = payload.seq === 0 && !timingRows.length && !positions.length && !payload.ghost;
+    if (stub) return;
     const lap = status?.current_lap ?? payload.timing?.current_lap;
     const total = status?.total_laps;
     if (lap != null) store.setCurrentLap(lap);
@@ -408,20 +421,49 @@ export class LiveSseFeed {
     }
   }
 
+  private async fetchLiveGhost(): Promise<{ ghost?: unknown; ghost_reason?: string | null } | null> {
+    const store = useRaceStore.getState();
+    if (!store.isARISOn) return null;
+    const driver = store.arisDriver ?? store.session?.driverCode ?? store.focusDriver;
+    const session = store.session;
+    if (!driver || !session) return null;
+    const qs = new URLSearchParams({
+      year: String(session.year),
+      round_number: String(session.round),
+      driver,
+      lap: String(store.currentLap || 1),
+    });
+    return fetchJson(`${API_BASE}/api/aris/ghost?${qs.toString()}`);
+  }
+
+  private async pollSnapshot() {
+    if (this.closed) return;
+    try {
+      const [status, timing, positions, ghostWrap] = await Promise.all([
+        fetchJson(`${API_BASE}/api/live/status`),
+        fetchJson(`${API_BASE}/api/live/timing`),
+        fetchJson(`${API_BASE}/api/live/positions`),
+        this.fetchLiveGhost(),
+      ]);
+      if (this.closed) return;
+      this.applyPayload({
+        status,
+        timing,
+        positions,
+        ghost: ghostWrap?.ghost,
+        ghost_reason: ghostWrap?.ghost_reason,
+        full: true,
+      });
+    } catch {
+      /* SSE / poll retry will fill in */
+    }
+  }
+
   private startPoll() {
     if (this.pollTimer || this.closed) return;
     this.onFailure?.();
     const tick = async () => {
-      try {
-        const [status, timing, positions] = await Promise.all([
-          fetchJson(`${API_BASE}/api/live/status`),
-          fetchJson(`${API_BASE}/api/live/timing`),
-          fetchJson(`${API_BASE}/api/live/positions`),
-        ]);
-        this.applyPayload({ status, timing, positions });
-      } catch {
-        setFeedStatus("reconnecting");
-      }
+      await this.pollSnapshot();
     };
     void tick();
     this.pollTimer = setInterval(() => void tick(), 2000);
@@ -432,14 +474,18 @@ export class LiveSseFeed {
 
   private async pollLapsAndStints() {
     try {
-      const [laps, stints] = await Promise.all([
+      const [laps, stints, ghostWrap] = await Promise.all([
         fetchJson(`${API_BASE}/api/live/laps`),
         fetchJson(`${API_BASE}/api/live/stints`),
+        this.fetchLiveGhost(),
       ]);
       const store = useRaceStore.getState();
       if (Array.isArray(laps?.laps)) store.setLapRows(laps.laps as ApiLapRow[]);
       if (Array.isArray(stints?.stints)) store.setStintRows(stints.stints as ApiStintRow[]);
       if (laps?.current_lap != null) store.setCurrentLap(laps.current_lap);
+      if (ghostWrap?.ghost) {
+        this.applyPayload({ ghost: ghostWrap.ghost, ghost_reason: ghostWrap.ghost_reason });
+      }
     } catch {
       /* keep last-known laps */
     }
@@ -522,7 +568,7 @@ export class ReplayFrameFeed {
     if (this.refreshOnce) console.info("[ARIS] replay force refresh=1 — bypassing FastF1 caches");
     try {
       if (await this.tryR2(year, round, sessionType)) return;
-      if (r2Configured()) {
+      if (replayUsesR2Pack(sessionType) && r2Configured()) {
         const cur = useRaceStore.getState().waitingMessage;
         store.setWaiting(true, cur && cur !== "Loading race from R2…" ? cur : R2_LOAD_ERROR);
         setFeedStatus("disconnected");
@@ -567,7 +613,8 @@ export class ReplayFrameFeed {
     }
   }
 
-  private async tryR2(year: number, round: number, _sessionType: string): Promise<boolean> {
+  private async tryR2(year: number, round: number, sessionType: string): Promise<boolean> {
+    if (!replayUsesR2Pack(sessionType)) return false;
     const store = useRaceStore.getState();
     if (!r2Configured() && !store.r2RaceField) return false;
     try {

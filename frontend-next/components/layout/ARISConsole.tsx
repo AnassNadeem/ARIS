@@ -30,7 +30,7 @@ import { RaceFinishedDebrief } from "@/components/aris/RaceFinishedDebrief";
 import { StrategyChangeBanner } from "@/components/aris/StrategyChangeBanner";
 import { useArisRecommendLoop } from "@/lib/useArisRecommendLoop";
 import { formatLapCompact, formatLapHeader } from "@/lib/formatLap";
-import { sessionLabel } from "@/lib/sessionFlow";
+import { canToggleArisInConsole, sessionLabel } from "@/lib/sessionFlow";
 import { useCountdown } from "@/lib/useCountdown";
 import {
   ANALYTICS_ROW_ID,
@@ -240,7 +240,6 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
   const [model, setModel] = useState<Model>(() =>
     Model.fromJson(buildDefaultModel(useRaceStore.getState().isARISOn)),
   );
-  const arisOnAtMount = useRef(isARISOn);
   const canPersistLayout = useRef(false);
   const suppressPersistUntil = useRef(0);
   const [layoutReady, setLayoutReady] = useState(false);
@@ -269,8 +268,8 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
     setLayoutReady(true);
   }, []);
 
-  const arisCapable = !session || session.sessionType === "R";
-  const canEnableStrategy = arisOnAtMount.current && arisCapable;
+  const arisCapable = !session || canToggleArisInConsole(session.sessionType);
+  const canEnableStrategy = arisCapable;
   const packReady = mode === "replay" ? packStage === "minimal" || packStage === "full" : Boolean(session);
   const lightsOut = consolePlayState === "starting";
   const replayNotRacing = consolePlayState !== "racing";
@@ -291,10 +290,6 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
       cancelled = true;
     };
   }, [session?.year, session?.round]);
-
-  useEffect(() => {
-    if (mode === "live" && isARISOn) setARISOn(false);
-  }, [mode, isARISOn, setARISOn]);
 
   useEffect(() => {
     if (!arisCapable && isARISOn) setARISOn(false);
@@ -558,10 +553,8 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
               disabled={!canEnableStrategy && !isARISOn}
               title={
                 !arisCapable
-                  ? "ARIS runs on Race sessions only."
-                  : !canEnableStrategy
-                    ? "Strategy ARIS can only be enabled from the race selector. Add Copilot to ask about this race."
-                    : undefined
+                  ? "ARIS runs on Race and FP2 (live wiring probe)."
+                  : undefined
               }
               className={`hidden shrink-0 rounded px-2 py-0.5 font-mono-data text-[10px] uppercase md:inline-flex ${
                 !arisCapable || (!canEnableStrategy && !isARISOn)
@@ -625,10 +618,8 @@ export function ARISConsole({ mode, allowMock = false }: { mode: "replay" | "liv
           disabled={!canEnableStrategy && !isARISOn}
           title={
             !arisCapable
-              ? "ARIS runs on Race sessions only."
-              : !canEnableStrategy
-                ? "Strategy ARIS can only be enabled from the race selector. Add Copilot to ask about this race."
-                : undefined
+              ? "ARIS runs on Race and FP2 (live wiring probe)."
+              : undefined
           }
           className={`justify-self-end rounded px-2 py-0.5 font-mono-data text-[10px] uppercase ${
             !arisCapable || (!canEnableStrategy && !isARISOn)

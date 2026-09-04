@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { asSessionType, pickDefaultHubSession, shouldAutoStartLiveSession } from "./liveSetup";
+import {
+  asSessionType,
+  autoArisForHubSession,
+  hubSessionCta,
+  liveHubSession,
+  pickArisHubSession,
+  pickDefaultHubSession,
+  shouldAutoStartLiveSession,
+} from "./liveSetup";
 import type { HubSession, LiveHub } from "./types";
 
 function sess(partial: Partial<HubSession> & Pick<HubSession, "session_type">): HubSession {
@@ -23,9 +31,17 @@ describe("pickDefaultHubSession", () => {
     expect(pickDefaultHubSession(sessions)?.session_type).toBe("Q");
   });
 
-  it("falls back to the soonest upcoming session", () => {
+  it("falls back to the most recent completed session for replay", () => {
     const sessions = [
       sess({ session_type: "FP1", status: "COMPLETED", replayable: true }),
+      sess({ session_type: "FP2", status: "COMPLETED", replayable: true }),
+      sess({ session_type: "R", status: "UPCOMING", datetime_utc: "2099-01-02T12:00:00Z" }),
+    ];
+    expect(pickDefaultHubSession(sessions)?.session_type).toBe("FP2");
+  });
+
+  it("falls back to the soonest upcoming session when nothing has run", () => {
+    const sessions = [
       sess({ session_type: "R", status: "UPCOMING", datetime_utc: "2099-01-02T12:00:00Z" }),
       sess({ session_type: "Q", status: "UPCOMING", datetime_utc: "2099-01-01T12:00:00Z" }),
     ];
@@ -75,5 +91,51 @@ describe("shouldAutoStartLiveSession", () => {
 
   it("waits when nothing is live", () => {
     expect(shouldAutoStartLiveSession(hub)).toBe(false);
+  });
+
+  it("auto-starts FP2 in its live window", () => {
+    const start = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    const liveHub = {
+      ...hub,
+      weekend_sessions: [
+        sess({ session_type: "FP1", status: "COMPLETED", replayable: true }),
+        sess({ session_type: "FP2", status: "UPCOMING", datetime_utc: start }),
+        sess({ session_type: "R", status: "UPCOMING", datetime_utc: "2099-01-01T12:00:00Z" }),
+      ],
+    } as LiveHub;
+    expect(shouldAutoStartLiveSession(liveHub)).toBe(true);
+    expect(liveHubSession(liveHub)?.session_type).toBe("FP2");
+    expect(autoArisForHubSession(liveHubSession(liveHub))).toBe(true);
+  });
+});
+
+describe("hubSessionCta", () => {
+  it("labels live, completed, and upcoming sessions", () => {
+    const start = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    expect(hubSessionCta(sess({ session_type: "FP2", live: true, status: "LIVE", datetime_utc: start }))).toBe("live");
+    expect(hubSessionCta(sess({ session_type: "FP1", status: "COMPLETED", replayable: true }))).toBe("replay");
+    expect(hubSessionCta(sess({ session_type: "R", status: "UPCOMING", datetime_utc: "2099-01-01T12:00:00Z" }))).toBe(
+      "wait",
+    );
+  });
+});
+
+describe("pickArisHubSession", () => {
+  it("prefers live FP2, else upcoming Race", () => {
+    const start = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    expect(
+      pickArisHubSession([
+        sess({ session_type: "FP1", status: "COMPLETED", replayable: true }),
+        sess({ session_type: "FP2", status: "UPCOMING", datetime_utc: start }),
+        sess({ session_type: "R", status: "UPCOMING", datetime_utc: "2099-01-01T12:00:00Z" }),
+      ])?.session_type,
+    ).toBe("FP2");
+    expect(
+      pickArisHubSession([
+        sess({ session_type: "FP1", status: "COMPLETED", replayable: true }),
+        sess({ session_type: "FP2", status: "COMPLETED", replayable: true }),
+        sess({ session_type: "R", status: "UPCOMING", datetime_utc: "2099-01-01T12:00:00Z" }),
+      ])?.session_type,
+    ).toBe("R");
   });
 });

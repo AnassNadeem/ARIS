@@ -1,4 +1,5 @@
 import type { HubSession, LiveHub, SessionType } from "@/lib/types";
+import { isArisCapableSession } from "@/lib/sessionFlow";
 import { sessionIsLiveNow } from "@/lib/sessionWindow";
 
 const SESSION_TYPES = new Set<string>(["R", "S", "Q", "FP1", "FP2", "FP3", "SS", "SQ"]);
@@ -12,6 +13,8 @@ export function pickDefaultHubSession(sessions: HubSession[]): HubSession | null
   if (!sessions.length) return null;
   const live = sessions.find((s) => sessionIsLiveNow(s));
   if (live) return live;
+  const completed = sessions.filter((s) => s.status === "COMPLETED" || s.replayable);
+  if (completed.length) return completed[completed.length - 1] ?? null;
   const upcoming = sessions
     .filter((s) => s.status === "UPCOMING" && s.datetime_utc)
     .slice()
@@ -19,8 +22,37 @@ export function pickDefaultHubSession(sessions: HubSession[]): HubSession | null
   return upcoming[0] ?? sessions[0];
 }
 
-/** Live weekends skip the picker and open the pit wall immediately. */
+/** Prefer a live ARIS session, else the next upcoming FP2/Race. */
+export function pickArisHubSession(sessions: HubSession[]): HubSession | null {
+  const live = sessions.find((s) => sessionIsLiveNow(s) && isArisCapableSession(s.session_type));
+  if (live) return live;
+  const upcoming = sessions
+    .filter((s) => isArisCapableSession(s.session_type) && s.status === "UPCOMING")
+    .slice()
+    .sort((a, b) => String(a.datetime_utc ?? "").localeCompare(String(b.datetime_utc ?? "")));
+  if (upcoming[0]) return upcoming[0];
+  return sessions.find((s) => isArisCapableSession(s.session_type)) ?? null;
+}
+
+export function hubSessionCta(session: HubSession, now = Date.now()): "live" | "replay" | "wait" {
+  if (sessionIsLiveNow(session, now)) return "live";
+  if (session.status === "COMPLETED" || session.replayable) return "replay";
+  return "wait";
+}
+
+/** Live weekend session that should open the console immediately (FP2, race, …). */
+export function liveHubSession(hub: LiveHub, now = Date.now()): HubSession | null {
+  return hub.weekend_sessions.find((s) => sessionIsLiveNow(s, now)) ?? null;
+}
+
+/** Visiting /live during a live window skips the picker and opens the console. */
 export function shouldAutoStartLiveSession(hub: LiveHub, now = Date.now()): boolean {
+  if (liveHubSession(hub, now)) return true;
   if (hub.mode === "live_session" || hub.live.is_live) return true;
-  return hub.weekend_sessions.some((s) => sessionIsLiveNow(s, now));
+  return false;
+}
+
+/** FP2 and Race turn ARIS on when the live console auto-starts. */
+export function autoArisForHubSession(session: HubSession | null | undefined): boolean {
+  return isArisCapableSession(session?.session_type);
 }

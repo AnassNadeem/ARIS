@@ -20,6 +20,9 @@ export default function LivePage() {
 function LivePageInner() {
   const search = useSearchParams();
   const demo = search.get("demo") === "1";
+  const watch = search.get("watch") === "1";
+  const autoSession = search.get("session");
+  const autoAris = search.get("aris") === "1";
   const [hub, setHub] = useState<LiveHub | null>(null);
   const [hubTried, setHubTried] = useState(false);
   const [consoleMode, setConsoleMode] = useState<"live" | "replay" | null>(null);
@@ -75,7 +78,7 @@ function LivePageInner() {
   }
 
   if (consoleMode) {
-    return <ARISConsole mode={consoleMode} allowMock={demo || mockConsole || consoleMode === "replay"} />;
+    return <ARISConsole mode={consoleMode} allowMock={demo || mockConsole} />;
   }
 
   return (
@@ -88,7 +91,13 @@ function LivePageInner() {
       ) : !hub ? (
         <div className="flex-1 p-10 font-mono-data text-sm text-muted">Loading race weekend…</div>
       ) : (
-        <LiveSetupFlow hub={hub} onLoaded={() => setConsoleMode("live")} onEnterDemo={enterDemo} />
+        <LiveSetupFlow
+          hub={hub}
+          autoEnter={watch}
+          autoSession={autoSession}
+          autoAris={autoAris}
+          onLoaded={(mode) => setConsoleMode(mode)}
+        />
       )}
     </>
   );

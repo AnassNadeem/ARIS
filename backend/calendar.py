@@ -38,10 +38,11 @@ class ReplayYearBlocked(ValueError):
 
 
 REPLAY_SESSION_ONLY_MSG = "Only Race sessions are supported for Replay/ARIS"
+ALLOWED_REPLAY_SESSION_TYPES = frozenset({"R", "FP1", "FP2", "FP3", "Q", "SQ", "SS", "S"})
 
 
 class ReplaySessionBlocked(ValueError):
-    """Replay/ARIS was requested for a non-Race session."""
+    """Replay/ARIS was requested for an unknown session type."""
 
 
 def replay_year_allowed(year: int) -> bool:
@@ -49,14 +50,18 @@ def replay_year_allowed(year: int) -> bool:
 
 
 def replay_session_type_allowed(session_type: str | None) -> bool:
-    return str(session_type or "R").upper() == "R"
+    return str(session_type or "R").upper() in ALLOWED_REPLAY_SESSION_TYPES
 
 
 def assert_replay_session_type(session_type: str | None) -> str:
-    """Replay/ARIS packs are Race-only. Returns 'R' or raises ReplaySessionBlocked."""
+    """FastF1 replay packs: Race plus this-weekend practice/quali/sprint.
+
+    The /replay archive UI still lists Race only. Live-hub completed sessions
+    (FP1, FP2, …) load through the same pack path.
+    """
     mapped = str(session_type or "R").upper()
-    if mapped == "R":
-        return "R"
+    if mapped in ALLOWED_REPLAY_SESSION_TYPES:
+        return mapped
     raise ReplaySessionBlocked(REPLAY_SESSION_ONLY_MSG)
 
 

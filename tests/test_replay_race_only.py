@@ -21,15 +21,14 @@ def _client(app):
         return TestClient(app)
 
 
-def test_assert_replay_session_type_allows_race_only():
+def test_assert_replay_session_type_allows_weekend_sessions():
     assert assert_replay_session_type("R") == "R"
     assert assert_replay_session_type("r") == "R"
+    assert assert_replay_session_type("FP1") == "FP1"
+    assert assert_replay_session_type("FP2") == "FP2"
+    assert assert_replay_session_type("Q") == "Q"
     with pytest.raises(ReplaySessionBlocked, match="Only Race sessions"):
-        assert_replay_session_type("Q")
-    with pytest.raises(ReplaySessionBlocked, match="Only Race sessions"):
-        assert_replay_session_type("FP1")
-    with pytest.raises(ReplaySessionBlocked, match="Only Race sessions"):
-        assert_replay_session_type("S")
+        assert_replay_session_type("XX")
 
 
 def test_get_round_sessions_replay_flag_returns_race_only():
@@ -61,7 +60,7 @@ def test_get_round_sessions_default_still_lists_weekend():
     assert len(types) > 1
 
 
-def test_replay_init_http_rejects_non_race(monkeypatch):
+def test_replay_init_http_rejects_unknown_session(monkeypatch):
     from backend.main import app
     from backend import live as live_mod
 
@@ -71,7 +70,7 @@ def test_replay_init_http_rejects_non_race(monkeypatch):
         lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("init_replay must not run")),
     )
     client = _client(app)
-    res = client.post("/api/replay/init", json={"year": 2025, "round_number": 15, "session_type": "Q"})
+    res = client.post("/api/replay/init", json={"year": 2025, "round_number": 15, "session_type": "XX"})
     assert res.status_code == 400
     assert REPLAY_SESSION_ONLY_MSG in str(res.json()["detail"])
 
@@ -87,12 +86,12 @@ def test_replay_sessions_http_race_only():
     assert not any(t in {"FP1", "FP2", "FP3", "Q", "S", "SQ"} for t in types)
 
 
-def test_init_replay_direct_rejects_quali():
+def test_init_replay_direct_rejects_unknown_session():
     import asyncio
     from backend import live as live_mod
 
     with pytest.raises(ReplaySessionBlocked, match="Only Race sessions"):
-        asyncio.run(live_mod.init_replay(2025, 15, "Q"))
+        asyncio.run(live_mod.init_replay(2025, 15, "XX"))
 
 
 def test_prebuild_jobs_are_race_only(monkeypatch):

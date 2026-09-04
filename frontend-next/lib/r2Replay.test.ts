@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { annotateVsActivePlan, shouldFetchRecommend } from "./arisRecommend";
 import { mapTimingAndPositions } from "./mapCars";
-import { fieldToDrivers, fieldToLapRows, interpolatedPosFrac, nearestPosSample, normalizeR2Base, plansMatch, r2Configured, r2FrameAt, r2TickToGhostTick, raceDurationS, sectorSecondsForLap, speedKphFromPath, deriveGhostLapTimes, pitLossForCircuit, realLapTimesByDriver, GRID_START_LAP_FRAC, blendedPathFrac, gridPathFrac, replayDisplayFrac, ghostTickAtOrBefore, ghostDeltaChartPoints, r2FetchErrorMessage, fetchGhost, RaceFieldNotFoundError, R2_LOAD_ERROR, R2_RACE_UNAVAILABLE, driversFromRaceOrGrid, driverDidNotStart, ghostUnavailableMessage } from "./r2Replay";
+import { fieldToDrivers, fieldToLapRows, interpolatedPosFrac, nearestPosSample, normalizeR2Base, plansMatch, r2Configured, replayUsesR2Pack, r2FrameAt, r2TickToGhostTick, raceDurationS, sectorSecondsForLap, speedKphFromPath, deriveGhostLapTimes, pitLossForCircuit, realLapTimesByDriver, GRID_START_LAP_FRAC, blendedPathFrac, gridPathFrac, replayDisplayFrac, ghostTickAtOrBefore, ghostDeltaChartPoints, r2FetchErrorMessage, fetchGhost, RaceFieldNotFoundError, R2_LOAD_ERROR, R2_RACE_UNAVAILABLE, driversFromRaceOrGrid, driverDidNotStart, ghostUnavailableMessage } from "./r2Replay";
 import type { ARISRecommendation, GhostData, RaceField, RaceFieldLap } from "./types";
 
 function rec(over: Partial<ARISRecommendation> = {}): ARISRecommendation {
@@ -265,6 +265,13 @@ describe("R2 fallback when NEXT_PUBLIC_R2_BASE_URL is unset", () => {
       return;
     }
     expect(r2Configured()).toBe(false);
+  });
+
+  it("uses R2 packs for Race only so FP1/FP2 can replay via FastF1", () => {
+    expect(replayUsesR2Pack("R")).toBe(true);
+    expect(replayUsesR2Pack("FP1")).toBe(false);
+    expect(replayUsesR2Pack("FP2")).toBe(false);
+    expect(replayUsesR2Pack("Q")).toBe(false);
   });
 
   it("raceDurationS is the end of the last lap, not the start", () => {

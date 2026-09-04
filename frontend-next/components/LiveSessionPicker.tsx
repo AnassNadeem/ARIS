@@ -1,7 +1,8 @@
 "use client";
 
 import { useCountdown } from "@/lib/useCountdown";
-import { sessionLabel } from "@/lib/sessionFlow";
+import { hubSessionCta } from "@/lib/liveSetup";
+import { isArisCapableSession, sessionLabel } from "@/lib/sessionFlow";
 import { sessionIsLiveNow } from "@/lib/sessionWindow";
 import type { HubSession, LiveHub } from "@/lib/types";
 
@@ -27,7 +28,7 @@ function SessionTimer({ session }: { session: HubSession }) {
     );
   }
   if (session.status === "COMPLETED" || session.replayable) {
-    return <span className="font-mono-data text-[12px] text-muted">Completed</span>;
+    return <span className="font-mono-data text-[12px] text-muted">Replay</span>;
   }
   if (upcoming && session.datetime_utc) {
     return <UpcomingCountdown iso={session.datetime_utc} />;
@@ -48,6 +49,14 @@ function sessionClock(session: HubSession): string {
   });
 }
 
+function ctaLabel(session: HubSession): string {
+  const name = sessionLabel(session.session_type);
+  const cta = hubSessionCta(session);
+  if (cta === "live") return `Go Live · ${name} →`;
+  if (cta === "replay") return `Replay ${name} →`;
+  return `Open console · ${name} →`;
+}
+
 export function LiveSessionPicker({
   hub,
   selected,
@@ -55,7 +64,6 @@ export function LiveSessionPicker({
   onSelect,
   onContinue,
   onArisChange,
-  onEnterDemo,
 }: {
   hub: LiveHub;
   selected: HubSession | null;
@@ -63,7 +71,6 @@ export function LiveSessionPicker({
   onSelect: (session: HubSession) => void;
   onContinue: () => void;
   onArisChange: (on: boolean) => void;
-  onEnterDemo: () => void;
 }) {
   const dateLabel = hub.next.date_race
     ? new Date(hub.next.date_race).toLocaleDateString(undefined, {
@@ -72,7 +79,7 @@ export function LiveSessionPicker({
         day: "numeric",
       })
     : "";
-  const selectedLabel = selected ? sessionLabel(selected.session_type) : "";
+  const arisBlocked = Boolean(selected && !isArisCapableSession(selected.session_type) && arisEnabled);
 
   return (
     <section className="flex flex-col gap-5">
@@ -80,7 +87,8 @@ export function LiveSessionPicker({
         <div className="font-mono-data text-[10px] uppercase tracking-[0.22em] text-red">ARIS</div>
         <h2 className="mt-1 text-xl font-bold tracking-wide text-white uppercase sm:text-2xl">Live timing</h2>
         <p className="mt-1 font-mono-data text-[11px] text-muted">
-          Watch this weekend&apos;s session. ARIS live strategist is coming soon — pick a session to open the console.
+          Pick this weekend&apos;s session. Completed sessions open as replay. Live sessions open the pit wall at the
+          current lap.
         </p>
         <div className="mt-3 inline-flex w-fit overflow-hidden rounded-[8px] border border-border bg-obsidian" role="group" aria-label="ARIS toggle">
           <button
@@ -95,15 +103,22 @@ export function LiveSessionPicker({
           </button>
           <button
             type="button"
-            aria-pressed={false}
-            disabled
-            title="ARIS live strategist — coming soon"
-            className="cursor-not-allowed px-5 py-2.5 font-mono-data text-[12px] uppercase tracking-widest text-muted-2 opacity-50"
+            aria-pressed={arisEnabled}
+            onClick={() => onArisChange(true)}
+            className={`px-5 py-2.5 font-mono-data text-[12px] uppercase tracking-widest ${
+              arisEnabled ? "bg-red/15 text-red" : "text-muted hover:text-white"
+            }`}
           >
             On
           </button>
         </div>
-        <p className="mt-2 font-mono-data text-[11px] text-muted">ARIS live strategist — coming soon</p>
+        <p className="mt-2 font-mono-data text-[11px] text-muted">
+          {arisEnabled
+            ? selected && !isArisCapableSession(selected.session_type)
+              ? "ARIS on is Race and FP2 — pick one of those sessions."
+              : "ARIS on — ghost car and delta will show on the timing tower."
+            : "ARIS off — timing only."}
+        </p>
       </div>
 
       <div>
@@ -120,6 +135,8 @@ export function LiveSessionPicker({
       <div className="flex gap-2 overflow-x-auto pb-2 [scrollbar-width:thin]">
         {hub.weekend_sessions.map((s) => {
           const on = selected?.session_type === s.session_type;
+          const live = sessionIsLiveNow(s);
+          const replay = s.status === "COMPLETED" || s.replayable;
           return (
             <button
               key={s.session_type}
@@ -133,11 +150,15 @@ export function LiveSessionPicker({
                 <span className="font-mono-data text-[12px] font-semibold text-white">
                   {sessionLabel(s.session_type)}
                 </span>
-                {sessionIsLiveNow(s) && (
+                {live ? (
                   <span className="rounded bg-red/20 px-1.5 py-0.5 font-mono-data text-[9px] uppercase tracking-wide text-red">
                     Live
                   </span>
-                )}
+                ) : replay ? (
+                  <span className="rounded bg-white/10 px-1.5 py-0.5 font-mono-data text-[9px] uppercase tracking-wide text-white">
+                    Replay
+                  </span>
+                ) : null}
               </div>
               <div className="mt-1.5 font-mono-data text-[10px] text-muted">{sessionClock(s) || s.session_name}</div>
               <div className="mt-1.5">
@@ -152,19 +173,16 @@ export function LiveSessionPicker({
         <button
           type="button"
           onClick={onContinue}
-          className="self-start rounded-[8px] border border-red bg-red/10 px-5 py-2.5 font-mono-data text-[11px] uppercase tracking-widest text-red hover:bg-red/20"
+          disabled={arisBlocked}
+          className={`self-start rounded-[8px] border px-5 py-2.5 font-mono-data text-[11px] uppercase tracking-widest ${
+            arisBlocked
+              ? "cursor-not-allowed border-border text-muted-2"
+              : "border-red bg-red/10 text-red hover:bg-red/20"
+          }`}
         >
-          {`Go Live · ${selectedLabel} →`}
+          {ctaLabel(selected)}
         </button>
       )}
-
-      <button
-        type="button"
-        onClick={onEnterDemo}
-        className="self-start font-mono-data text-[10px] uppercase tracking-widest text-muted hover:text-white"
-      >
-        Enter demo console
-      </button>
     </section>
   );
 }

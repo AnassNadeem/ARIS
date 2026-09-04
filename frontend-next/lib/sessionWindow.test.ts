@@ -117,6 +117,34 @@ describe("applyLiveHubSessionWindows", () => {
     expect(hub.weekend_sessions[0]?.live).toBe(false);
     expect(hub.countdown_seconds).toBeGreaterThan(0);
   });
+
+  it("after FP1, counts down to FP2 instead of staying live", () => {
+    const hub = applyLiveHubSessionWindows(MONZA_HUB, Date.parse("2026-09-04T12:00:00Z"));
+    expect(hub.mode).toBe("waiting_for_session");
+    expect(hub.live.is_live).toBe(false);
+    const fp1 = hub.weekend_sessions.find((s) => s.session_type === "FP1");
+    const fp2 = hub.weekend_sessions.find((s) => s.session_type === "FP2");
+    expect(fp1?.status).toBe("COMPLETED");
+    expect(fp1?.replayable).toBe(true);
+    expect(fp2?.status).toBe("UPCOMING");
+    expect(hub.countdown_target).toBe("2026-09-04T14:00:00Z");
+  });
+
+  it("marks FP2 replayable after the practice window", () => {
+    const hub = applyLiveHubSessionWindows(MONZA_HUB, Date.parse("2026-09-04T15:20:00Z"));
+    const fp2 = hub.weekend_sessions.find((s) => s.session_type === "FP2");
+    expect(fp2?.status).toBe("COMPLETED");
+    expect(fp2?.replayable).toBe(true);
+    expect(hub.live.is_live).toBe(false);
+  });
+
+  it("opens FP2 as live at the official 16:00 CEST start", () => {
+    const hub = applyLiveHubSessionWindows(MONZA_HUB, Date.parse("2026-09-04T14:05:00Z"));
+    expect(hub.mode).toBe("live_session");
+    const fp2 = hub.weekend_sessions.find((s) => s.session_type === "FP2");
+    expect(fp2?.status).toBe("LIVE");
+    expect(fp2?.live).toBe(true);
+  });
 });
 
 describe("sessionIsLiveNow", () => {

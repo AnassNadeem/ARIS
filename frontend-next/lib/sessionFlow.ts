@@ -17,10 +17,21 @@ export const SESSION_OPTIONS: SessionOption[] = [
   { id: "R", type: "R", label: "Race", arisCapable: true, weekend: "both" },
 ];
 
-const ARIS_SESSIONS = new Set(["R"]);
+/** Race is the product path. FP2 is a temporary live-wiring probe for ghost/tower. */
+const ARIS_SESSIONS = new Set(["R", "FP2"]);
 
 export function isArisCapableSession(sessionType: string | null | undefined): boolean {
   return ARIS_SESSIONS.has(String(sessionType ?? "").toUpperCase());
+}
+
+/** Console ARIS toggle: Race and FP2 can turn it on after entering, including replay. */
+export function canToggleArisInConsole(sessionType: string | null | undefined): boolean {
+  return isArisCapableSession(sessionType);
+}
+
+/** Pre-race strategy cards are Race-only. FP2 ARIS goes straight to the console. */
+export function sessionNeedsStrategyPick(sessionType: string | null | undefined): boolean {
+  return String(sessionType ?? "").toUpperCase() === "R";
 }
 
 export function sessionLabel(sessionType: string | null | undefined): string {

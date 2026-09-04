@@ -91,7 +91,13 @@ export function applyLiveHubSessionWindows(hub: LiveHub, now = Date.now()): Live
   const target = nextOpen?.datetime_utc ?? hub.countdown_target;
   const targetMs = target ? new Date(target).getTime() : NaN;
   const secs = Number.isFinite(targetMs) ? Math.max(0, Math.floor((targetMs - now) / 1000)) : hub.countdown_seconds;
-  const mode: HubMode = liveSess ? "live_session" : hub.mode;
+  const mode: HubMode = liveSess
+    ? "live_session"
+    : nextOpen
+      ? "waiting_for_session"
+      : weekend.some((s) => s.status === "COMPLETED")
+        ? "session_ended"
+        : hub.mode;
   return {
     ...hub,
     mode,
@@ -101,9 +107,9 @@ export function applyLiveHubSessionWindows(hub: LiveHub, now = Date.now()): Live
     weekend_sessions: weekend,
     live: {
       ...hub.live,
-      is_live: Boolean(liveSess) || hub.live.is_live,
-      session_type: liveSess?.session_type ?? hub.live.session_type,
-      session_name: liveSess?.session_name ?? hub.live.session_name,
+      is_live: Boolean(liveSess),
+      session_type: liveSess?.session_type ?? nextOpen?.session_type ?? hub.live.session_type,
+      session_name: liveSess?.session_name ?? nextOpen?.session_name ?? hub.live.session_name,
     },
     next: {
       ...hub.next,
@@ -112,4 +118,13 @@ export function applyLiveHubSessionWindows(hub: LiveHub, now = Date.now()): Live
       next_session_name: nextOpen?.session_name ?? hub.next.next_session_name,
     },
   };
+}
+
+/** Live session if one is in the window, otherwise the next upcoming one. */
+export function featuredHubSession(sessions: HubSession[], now = Date.now()): HubSession | null {
+  const live = sessions.find((s) => sessionIsLiveNow(s, now));
+  if (live) return live;
+  return (
+    sessions.find((s) => sessionClockStatus(s.datetime_utc, s.session_type, now) === "UPCOMING") ?? null
+  );
 }

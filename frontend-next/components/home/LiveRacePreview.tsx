@@ -3,11 +3,12 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { getLiveHub } from "@/lib/api";
-import { sessionIsLiveNow } from "@/lib/sessionWindow";
+import { sessionLabel } from "@/lib/sessionFlow";
+import { applyLiveHubSessionWindows, featuredHubSession, sessionIsLiveNow } from "@/lib/sessionWindow";
 import type { LiveHub } from "@/lib/types";
 
 export function LiveRacePreview() {
-  const [info, setInfo] = useState<LiveHub | null>(null);
+  const [raw, setRaw] = useState<LiveHub | null>(null);
   const [failed, setFailed] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
@@ -17,7 +18,7 @@ export function LiveRacePreview() {
       const next = await getLiveHub();
       if (cancelled) return;
       if (next) {
-        setInfo(next);
+        setRaw(next);
         setFailed(false);
       } else {
         setFailed(true);
@@ -36,7 +37,7 @@ export function LiveRacePreview() {
     return () => clearInterval(id);
   }, []);
 
-  if (!info) {
+  if (!raw) {
     return (
       <div className="flex flex-1 flex-col rounded-[8px] border border-border bg-surface p-5">
         <div className="font-mono-data text-xs uppercase text-muted">
@@ -51,13 +52,15 @@ export function LiveRacePreview() {
     );
   }
 
+  const info = applyLiveHubSessionWindows(raw, now);
   const liveSession = info.weekend_sessions.find((s) => sessionIsLiveNow(s, now));
-  const target = new Date(
-    liveSession?.datetime_utc ?? info.countdown_target ?? info.next.next_session_datetime ?? Date.now(),
-  ).getTime();
+  const featured = featuredHubSession(info.weekend_sessions, now);
+  const isLive = Boolean(liveSession) || info.mode === "live_session" || info.live.is_live;
+  const targetIso =
+    liveSession?.datetime_utc ?? featured?.datetime_utc ?? info.countdown_target ?? info.next.next_session_datetime;
+  const target = targetIso ? new Date(targetIso).getTime() : now;
   const diff = target - now;
-  const isLive = info.mode === "live_session" || info.live.is_live || Boolean(liveSession);
-  const waiting = !isLive && info.mode === "waiting_for_session";
+  const nextLabel = featured && !isLive ? sessionLabel(featured.session_type) : null;
 
   const parts = [
     { label: "D", value: Math.max(0, Math.floor(diff / 86_400_000)) },
@@ -66,6 +69,12 @@ export function LiveRacePreview() {
     { label: "S", value: Math.max(0, Math.floor((diff % 60_000) / 1000)) },
   ];
 
+  const watchHref = liveSession
+    ? `/live?watch=1&session=${encodeURIComponent(liveSession.session_type)}${
+        liveSession.session_type.toUpperCase() === "FP2" ? "&aris=1" : ""
+      }`
+    : "/live";
+
   return (
     <div className="flex flex-1 flex-col justify-between rounded-[8px] border border-border bg-surface p-5 text-left">
       <div>
@@ -73,10 +82,10 @@ export function LiveRacePreview() {
           {isLive ? (
             <span className="flex items-center gap-1.5 text-red">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red" /> Live now
-              {liveSession ? ` · ${liveSession.session_type}` : ""}
+              {liveSession ? ` · ${sessionLabel(liveSession.session_type)}` : ""}
             </span>
-          ) : waiting ? (
-            "This weekend"
+          ) : nextLabel ? (
+            `Next · ${nextLabel}`
           ) : (
             "Next race"
           )}
@@ -85,14 +94,11 @@ export function LiveRacePreview() {
           {info.circuit.country_flag} {info.next.name}
         </h3>
         <p className="mt-0.5 font-mono-data text-[11px] text-muted">{info.circuit.circuit_name}</p>
-        {waiting && info.waiting_reason && (
-          <p className="mt-2 font-mono-data text-[11px] text-amber">{info.waiting_reason}</p>
-        )}
       </div>
 
       {isLive ? (
         <Link
-          href="/live"
+          href={watchHref}
           className="mt-4 inline-flex items-center justify-center gap-2 rounded-[8px] bg-red px-5 py-2.5 font-mono-data text-xs font-semibold uppercase tracking-wide text-white transition-transform hover:scale-[1.02] hover:brightness-110"
         >
           ● WATCH LIVE →
