@@ -261,7 +261,11 @@ def test_peek_status_does_not_rekick_openf1_full_pack(monkeypatch):
         raise AssertionError("OpenF1 practice pack must not re-kick FastF1")
 
     monkeypatch.setattr(live_mod, "_kick_pack_job", boom_kick)
-    monkeypatch.setattr(live_mod, "hydrate_replay_pack_cache", lambda *_a, **_k: (pack, True, False))
+    monkeypatch.setattr(
+        live_mod,
+        "hydrate_replay_pack_cache",
+        lambda *_a, **_k: (pack, True, False),
+    )
     out = asyncio.run(live_mod.peek_replay_pack_status(key, 2026, 13, "FP2"))
     assert kicks == []
     assert out["stage"] == "full"
