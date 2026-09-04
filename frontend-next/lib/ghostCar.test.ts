@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ghostCarFromTick, ghostPlaybackAt, PIT_ENTRY_FRAC, SEEK_JUMP_GRACE_S } from "./ghostCar";
+import { ghostCarFromTick, ghostPlaybackAt, PIT_ENTRY_FRAC, probeGhostCar, SEEK_JUMP_GRACE_S } from "./ghostCar";
 import { PathCarAnimator } from "./deadReckoning";
 import { buildPath } from "./trackGeometry";
 import type { GhostTickData } from "./types";
@@ -251,6 +251,42 @@ describe("ghostCarFromTick playback", () => {
     expect(car.is_pitted).toBe(true);
     expect(car.ghost_pit_compound).toBe("HARD");
     expect(car.ghost_skip_seek_jump).toBe(true);
+  });
+});
+
+describe("probeGhostCar", () => {
+  it("clones the real car as an ARIS tower row with a small delta", () => {
+    const real = {
+      driver_code: "VER",
+      driver_number: 1,
+      full_name: "Max Verstappen",
+      team: "Red Bull",
+      team_colour: "#1e41ff",
+      position: 3,
+      lap_number: 15,
+      compound: "MEDIUM" as const,
+      tyre_life: 8,
+      gap_to_leader_s: 4.2,
+      gap_ahead_s: 0.4,
+      gap_ahead_history: [],
+      last_lap_s: 82.1,
+      pit_stops: 0,
+      is_pitted: false,
+      is_dnf: false,
+      x: 0,
+      y: 0,
+      speed_kph: 280,
+      heading_rad: 0,
+      laps_remaining: 38,
+      total_laps: 53,
+    };
+    const car = probeGhostCar(real, 15, 53);
+    expect(car.driver_code).toBe("A_VER");
+    expect(car.full_name).toBe("ARIS");
+    expect(car.is_ghost).toBe(true);
+    expect(car.ghost_cumulative_delta).toBe(-0.3);
+    expect(car.aris_action).toBe("LIVE_PROBE");
+    expect(car.position).toBe(3);
   });
 });
 

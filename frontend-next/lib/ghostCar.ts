@@ -280,7 +280,32 @@ export function ghostCarFromTick(
   });
 }
 
-/** Fallback ghost so the map/tower still show ARIS vs real before DB precompute lands. */
+/**
+ * Temporary live-wiring ghost so the timing tower shows an ARIS row + delta
+ * before recommend()/precompute land. Offset is small so rank stays near the real car.
+ */
+export function probeGhostCar(real: CarState, lap: number, totalLaps: number): CarState {
+  return {
+    ...real,
+    driver_code: ghostCodeFor(real.driver_code),
+    driver_number: 0,
+    full_name: "ARIS",
+    team_colour: "#e8eef4",
+    is_ghost: true,
+    is_aris_driver: false,
+    last_lap_s: null,
+    best_lap_s: null,
+    sector1_s: null,
+    sector2_s: null,
+    sector3_s: null,
+    lap_number: lap || real.lap_number,
+    total_laps: totalLaps || real.total_laps,
+    ghost_cumulative_delta: -0.3,
+    divergence_lap: 1,
+    aris_action: "LIVE_PROBE",
+    real_action: "LIVE",
+  };
+}
 export function syntheticGhostCar(
   rec: ARISRecommendation,
   real: CarState,
