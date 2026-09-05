@@ -12,8 +12,6 @@ import unicodedata
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-_log = logging.getLogger("aris.live")
-
 from backend.cache import TTL_LIVE, TTL_RAINFALL, TTL_REPLAY, TTL_WEATHER_LIVE, cache
 from backend.calendar import now_utc
 from backend.http_client import aopenf1
@@ -41,6 +39,8 @@ from backend.utils import executor as _sync_pool
 from backend.utils import light_executor as _light_pool
 from backend.utils import prewarm_executor as _prewarm_pool
 from backend.utils import run_on, run_sync
+
+_log = logging.getLogger("aris.live")
 
 OPENF1_BASE = "https://api.openf1.org/v1"
 
@@ -3170,7 +3170,11 @@ async def _cold_load_minimal(
         await _attach_synthetic_gps_async(pack)
         if pack.get("laps"):
             _PACK_LOAD_ERROR.pop(session_key, None)
-            stage = "full" if _practice_pack_ready(pack) or _openf1_pack_playable(pack) else "minimal"
+            stage = (
+                "full"
+                if _practice_pack_ready(pack) or _openf1_pack_playable(pack)
+                else "minimal"
+            )
             _set_pack_stage(pack, stage)
             save_replay_pack_disk(session_key, pack)
             # Location GPS is nice-to-have; do not block Start Race on it.
@@ -4947,7 +4951,11 @@ def _pack_status_payload(
         "error": _PACK_LOAD_ERROR.get(session_key) if status == "error" else None,
         "elapsed_s": elapsed_s,
         "source": pack.get("source")
-        or ("openf1" if _prefer_openf1_pack(pack.get("session_type") or session_type) else "fastf1"),
+        or (
+            "openf1"
+            if _prefer_openf1_pack(pack.get("session_type") or session_type)
+            else "fastf1"
+        ),
         "date_start": start.isoformat() if hasattr(start, "isoformat") else start,
         "date_end": end.isoformat() if hasattr(end, "isoformat") else end,
         "session_type": pack.get("session_type") or session_type,
@@ -4991,7 +4999,11 @@ async def peek_replay_pack_status(
         session_key, year, round_number, session_type, log_hits=False
     )
     pack = _REPLAY_PACKS.get(session_key)
-    openf1_ok = _practice_pack_ready(pack) if _prefer_openf1_pack(session_type) else _openf1_pack_playable(pack)
+    openf1_ok = (
+        _practice_pack_ready(pack)
+        if _prefer_openf1_pack(session_type)
+        else _openf1_pack_playable(pack)
+    )
     ff1_full = (
         not _prefer_openf1_pack(session_type)
         and replay_pack_stage(pack) == "full"
