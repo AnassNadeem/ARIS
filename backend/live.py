@@ -38,6 +38,7 @@ from backend.models import (
     StintRow,
 )
 from backend.utils import executor as _sync_pool
+from backend.utils import light_executor as _light_pool
 from backend.utils import prewarm_executor as _prewarm_pool
 from backend.utils import run_on, run_sync
 
@@ -47,6 +48,8 @@ OPENF1_BASE = "https://api.openf1.org/v1"
 def _pool_name(pool: Any) -> str:
     if pool is _prewarm_pool:
         return "prewarm"
+    if pool is _light_pool:
+        return "light"
     if pool is _sync_pool:
         return "sync"
     return "sync"
@@ -740,13 +743,13 @@ _OPENF1_SESSION_NAMES = {
     "R": ("Race",),
 }
 
-# FastF1 often has no pack yet for a practice that just finished. OpenF1 does.
-_OPENF1_FIRST_SESSIONS = frozenset({"FP1", "FP2", "FP3"})
+# Practice packs use OpenF1 only — FastF1 often has no FP1/FP2 yet and hangs the pack job.
+_OPENF1_ONLY_SESSIONS = frozenset({"FP1", "FP2", "FP3"})
 
 
 def _prefer_openf1_pack(session_type: str | None) -> bool:
-    """Load practice replay from OpenF1 before waiting on FastF1."""
-    return str(session_type or "").upper() in _OPENF1_FIRST_SESSIONS
+    """True when this session type must load from OpenF1 (never FastF1)."""
+    return str(session_type or "").upper() in _OPENF1_ONLY_SESSIONS
 
 
 def _openf1_pack_playable(pack: dict[str, Any] | None) -> bool:
@@ -756,6 +759,11 @@ def _openf1_pack_playable(pack: dict[str, Any] | None) -> bool:
         and bool(pack.get("laps"))
         and pack.get("openf1_session_key") is not None
     )
+
+
+def _practice_pack_ready(pack: dict[str, Any] | None) -> bool:
+    """Practice is ready when OpenF1 filled laps (+ synthetic / location GPS)."""
+    return _openf1_pack_playable(pack)
 
 _SYNTHETIC_SESSION_KIND = {"FP1": 1, "FP2": 2, "FP3": 3, "Q": 4, "S": 5, "SQ": 6, "R": 7}
 
@@ -1253,7 +1261,9 @@ async def live_status(
                 replay_preparing=True,
                 error=None,
             )
-        if local is not None:
+        # Calendar can name the session without an OpenF1 key. Claiming
+        # is_live=True here opens the console with empty timing/map.
+        if local is not None and local.session_key is not None:
             return local
         if nxt is not None:
             mapped = _session_type_map(str(nxt.next_session_name or ""), "") or "R"
@@ -2574,30 +2584,58 @@ async def _fill_pack_openf1(
         _log.info("OpenF1 session missing year=%s round=%s type=%s", year, round_number, mapped)
         return False
     of1_key = int(sess["session_key"])
-    names = ("drivers", "laps", "stints", "position", "weather", "race_control")
-    raw = await asyncio.gather(
-        _openf1("drivers", {"session_key": of1_key}),
-        _openf1("laps", {"session_key": of1_key}, timeout=30.0),
-        _openf1("stints", {"session_key": of1_key}),
-        _openf1("position", {"session_key": of1_key}, timeout=30.0),
-        _openf1("weather", {"session_key": of1_key}),
-        _openf1("race_control", {"session_key": of1_key}),
-        return_exceptions=True,
-    )
-    unpacked: list[Any] = []
-    for name, value in zip(names, raw, strict=True):
-        if isinstance(value, Exception):
-            _log.warning(
-                "OpenF1 %s failed session_key=%s of1=%s: %s",
-                name,
-                session_key,
-                of1_key,
-                value,
-            )
-            unpacked.append([])
-        else:
-            unpacked.append(value)
-    drivers, laps, stints, positions, weather, race_control = unpacked
+    # Practice packs only need timing + tyres for replay; skip the huge
+    # `position` payload (OpenF1 can take 20s+) — map cars use synthetic GPS.
+    if _prefer_openf1_pack(mapped):
+        names = ("drivers", "laps", "stints", "weather", "race_control")
+        raw = await asyncio.gather(
+            _openf1("drivers", {"session_key": of1_key}),
+            _openf1("laps", {"session_key": of1_key}, timeout=30.0),
+            _openf1("stints", {"session_key": of1_key}),
+            _openf1("weather", {"session_key": of1_key}),
+            _openf1("race_control", {"session_key": of1_key}),
+            return_exceptions=True,
+        )
+        unpacked: list[Any] = []
+        for name, value in zip(names, raw, strict=True):
+            if isinstance(value, Exception):
+                _log.warning(
+                    "OpenF1 %s failed session_key=%s of1=%s: %s",
+                    name,
+                    session_key,
+                    of1_key,
+                    value,
+                )
+                unpacked.append([])
+            else:
+                unpacked.append(value)
+        drivers, laps, stints, weather, race_control = unpacked
+        positions: list[Any] = []
+    else:
+        names = ("drivers", "laps", "stints", "position", "weather", "race_control")
+        raw = await asyncio.gather(
+            _openf1("drivers", {"session_key": of1_key}),
+            _openf1("laps", {"session_key": of1_key}, timeout=30.0),
+            _openf1("stints", {"session_key": of1_key}),
+            _openf1("position", {"session_key": of1_key}, timeout=30.0),
+            _openf1("weather", {"session_key": of1_key}),
+            _openf1("race_control", {"session_key": of1_key}),
+            return_exceptions=True,
+        )
+        unpacked = []
+        for name, value in zip(names, raw, strict=True):
+            if isinstance(value, Exception):
+                _log.warning(
+                    "OpenF1 %s failed session_key=%s of1=%s: %s",
+                    name,
+                    session_key,
+                    of1_key,
+                    value,
+                )
+                unpacked.append([])
+            else:
+                unpacked.append(value)
+        drivers, laps, stints, positions, weather, race_control = unpacked
     laps_rows = _as_openf1_rows(laps)
     if not laps_rows:
         _log.info(
@@ -2691,6 +2729,11 @@ def _attach_synthetic_gps(pack: dict[str, Any]) -> None:
     ensure_path_traces(pack)
 
 
+async def _attach_synthetic_gps_async(pack: dict[str, Any]) -> None:
+    """Run synthetic GPS off the event loop (practice packs have hundreds of laps)."""
+    await asyncio.to_thread(_attach_synthetic_gps, pack)
+
+
 def _calendar_session_status(year: int | None, round_number: int | None, mapped: str) -> str:
     if not year or not round_number:
         return "COMPLETED"
@@ -2718,7 +2761,18 @@ async def _staged_fastf1_fill(
     mapped = str(pack.get("session_type") or "R")
     if not (year and rnd):
         return pack
-    if replay_pack_stage(pack) == "full" and _ff1_pack_ready(pack):
+    if _prefer_openf1_pack(mapped) and _practice_pack_ready(pack):
+        if not pack.get("path_x"):
+            await _fill_pack_map(session_key, int(year), int(rnd), executor=executor)
+            pack = _REPLAY_PACKS.get(session_key) or pack
+        _attach_synthetic_gps(pack)
+        _set_pack_stage(pack, "full")
+        return pack
+    if (
+        not _prefer_openf1_pack(mapped)
+        and replay_pack_stage(pack) == "full"
+        and _ff1_pack_ready(pack)
+    ):
         if not pack.get("path_x"):
             await _fill_pack_map(session_key, int(year), int(rnd), executor=executor)
             pack = _REPLAY_PACKS.get(session_key) or pack
@@ -2731,9 +2785,27 @@ async def _staged_fastf1_fill(
         pack = _REPLAY_PACKS.get(session_key) or pack
 
     if not pack.get("laps") or replay_pack_stage(pack) in {"empty", "metadata"}:
-        if _prefer_openf1_pack(mapped) and not pack.get("laps"):
-            await _fill_pack_openf1(pack, session_key, int(year), int(rnd), mapped)
-            pack = _REPLAY_PACKS.get(session_key) or pack
+        if _prefer_openf1_pack(mapped):
+            if not pack.get("laps"):
+                await _fill_pack_openf1(pack, session_key, int(year), int(rnd), mapped)
+                pack = _REPLAY_PACKS.get(session_key) or pack
+            if not pack.get("path_x"):
+                await _fill_pack_map(session_key, int(year), int(rnd), executor=executor)
+                pack = _REPLAY_PACKS.get(session_key) or pack
+            await _attach_synthetic_gps_async(pack)
+            if pack.get("source") == "openf1":
+                asyncio.create_task(_seed_openf1_location_gps(pack))
+            if pack.get("laps"):
+                _PACK_LOAD_ERROR.pop(session_key, None)
+                _set_pack_stage(pack, "full" if _practice_pack_ready(pack) else "minimal")
+                if not pack.get("session_status"):
+                    pack["session_status"] = _calendar_session_status(int(year), int(rnd), mapped)
+                save_replay_pack_disk(session_key, pack)
+            else:
+                _PACK_LOAD_ERROR[session_key] = (
+                    f"OpenF1 has no laps for {year} R{rnd} {mapped}"
+                )
+            return pack
         if not pack.get("laps"):
             await _upgrade_pack_fastf1(
                 session_key,
@@ -2766,6 +2838,9 @@ async def _staged_fastf1_fill(
                 pack["session_status"] = _calendar_session_status(int(year), int(rnd), mapped)
             save_replay_pack_disk(session_key, pack)
 
+    if _prefer_openf1_pack(mapped):
+        return pack
+
     if _ff1_pack_ready(pack):
         if pack.get("path_x"):
             ensure_path_traces(pack)
@@ -2788,6 +2863,8 @@ async def _fill_gps_chunks(
     year = pack.get("year")
     rnd = pack.get("round_number")
     mapped = str(pack.get("session_type") or "R")
+    if _prefer_openf1_pack(mapped):
+        return pack
     if not (year and rnd) or _ff1_pack_ready(pack):
         return pack
     from backend.sessions import log_process_mem
@@ -2864,8 +2941,12 @@ def _kick_pack_job(
         _log.info("Replay/ARIS pack skipped for non-Race session %s", session_type)
         return
     existing = _PACK_JOBS.get(session_key)
-    if existing is not None and not existing.done() and not refresh:
-        return
+    if existing is not None and not existing.done():
+        if not refresh:
+            return
+        existing.cancel()
+        _PACK_JOBS.pop(session_key, None)
+        _FF1_UPGRADE_INFLIGHT.discard(session_key)
     _FF1_UPGRADE_INFLIGHT.add(session_key)
     task = asyncio.create_task(
         _run_pack_load(
@@ -2917,9 +2998,37 @@ async def _run_pack_load(
             )
             if (
                 cached is not None
+                and _prefer_openf1_pack(mapped)
+                and _practice_pack_ready(cached)
+            ):
+                _log.info(
+                    "key=%s memory_hit=%s disk_hit=%s stage=full — OpenF1 practice pack ready",
+                    replay_pack_disk_key(session_key, year, round_number, mapped),
+                    memory_hit,
+                    disk_hit,
+                )
+                _set_pack_stage(cached, "full")
+                return cached
+            if (
+                cached is not None
+                and _prefer_openf1_pack(mapped)
+                and cached.get("source") == "fastf1"
+            ):
+                # Stale FastF1 practice packs must not block OpenF1 (FastF1 has no data yet).
+                _log.info(
+                    "replay pack discard FastF1 practice cache session_key=%s type=%s",
+                    session_key,
+                    mapped,
+                )
+                invalidate_replay_pack(session_key)
+                cached = None
+                memory_hit = disk_hit = False
+            if (
+                cached is not None
                 and _ff1_pack_ready(cached)
                 and cached.get("path_traces")
                 and cached.get("path_traces_v") == _PATH_TRACES_V
+                and not _prefer_openf1_pack(mapped)
             ):
                 _log.info(
                     "key=%s memory_hit=%s disk_hit=%s stage=full — skip FastF1",
@@ -2930,9 +3039,11 @@ async def _run_pack_load(
                 _set_pack_stage(cached, "full")
                 return cached
             if cached is not None and _stage_rank(cached) >= _PACK_STAGE_RANK["minimal"]:
-                src = "fastf1" if _ff1_pack_ready(cached) else (cached.get("source") or "fastf1")
+                src = "openf1" if _prefer_openf1_pack(mapped) else (
+                    "fastf1" if _ff1_pack_ready(cached) else (cached.get("source") or "fastf1")
+                )
                 _log.info(
-                    "replay pack cache session_key=%s source=%s stage=%s memory_hit=%s disk_hit=%s — FastF1 upgrade if needed",
+                    "replay pack cache session_key=%s source=%s stage=%s memory_hit=%s disk_hit=%s",
                     session_key,
                     src,
                     replay_pack_stage(cached),
@@ -2942,20 +3053,25 @@ async def _run_pack_load(
                 pack = await _staged_fastf1_fill(
                     cached, session_key, executor=executor, include_gps=False
                 )
-                need_gps = not _ff1_pack_ready(pack)
+                need_gps = (not _prefer_openf1_pack(mapped)) and (not _ff1_pack_ready(pack))
             else:
                 pack, need_gps = await _cold_load_minimal(
                     session_key, year, round_number, mapped, executor=executor
                 )
-        if need_gps and pack.get("source") != "openf1":
+        if need_gps and pack.get("source") != "openf1" and not _prefer_openf1_pack(mapped):
             pack = await _fill_gps_chunks(
                 _REPLAY_PACKS.get(session_key) or pack, session_key, executor=executor
             )
         pack = _REPLAY_PACKS.get(session_key) or pack
         if not pack.get("laps"):
-            _PACK_LOAD_ERROR[session_key] = (
-                f"No FastF1 or OpenF1 laps for session_key={session_key}"
-            )
+            if _prefer_openf1_pack(mapped):
+                _PACK_LOAD_ERROR[session_key] = (
+                    f"OpenF1 has no laps for session_key={session_key}"
+                )
+            else:
+                _PACK_LOAD_ERROR[session_key] = (
+                    f"No FastF1 or OpenF1 laps for session_key={session_key}"
+                )
         return pack
     except Exception:
         _log.exception("replay pack job failed session_key=%s", session_key)
@@ -2971,9 +3087,12 @@ async def _run_pack_load(
                 )
                 pack = _REPLAY_PACKS.get(session_key) or pack
                 _attach_synthetic_gps(pack)
+                if pack.get("source") == "openf1":
+                    asyncio.create_task(_seed_openf1_location_gps(pack))
                 if pack.get("laps"):
                     _PACK_LOAD_ERROR.pop(session_key, None)
-                    _set_pack_stage(pack, "minimal")
+                    stage = "full" if _practice_pack_ready(pack) else "minimal"
+                    _set_pack_stage(pack, stage)
                     save_replay_pack_disk(session_key, pack)
             except Exception:
                 _log.exception("OpenF1 replay fallback failed session_key=%s", session_key)
@@ -3004,18 +3123,21 @@ async def _cold_load_minimal(
     _PACK_LOAD_STARTED[session_key] = cold_load_started
     _PACK_LOAD_ERROR.pop(session_key, None)
     cold_load_started_utc = datetime.now(timezone.utc).isoformat()
+    prefer_of1 = _prefer_openf1_pack(mapped)
     _log.info(
-        "Loading replay session %s via FastF1",
+        "Loading replay session %s via %s",
         f"{pack_year} R{pack_round} {mapped}",
+        "OpenF1" if prefer_of1 else "FastF1",
     )
     _log.info(
         "replay pack MISS session_key=%s year=%s round=%s type=%s "
-        "start_utc=%s — FastF1 then OpenF1",
+        "start_utc=%s — %s",
         session_key,
         pack_year,
         pack_round,
         mapped,
         cold_load_started_utc,
+        "OpenF1 only" if prefer_of1 else "FastF1 then OpenF1",
     )
     pack = _new_replay_pack(session_key, pack_year, pack_round, mapped, start, end)
     _REPLAY_PACKS[session_key] = pack
@@ -3023,31 +3145,48 @@ async def _cold_load_minimal(
 
     status = _calendar_session_status(pack_year, pack_round, mapped)
     pack["session_status"] = status
-    prefer_of1 = _prefer_openf1_pack(mapped) or status != "COMPLETED"
-    if prefer_of1 and pack_year and pack_round:
+    openf1_window = prefer_of1 or status != "COMPLETED"
+    if openf1_window and pack_year and pack_round:
         _log.info(
-            "replay session %s status=%s — OpenF1 first (practice / live window)",
+            "replay session %s status=%s — OpenF1%s",
             f"{pack_year} R{pack_round} {mapped}",
             status,
+            " only (practice)" if prefer_of1 else " first (live window)",
         )
+        # Laps + map in parallel. Map uses the light pool so a FastF1 race load
+        # on the sync pool cannot stall practice replay.
+        map_pool = _light_pool if prefer_of1 else executor
+        map_task = None
         if not pack.get("path_x"):
-            await _fill_pack_map(
-                session_key, int(pack_year), int(pack_round), executor=executor
+            map_task = asyncio.create_task(
+                _fill_pack_map(
+                    session_key, int(pack_year), int(pack_round), executor=map_pool
+                )
             )
-            pack = _REPLAY_PACKS.get(session_key) or pack
         await _fill_pack_openf1(pack, session_key, int(pack_year), int(pack_round), mapped)
+        if map_task is not None:
+            await map_task
         pack = _REPLAY_PACKS.get(session_key) or pack
-        _attach_synthetic_gps(pack)
-        if pack.get("source") == "openf1":
-            await _seed_openf1_location_gps(pack)
+        await _attach_synthetic_gps_async(pack)
         if pack.get("laps"):
             _PACK_LOAD_ERROR.pop(session_key, None)
-            stage = "full" if _openf1_pack_playable(pack) else "minimal"
+            stage = "full" if _practice_pack_ready(pack) or _openf1_pack_playable(pack) else "minimal"
             _set_pack_stage(pack, stage)
             save_replay_pack_disk(session_key, pack)
+            # Location GPS is nice-to-have; do not block Start Race on it.
+            if pack.get("source") == "openf1":
+                asyncio.create_task(_seed_openf1_location_gps(pack))
+            return pack, False
+        if prefer_of1:
+            _PACK_LOAD_ERROR[session_key] = (
+                f"OpenF1 has no laps for {pack_year} R{pack_round} {mapped}"
+            )
             return pack, False
         if status != "COMPLETED":
             return pack, False
+
+    if prefer_of1:
+        return pack, False
 
     if pack_year and pack_round:
         pack = await _staged_fastf1_fill(
@@ -3112,22 +3251,36 @@ async def _ensure_replay_pack(
     if refresh:
         invalidate_replay_pack(session_key)
         _log.info(
-            "replay pack REFRESH session_key=%s year=%s round=%s — bypass cache, load FastF1",
+            "replay pack REFRESH session_key=%s year=%s round=%s — bypass cache (%s)",
             session_key,
             year,
             round_number,
+            "OpenF1" if _prefer_openf1_pack(session_type) else "FastF1",
         )
     cached, memory_hit, disk_hit = hydrate_replay_pack_cache(
         session_key, year, round_number, session_type, log_hits=True
     )
+    if (
+        cached is not None
+        and _prefer_openf1_pack(session_type)
+        and cached.get("source") == "fastf1"
+    ):
+        invalidate_replay_pack(session_key)
+        cached, memory_hit, disk_hit = None, False, False
     have_full_gps = (
         cached is not None
-        and replay_pack_stage(cached) == "full"
-        and _ff1_pack_ready(cached)
+        and (
+            (_prefer_openf1_pack(session_type) and _practice_pack_ready(cached))
+            or (
+                not _prefer_openf1_pack(session_type)
+                and replay_pack_stage(cached) == "full"
+                and _ff1_pack_ready(cached)
+            )
+        )
     )
     if have_full_gps and wanted == "full":
         _log.info(
-            "key=%s memory_hit=%s disk_hit=%s stage=full — skip FastF1",
+            "key=%s memory_hit=%s disk_hit=%s stage=full — skip reload",
             replay_pack_disk_key(session_key, year, round_number, session_type),
             memory_hit,
             disk_hit,
@@ -3178,7 +3331,10 @@ def _outline_from_pack(pack: dict[str, Any] | None) -> dict[str, Any]:
 
 
 async def init_replay(year: int, round_number: int, session_type: str) -> dict[str, Any]:
-    """Return calendar metadata immediately and start FastF1 in the background."""
+    """Return calendar metadata immediately and start pack load in the background.
+
+    Practice (FP1/FP2/FP3) loads from OpenF1 only. Race/Sprint use FastF1/R2.
+    """
     from backend.calendar import assert_replay_session_type, assert_replay_year
 
     assert_replay_year(int(year))
@@ -3227,7 +3383,11 @@ async def init_replay(year: int, round_number: int, session_type: str) -> dict[s
         source,
     )
     if status == "COMPLETED" or _prefer_openf1_pack(mapped):
-        _kick_pack_job(session_key, int(year), int(round_number), mapped)
+        already = _practice_pack_ready(pack) if _prefer_openf1_pack(mapped) else (
+            replay_pack_stage(pack) == "full" and _ff1_pack_ready(pack)
+        )
+        if not already:
+            _kick_pack_job(session_key, int(year), int(round_number), mapped)
     codes = pack.get("codes") or {}
     drivers = [str(v) for v in codes.values() if v]
     payload = {
@@ -4786,7 +4946,8 @@ def _pack_status_payload(
         "weather_ready": flags["weather_ready"],
         "error": _PACK_LOAD_ERROR.get(session_key) if status == "error" else None,
         "elapsed_s": elapsed_s,
-        "source": pack.get("source") or "fastf1",
+        "source": pack.get("source")
+        or ("openf1" if _prefer_openf1_pack(pack.get("session_type") or session_type) else "fastf1"),
         "date_start": start.isoformat() if hasattr(start, "isoformat") else start,
         "date_end": end.isoformat() if hasattr(end, "isoformat") else end,
         "session_type": pack.get("session_type") or session_type,
@@ -4830,8 +4991,12 @@ async def peek_replay_pack_status(
         session_key, year, round_number, session_type, log_hits=False
     )
     pack = _REPLAY_PACKS.get(session_key)
-    openf1_ok = _openf1_pack_playable(pack)
-    ff1_full = replay_pack_stage(pack) == "full" and _ff1_pack_ready(pack or {})
+    openf1_ok = _practice_pack_ready(pack) if _prefer_openf1_pack(session_type) else _openf1_pack_playable(pack)
+    ff1_full = (
+        not _prefer_openf1_pack(session_type)
+        and replay_pack_stage(pack) == "full"
+        and _ff1_pack_ready(pack or {})
+    )
     need_job = refresh or not (openf1_ok or ff1_full)
     if need_job and (refresh or not _pack_in_flight(session_key)):
         _kick_pack_job(
@@ -5894,6 +6059,9 @@ async def poll_openf1_forever() -> None:
                 if _STATE.get("poll_session_key") is not None:
                     print("[ARIS] OpenF1 live window closed", flush=True)
                     _STATE["poll_session_key"] = None
+                    # Drop chequered from the ended session so tomorrow's Race
+                    # is not marked not-live by yesterday's flag.
+                    _STATE["race_control"] = []
                 await asyncio.sleep(5)
                 slot += 1
                 continue
