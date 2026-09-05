@@ -71,7 +71,7 @@ export function WeatherForecast() {
     <div className="flex h-full flex-col bg-carbon p-2">
       <div className="mb-2 font-mono-data text-[10px] text-muted">
         {wetLaps.length
-          ? `Rainfall on laps ${wetLaps[0]}–${wetLaps[wetLaps.length - 1]}`
+          ? `Rainfall on laps ${wetLaps[0]}-${wetLaps[wetLaps.length - 1]}`
           : "No rainfall in session weather"}
         {rainfall ? " · currently wet" : ""}
       </div>

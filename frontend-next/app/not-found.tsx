@@ -11,9 +11,6 @@ export default function NotFound() {
       <h1 className="mt-3 text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
         Page not found
       </h1>
-      <p className="mt-3 max-w-md font-sans text-sm leading-relaxed text-muted">
-        This route is not on the grid. Head back to the pit wall.
-      </p>
       <Link
         href="/"
         className="mt-8 rounded bg-red px-4 py-2 font-mono-data text-[11px] uppercase tracking-widest text-white hover:brightness-110"

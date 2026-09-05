@@ -97,7 +97,7 @@ export function DegradationChart({
           <option value="current">Current stint</option>
           {(stints.length ? stints : [{ stint_id: 1, compound: "MEDIUM", start_lap: 1, end_lap: 20 }]).map((s) => (
             <option key={s.stint_id} value={s.stint_id}>
-              {s.stint_id} {s.compound} (L{s.start_lap}–{s.end_lap})
+              {s.stint_id} {s.compound} (L{s.start_lap}-{s.end_lap})
             </option>
           ))}
         </select>

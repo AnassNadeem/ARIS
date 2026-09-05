@@ -192,10 +192,10 @@ export function RaceDebriefView({
                         <td className="px-1 py-0.5">{r.rank}</td>
                         <td className="px-1 py-0.5">{r.label}</td>
                         <td className="px-1 py-0.5 text-right">
-                          {r.delta_vs_stay_out_s == null ? "—" : `${r.delta_vs_stay_out_s.toFixed(1)}s`}
+                          {r.delta_vs_stay_out_s == null ? "-" : `${r.delta_vs_stay_out_s.toFixed(1)}s`}
                         </td>
                         <td className="px-1 py-0.5 text-right">
-                          {r.p_best == null ? "—" : r.p_best.toFixed(2)}
+                          {r.p_best == null ? "-" : r.p_best.toFixed(2)}
                         </td>
                       </tr>
                     ))}

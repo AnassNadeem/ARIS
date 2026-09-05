@@ -1,5 +1,39 @@
 import { normalizeCompound, msToSeconds } from "@/lib/compounds";
+import { fractionAtPoint, type PathData } from "@/lib/trackGeometry";
 import type { CarState, DriverListing, LivePosition, LiveTimingRow, SectorColour } from "@/lib/types";
+
+/** OpenF1 (0,0) placeholders / missing GPS — not a real map coordinate. */
+const GPS_ORIGIN_EPS = 1;
+
+/** True when live X/Y are usable map coordinates, not an origin placeholder. */
+export function hasLiveGps(x: number | null | undefined, y: number | null | undefined): boolean {
+  return (
+    x != null &&
+    y != null &&
+    Number.isFinite(x) &&
+    Number.isFinite(y) &&
+    (Math.abs(x) > GPS_ORIGIN_EPS || Math.abs(y) > GPS_ORIGIN_EPS)
+  );
+}
+
+/**
+ * Live map fraction from GPS X/Y projected onto the circuit outline.
+ * Backend path_frac is ignored while X/Y are present: live ticks often send
+ * path_frac=0 (grid snap / timing wrap) even when GPS has moved.
+ * Missing GPS keeps the last known fraction instead of snapping to S/F.
+ */
+export function resolveLivePathFrac(
+  car: Pick<CarState, "x" | "y" | "path_frac">,
+  path: PathData | null | undefined,
+  prevKnown: number | undefined,
+): number {
+  if (path && hasLiveGps(car.x, car.y)) {
+    return fractionAtPoint(path, car.x, car.y);
+  }
+  if (prevKnown != null && Number.isFinite(prevKnown)) return prevKnown;
+  if (car.path_frac != null && Number.isFinite(car.path_frac)) return car.path_frac;
+  return 0;
+}
 
 function driverMeta(code: string, drivers: DriverListing[]): DriverListing | undefined {
   return drivers.find((d) => d.driver_code === code);
@@ -143,9 +177,13 @@ export function mergeCars(
   for (const k of nextKeys) {
     const a = prev[k];
     let b = next[k];
+    const nextGpsMissing = !hasLiveGps(b.x, b.y);
+    const nextFracMissing = b.path_frac == null || !Number.isFinite(b.path_frac);
+    const nextFracPlaceholder = b.path_frac === 0 && nextGpsMissing;
     if (
       a &&
-      (b.path_frac == null || !Number.isFinite(b.path_frac)) &&
+      nextGpsMissing &&
+      (nextFracMissing || nextFracPlaceholder) &&
       a.path_frac != null &&
       Number.isFinite(a.path_frac)
     ) {

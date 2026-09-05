@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 690 210" width="690" height="210" role="img">
+<title>ARIS — Always-On Race Intelligence System</title>
+<path d="M112,18 L44,162 L66,162 L94,118 L112,96 L130,118 L158,162 L180,162 Z" fill="#E8002D"/>
+<polyline points="50,178 70,178 114,132 136,132" fill="none" stroke="#FFFFFF" stroke-width="13" stroke-linecap="square" stroke-linejoin="miter"/>
+<circle cx="136" cy="132" r="9" fill="#E8002D"/>
+<text x="234" y="134" font-family="Rajdhani" font-weight="700" font-size="94" letter-spacing="5" fill="#FFFFFF">ARIS</text>
+</svg>

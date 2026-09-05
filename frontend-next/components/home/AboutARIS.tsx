@@ -17,16 +17,12 @@ export function AboutARIS() {
             About ARIS
           </h2>
           <p className="text-[15px] leading-relaxed text-white/90">
-            ARIS is classical decision support stitched with modern ML — not
-            end-to-end black-box AI. Every strategy call comes from an
-            enumerated shortlist of physics-scored actions (stay out, pit now,
-            pit on a target lap) ranked by simulated remaining-race delta, not
-            a learned policy making the final call. A conservative Q-learning
-            variant was tested as opt-in research and did not clear the gate
-            to become the default ranker — physics stays in charge. The
-            numbers on this page are pulled straight from the evidence trail,
-            including where the model is honestly still weak (wet strategy,
-            absolute lap-time calibration).
+            ARIS is classical decision support with modern ML, not a black box.
+            Every strategy call is an enumerated shortlist of physics-scored
+            actions (stay out, pit now, pit on a target lap), ranked by simulated
+            remaining-race delta. Physics stays in charge. The numbers on this
+            page come from the evidence trail, including where the model is still
+            weak (wet strategy, absolute lap-time calibration).
           </p>
           <div className="mt-8 flex flex-wrap gap-4 font-mono-data text-sm">
             <Link href="/replay" className="text-white underline-offset-4 hover:underline">

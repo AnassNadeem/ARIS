@@ -12,7 +12,7 @@ const COLUMNS = [
   {
     num: "02",
     title: "RECOMMEND",
-    body: "A search-based strategy engine evaluates pit timing, compound choice, and pace targets. Not a black box — every call has a number behind it.",
+    body: "A search-based strategy engine evaluates pit timing, compound choice, and pace targets. Not a black box. Every call has a number behind it.",
     icon: (
       <svg viewBox="0 0 48 48" className="h-10 w-10" fill="none" stroke="currentColor" strokeWidth="1.5">
         <circle cx="24" cy="8" r="3" />

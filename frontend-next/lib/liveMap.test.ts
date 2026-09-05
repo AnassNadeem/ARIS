@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { filterReplayRounds, replayYears, defaultReplayYear, startFinishMarker, isReplayableRound, chequeredSfFlag, keepRoundsWithPack, formatRaceDate } from "./replayFilter";
-import { annotateGhostTower, mapTimingAndPositions, mergeByDriverCode, mergeCars, onTrackCarCodes, orderTimingTower, rankGhostByGap, realClassifiedCars, sessionFlagToPhase, timingEqual, timingFingerprint } from "./mapCars";
+import { annotateGhostTower, hasLiveGps, mapTimingAndPositions, mergeByDriverCode, mergeCars, onTrackCarCodes, orderTimingTower, rankGhostByGap, realClassifiedCars, resolveLivePathFrac, sessionFlagToPhase, timingEqual, timingFingerprint } from "./mapCars";
 import { normalizeCompound, msToSeconds } from "./compounds";
 import { countryFlag } from "./flags";
 import { commsTabs, nextSelectorStep } from "./sessionFlow";
@@ -218,7 +218,7 @@ describe("timing display", () => {
     expect(fmtGap(1.2)).toBe("+1.2s");
     expect(fmtGap(1.2, 1)).toBe("+1L");
     expect(fmtSectorTime(25.123)).toBe("25.123");
-    expect(fmtSectorTime(null)).toBe("—");
+    expect(fmtSectorTime(null)).toBe("-");
     expect(driverOutOfRace("DNF", false)).toBe(true);
     expect(driverOutOfRace("RUNNING", false)).toBe(false);
   });
@@ -469,6 +469,60 @@ describe("SSE car merge", () => {
     expect(merged.VER.path_frac).toBe(0.42);
     expect(merged.VER.x).toBe(9);
     expect(merged.VER.y).toBe(8);
+  });
+
+  it("keeps last GPS when the next tick sends path_frac=0 at the origin", () => {
+    const prev = { VER: { ...base, path_frac: 0.42, x: 120, y: 80 } };
+    const next = { VER: { ...base, path_frac: 0, x: 0, y: 0 } };
+    const merged = mergeCars(prev, next);
+    expect(merged.VER.path_frac).toBe(0.42);
+    expect(merged.VER.x).toBe(120);
+    expect(merged.VER.y).toBe(80);
+  });
+
+  it("keeps new X/Y when path_frac is 0 but GPS is still on the map", () => {
+    const prev = { VER: { ...base, path_frac: 0.42, x: 120, y: 80 } };
+    const next = { VER: { ...base, path_frac: 0, x: 200, y: 40 } };
+    const merged = mergeCars(prev, next);
+    expect(merged.VER.path_frac).toBe(0);
+    expect(merged.VER.x).toBe(200);
+    expect(merged.VER.y).toBe(40);
+  });
+});
+
+describe("resolveLivePathFrac", () => {
+  const square = buildPath([0, 10, 10, 0], [0, 0, 10, 10]);
+
+  it("projects live X/Y even when backend path_frac is 0", () => {
+    const atStart = resolveLivePathFrac({ x: 0, y: 0.2, path_frac: 0 }, square, 0);
+    const alongTop = resolveLivePathFrac({ x: 10, y: 0, path_frac: 0 }, square, 0);
+    const alongRight = resolveLivePathFrac({ x: 10, y: 10, path_frac: 0 }, square, alongTop);
+    expect(hasLiveGps(0, 0.2)).toBe(false);
+    expect(hasLiveGps(10, 0)).toBe(true);
+    expect(alongTop).toBeGreaterThan(0.15);
+    expect(alongTop).toBeLessThan(0.35);
+    expect(alongRight).toBeGreaterThan(alongTop);
+    expect(alongRight).toBeGreaterThan(0.4);
+    expect(atStart).toBe(0);
+  });
+
+  it("holds the last fraction when GPS is missing", () => {
+    const held = resolveLivePathFrac({ x: 0, y: 0, path_frac: 0 }, square, 0.61);
+    expect(held).toBe(0.61);
+  });
+
+  it("advances as a car travels around the outline", () => {
+    const samples = [
+      { x: 1, y: 0 },
+      { x: 10, y: 1 },
+      { x: 9, y: 10 },
+      { x: 0, y: 9 },
+    ];
+    const fracs = samples.map((p) => resolveLivePathFrac({ ...p, path_frac: 0 }, square, undefined));
+    expect(fracs[0]).toBeLessThan(fracs[1]);
+    expect(fracs[1]).toBeLessThan(fracs[2]);
+    expect(fracs[2]).toBeLessThan(fracs[3]);
+    expect(fracs[3]).toBeGreaterThan(0.7);
   });
 });
 

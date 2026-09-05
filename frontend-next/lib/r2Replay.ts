@@ -38,8 +38,8 @@ export {
   gridPathFrac,
 };
 
-export const R2_LOAD_ERROR = "Failed to load race data — check R2 connection";
-export const R2_RACE_UNAVAILABLE = "Race data unavailable — check back soon";
+export const R2_LOAD_ERROR = "Failed to load race data. Check your connection.";
+export const R2_RACE_UNAVAILABLE = "Race data unavailable. Check back soon.";
 const FETCH_TIMEOUT_MS = 30_000;
 /** recommend() + per-lap simulate is seconds, not minutes — wait on the request. */
 const GHOST_PACK_TIMEOUT_MS = 60_000;
@@ -78,23 +78,23 @@ export function driverDidNotStart(field: RaceField | null | undefined, code: str
 
 export function ghostUnavailableMessage(reason: string | null, driver: string | null, isARISOn: boolean): string {
   if (!isARISOn || reason === "aris_disabled") {
-    return "ARIS is off. On the replay setup screen, click On, pick a driver, then a strategy — the ghost is ARIS's plan from lights out.";
+    return "ARIS is off. Turn it on from replay setup, pick a driver and a strategy, then start the race.";
   }
   if (reason === "no_driver_selected") {
     return "Select a driver to compute the ARIS ghost.";
   }
   if (reason === "driver_did_not_race") {
     const who = driver ? driver.toUpperCase() : "This driver";
-    return `${who} did not start this race (DNS). ARIS cannot compute a ghost car without lap data — pick a driver who raced, or turn ARIS off to watch the field.`;
+    return `${who} did not start this race (DNS). Pick a driver who raced, or turn ARIS off to watch the field.`;
   }
   if (reason === "ghost_data_gap") {
-    return "Lap data for this driver is incomplete, so ARIS cannot compute a ghost. This is a data gap, not a missing bake.";
+    return "Lap data for this driver is incomplete, so ARIS cannot compute a ghost.";
   }
   if (reason === "session_not_ingested") {
-    return "This session isn't in the ARIS database yet, so the ghost can't be computed from lap 1. Ingested race sessions show ARIS's lights-out plan on the map and tower.";
+    return "This session is not in the ARIS database yet, so the ghost cannot be computed from lap 1.";
   }
   if (reason === "no_divergence") {
-    return "No ghost_*.json for this driver/race, or it hasn't loaded yet. Use a completed replay pack (e.g. 2024 Bahrain or 2026 Hungary/Zandvoort) with ARIS On from setup.";
+    return "No ghost data for this driver yet. Use a completed replay with ARIS on from setup.";
   }
   return "No active ghost driver. Turn ARIS on from the replay setup (On), pick a driver, then Start Race.";
 }
@@ -230,7 +230,7 @@ export function r2Configured(): boolean {
   return Boolean(R2_BASE);
 }
 
-/** R2 `race_field.json` packs are Race-only. FP/Q replay uses the FastF1 pack path. */
+/** R2 `race_field.json` packs are Race-only. FP/Q replay uses the OpenF1 pack path. */
 export function replayUsesR2Pack(sessionType: string | null | undefined): boolean {
   return String(sessionType || "R").toUpperCase() === "R";
 }

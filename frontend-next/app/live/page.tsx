@@ -100,7 +100,7 @@ function LivePageInner() {
       <AppHeader backHref="/" />
       {!hub && hubTried ? (
         <div className="flex-1 p-10 font-mono-data text-sm text-muted">
-          Could not reach the live hub. Confirm the FastAPI broker is running on port 8765, then refresh.
+          Could not reach the live hub. Refresh, or try again in a moment.
         </div>
       ) : !hub ? (
         <div className="flex-1 p-10 font-mono-data text-sm text-muted">Loading race weekend…</div>

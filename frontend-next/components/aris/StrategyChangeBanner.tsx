@@ -56,7 +56,7 @@ export function StrategyChangeBanner() {
           </span>
           <div>
             <div className="font-mono-data text-[13px] font-bold uppercase tracking-wide text-white">
-              L{decision.lap} — {label}
+              L{decision.lap}: {label}
             </div>
             <div className="mt-0.5 max-w-2xl font-sans text-[13px] leading-snug text-white/90">{decision.text}</div>
           </div>

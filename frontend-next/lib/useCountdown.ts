@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 export function useCountdown(targetIso: string): string {
-  const [label, setLabel] = useState("—");
+  const [label, setLabel] = useState("-");
 
   useEffect(() => {
     const target = new Date(targetIso).getTime();

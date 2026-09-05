@@ -433,7 +433,7 @@ export async function getNextRace(): Promise<NextRaceInfo> {
     ],
     raceHistory: await getRaceHistory("Zandvoort"),
     priorSessionReplay: {
-      sessionName: "Q3 — Dutch GP Qualifying",
+      sessionName: "Q3 · Dutch GP Qualifying",
       dateLabel: "Yesterday",
       circuitName: "Zandvoort",
       poleDriver: "Norris",
@@ -457,23 +457,23 @@ export function hubToNextRaceInfo(hub: LiveHub): NextRaceInfo {
       localTime: s.datetime_utc ? new Date(s.datetime_utc).toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" }) : s.status,
     })),
     circuitLengthKm: hub.circuit.length_km ?? 0,
-    lapRecord: { driver: "—", time: "—", year: 0 },
+    lapRecord: { driver: "-", time: "-", year: 0 },
     numLaps: hub.circuit.total_laps ?? 0,
     strategyPatterns: hub.circuit.strategy_patterns,
     raceHistory: hub.circuit.race_history.map((r) => ({
       year: r.year,
-      winner: r.winner ?? "—",
-      pole: r.pole ?? "—",
-      fastestLapDriver: r.fastest_lap ?? "—",
-      fastestLapTime: "—",
-      raceRecord: "—",
+      winner: r.winner ?? "-",
+      pole: r.pole ?? "-",
+      fastestLapDriver: r.fastest_lap ?? "-",
+      fastestLapTime: "-",
+      raceRecord: "-",
     })),
     priorSessionReplay: prior
       ? {
           sessionName: prior.session_name,
           dateLabel: prior.status,
           circuitName: hub.next.circuit_name,
-          poleDriver: "—",
+          poleDriver: "-",
           poleTime: "",
           year: hub.next.year,
           round: hub.next.round_number,
@@ -825,7 +825,7 @@ function mockGhostVsReal(driver: string): GhostVsRealResponse {
       gap_delta: laps.map((l) => (l < 21 ? 0 : Number((-(l - 20) * 0.12).toFixed(2)))),
     },
     aris_action: "Pit lap 33 for HARD",
-    explanation: "Box lap 33 for HARD — remaining-race delta vs stay-out.",
+    explanation: "Box lap 33 for HARD. Remaining-race delta vs stay-out.",
   };
 }
 

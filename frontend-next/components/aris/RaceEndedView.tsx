@@ -81,13 +81,13 @@ export function RaceEndedView() {
           <div className="mt-4 grid grid-cols-2 gap-3 font-mono-data text-[11px]">
             <div className="rounded border border-border bg-carbon p-3">
               <div className="text-[9px] uppercase text-muted">ARIS (timing tower)</div>
-              <div className="mt-1 text-white">P{summary?.ghostPos ?? ghostData?.ghost_position ?? "—"}</div>
-              <div className="text-muted">Gap {summary?.ghostGap != null ? `${summary.ghostGap.toFixed(1)}s` : "—"}</div>
+              <div className="mt-1 text-white">P{summary?.ghostPos ?? ghostData?.ghost_position ?? "-"}</div>
+              <div className="text-muted">Gap {summary?.ghostGap != null ? `${summary.ghostGap.toFixed(1)}s` : "-"}</div>
             </div>
             <div className="rounded border border-border bg-carbon p-3">
               <div className="text-[9px] uppercase text-muted">Real finish</div>
-              <div className="mt-1 text-white">P{summary?.realPos ?? "—"}</div>
-              <div className="text-muted">Gap {summary?.realGap != null ? `${summary.realGap.toFixed(1)}s` : "—"}</div>
+              <div className="mt-1 text-white">P{summary?.realPos ?? "-"}</div>
+              <div className="text-muted">Gap {summary?.realGap != null ? `${summary.realGap.toFixed(1)}s` : "-"}</div>
             </div>
           </div>
         )}

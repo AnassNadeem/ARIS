@@ -65,7 +65,7 @@ function PlanCard({
         ))}
       </div>
       <div className="mt-2 font-mono-data text-[10px] text-muted-2">
-        Start {plan.start_compound} · pits {plan.pit_laps.length ? plan.pit_laps.map((l) => `L${l}`).join(", ") : "—"}
+        Start {plan.start_compound} · pits {plan.pit_laps.length ? plan.pit_laps.map((l) => `L${l}`).join(", ") : "-"}
       </div>
       {plan.description ? (
         <p className="mt-2 font-mono-data text-[10px] leading-relaxed text-muted">{plan.description}</p>
@@ -192,7 +192,7 @@ export function ARISConfigPanel({
               !selectedDriver
                 ? "Choose a driver first."
                 : selectedDns
-                  ? `${selectedDriver} did not start — pick another driver.`
+                  ? `${selectedDriver} did not start. Pick another driver.`
                   : undefined
             }
             onClick={onGetStrategies}

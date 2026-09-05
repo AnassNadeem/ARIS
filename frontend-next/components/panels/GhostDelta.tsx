@@ -69,7 +69,7 @@ export function GhostDelta() {
     return (
       <PanelEmpty
         title="Ghost delta"
-        detail="Time delta between the real driver and the ARIS ghost. Click Start Race in the header — the chart stays blank until lights-out."
+        detail="Time delta between the real driver and the ARIS ghost. Starts after you click Start Race."
       />
     );
   }
@@ -91,7 +91,7 @@ export function GhostDelta() {
   const outcome = ghostData?.outcome;
   const pitLaps = ghostData?.plan_pit_laps ?? [];
   const pitCompounds = ghostData?.plan_pit_compounds ?? [];
-  const driverCode = ghostData?.driver_code ?? arisDriver ?? "—";
+  const driverCode = ghostData?.driver_code ?? arisDriver ?? "-";
   const arisAction = ghostData?.aris_action ?? "STAY_OUT";
   const realAction = ghostData?.real_action ?? "STAY_OUT";
 
@@ -111,7 +111,7 @@ export function GhostDelta() {
       <div className="shrink-0 border-b border-border px-4 py-2">
         <div className="flex items-center justify-between">
           <span className="font-sans text-xs text-white">
-            Ghost Δ — <span className="font-mono-data">{driverCode}</span>
+            Ghost Δ · <span className="font-mono-data">{driverCode}</span>
           </span>
           <span className="font-mono-data text-[10px] text-muted">
             Div. L{divLap}: {arisAction}{" "}

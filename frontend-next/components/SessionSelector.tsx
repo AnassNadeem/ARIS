@@ -40,8 +40,8 @@ export function SessionSelector({
                 !avail.enabled
                   ? avail.reason
                   : aris
-                    ? "Competitive session — ARIS strategy is available."
-                    : "Replayable — ARIS is restricted to Race and Sprint."
+                    ? "Competitive session. ARIS strategy is available."
+                    : "Replayable. ARIS is restricted to Race and Sprint."
               }
               onClick={() => onSelect(opt)}
               className={`rounded-[8px] border px-2 py-2.5 font-mono-data text-[11px] uppercase tracking-wide transition-colors ${

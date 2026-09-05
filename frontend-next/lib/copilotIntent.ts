@@ -225,12 +225,12 @@ export function answerFactualLive(question: string, snap: FactualRaceSnapshot): 
     const gap = focus.gap_ahead_s;
     if (gap == null) return `${focus.driver_code} gap ahead is unavailable, so the undercut window cannot be timed.`;
     if (gap > 0 && gap <= 1.5) {
-      return `${focus.driver_code} is ${gap.toFixed(1)}s behind the car ahead — inside a typical undercut window.`;
+      return `${focus.driver_code} is ${gap.toFixed(1)}s behind the car ahead, inside a typical undercut window.`;
     }
     if (gap > 1.5 && gap <= 2.5) {
-      return `${focus.driver_code} is ${gap.toFixed(1)}s behind — close to the undercut window, not quite there.`;
+      return `${focus.driver_code} is ${gap.toFixed(1)}s behind, close to the undercut window, not quite there.`;
     }
-    return `${focus.driver_code} is ${fmtGap(gap)} to the car ahead — outside a typical undercut window.`;
+    return `${focus.driver_code} is ${fmtGap(gap)} to the car ahead, outside a typical undercut window.`;
   }
   if (/\bshould we extend\b/.test(q0)) {
     const rec = snap.lastRecommendation;
@@ -242,7 +242,7 @@ export function answerFactualLive(question: string, snap: FactualRaceSnapshot): 
     }
     const focus = focusCar(snap);
     if (focus) {
-      return `${focus.driver_code} is on ${focus.compound}, tyre life ${focus.tyre_life}. No ARIS recommendation is on the table yet — ask again after Get strategy.`;
+      return `${focus.driver_code} is on ${focus.compound}, tyre life ${focus.tyre_life}. No ARIS recommendation is on the table yet. Ask again after Get strategy.`;
     }
     return "No ARIS recommendation yet. Run Get strategy first.";
   }
@@ -263,7 +263,7 @@ export function answerFactualLive(question: string, snap: FactualRaceSnapshot): 
     if (snap.racePhase === "SC") return `Safety car is deployed (lap ${snap.currentLap}).`;
     if (snap.racePhase === "VSC") return `Virtual safety car is deployed (lap ${snap.currentLap}).`;
     if (snap.racePhase === "RED_FLAG") return `Red flag (lap ${snap.currentLap}).`;
-    return `Green flag — no SC/VSC/red at lap ${snap.currentLap}.`;
+    return `Green flag. No SC/VSC/red at lap ${snap.currentLap}.`;
   }
   if (
     /\bwho(?:'s| is)(?: in)? (?:the )?lead/.test(q) ||

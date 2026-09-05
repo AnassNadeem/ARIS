@@ -42,7 +42,7 @@ function dnfCodes(cars: Record<string, CarState>): string[] {
 }
 
 function fmtGap(s: number | null | undefined): string {
-  if (s == null || !Number.isFinite(s)) return "—";
+  if (s == null || !Number.isFinite(s)) return "-";
   const sign = s > 0 ? "+" : "";
   return `${sign}${s.toFixed(1)}s`;
 }
@@ -70,7 +70,7 @@ export function detectCommsEvents(prev: CommsSnapshot | null, next: CommsSnapsho
         id: id("vsc", next.lap, next.phase),
         lap: next.lap,
         source: "FIELD",
-        text: `Lap ${next.lap}: VSC deployed. Cheap pit window — delta limited.`,
+        text: `Lap ${next.lap}: VSC deployed. Cheap pit window, delta limited.`,
         timestamp: now,
       });
     } else if (next.phase === "RED_FLAG") {

@@ -70,7 +70,7 @@ export function LoadingTransition({
             <span className={`h-2 w-2 rounded-full ${error ? "bg-red" : "animate-pulse bg-safety"}`} />
             ARIS
           </div>
-          <span className="font-mono-data text-2xl tabular-nums text-red">{error ? "—" : `${pct}%`}</span>
+          <span className="font-mono-data text-2xl tabular-nums text-red">{error ? "-" : `${pct}%`}</span>
         </div>
         <p className="mt-2 font-mono-data text-[11px] uppercase tracking-widest text-muted">
           {circuitName} · {sessionLabel}

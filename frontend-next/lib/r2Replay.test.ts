@@ -267,7 +267,7 @@ describe("R2 fallback when NEXT_PUBLIC_R2_BASE_URL is unset", () => {
     expect(r2Configured()).toBe(false);
   });
 
-  it("uses R2 packs for Race only so FP1/FP2 can replay via FastF1", () => {
+  it("uses R2 packs for Race only so FP1/FP2 can replay via OpenF1", () => {
     expect(replayUsesR2Pack("R")).toBe(true);
     expect(replayUsesR2Pack("FP1")).toBe(false);
     expect(replayUsesR2Pack("FP2")).toBe(false);

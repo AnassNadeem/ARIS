@@ -4,14 +4,13 @@ import { useRaceStore } from "@/store/raceStore";
 
 export function ConnectionStatus() {
   const status = useRaceStore((s) => s.connectionStatus);
-  const lagMs = useRaceStore((s) => s.connectionLagMs);
   const consoleMode = useRaceStore((s) => s.consoleMode);
 
   if (status === "disconnected") return null;
 
-  const feed = consoleMode === "live" ? "OpenF1" : "FastF1";
+  const feed = consoleMode === "live" ? "OpenF1" : "Replay";
   const connectedText =
-    consoleMode === "live" ? `CONNECTED  ${feed} · ${lagMs}ms lag` : `CONNECTED  ${feed}`;
+    consoleMode === "live" ? `CONNECTED · ${feed} · ~5-7s delay` : `CONNECTED · ${feed}`;
 
   const map = {
     connecting: { dot: "text-amber", text: "CONNECTING…" },

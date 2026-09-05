@@ -148,16 +148,16 @@ export function RaceFinishedDebrief() {
               <div className="grid shrink-0 grid-cols-2 gap-3 px-4 pt-3 font-mono-data text-[11px]">
                 <div className="rounded border border-border bg-carbon p-3">
                   <div className="text-[9px] uppercase text-muted">ARIS</div>
-                  <div className="mt-1 text-white">P{finish?.ghostPos ?? ghostData?.ghost_position ?? "—"}</div>
+                  <div className="mt-1 text-white">P{finish?.ghostPos ?? ghostData?.ghost_position ?? "-"}</div>
                   <div className="text-muted">
-                    Gap {finish?.ghostGap != null ? `${finish.ghostGap.toFixed(1)}s` : "—"}
+                    Gap {finish?.ghostGap != null ? `${finish.ghostGap.toFixed(1)}s` : "-"}
                   </div>
                 </div>
                 <div className="rounded border border-border bg-carbon p-3">
                   <div className="text-[9px] uppercase text-muted">{arisDriver} (real)</div>
-                  <div className="mt-1 text-white">P{finish?.realPos ?? "—"}</div>
+                  <div className="mt-1 text-white">P{finish?.realPos ?? "-"}</div>
                   <div className="text-muted">
-                    Gap {finish?.realGap != null ? `${finish.realGap.toFixed(1)}s` : "—"}
+                    Gap {finish?.realGap != null ? `${finish.realGap.toFixed(1)}s` : "-"}
                   </div>
                 </div>
               </div>

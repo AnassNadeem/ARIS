@@ -111,7 +111,7 @@ export function CopilotPanel({ threadId = "default" }: { threadId?: string }) {
   if (!featureOn) {
     return (
       <div className="p-4 font-mono-data text-[11px] text-muted">
-        Copilot is off. Set NEXT_PUBLIC_ARIS_COPILOT=1 to enable.
+        Copilot is not available in this build.
       </div>
     );
   }
@@ -120,7 +120,7 @@ export function CopilotPanel({ threadId = "default" }: { threadId?: string }) {
     <div className="flex h-full flex-col overflow-hidden">
       <div className="flex shrink-0 items-center justify-between border-b border-border px-2 py-1">
         <span className="font-mono-data text-[9px] uppercase tracking-wide text-muted">
-          Tool-caller · retrieval
+          Copilot
         </span>
         <label className="flex cursor-pointer items-center gap-1.5 font-mono-data text-[9px] uppercase text-muted">
           <input
@@ -128,12 +128,12 @@ export function CopilotPanel({ threadId = "default" }: { threadId?: string }) {
             checked={copilotEnabled}
             onChange={(e) => setCopilotEnabled(e.target.checked)}
           />
-          Dev toggle
+          On
         </label>
       </div>
       {!copilotEnabled ? (
         <div className="p-4 font-mono-data text-[11px] text-muted">
-          Copilot disabled. Re-enable the dev toggle to ask questions.
+          Copilot is off. Turn it on to ask questions.
         </div>
       ) : (
         <>
@@ -194,7 +194,7 @@ export function CopilotPanel({ threadId = "default" }: { threadId?: string }) {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && send(input)}
-              placeholder="Ask Copilot — it will call ARIS tools, not guess deltas…"
+              placeholder="Ask Copilot about this race…"
               className="flex-1 rounded border border-border bg-surface px-2.5 py-1.5 font-mono-data text-[11px] text-white outline-none focus:border-white"
             />
             <button
@@ -227,10 +227,10 @@ function Top3Table({ rows }: { rows: CopilotRecommendationRow[] }) {
             <td className="px-1 py-0.5">{r.rank}</td>
             <td className="px-1 py-0.5">{r.label}</td>
             <td className="px-1 py-0.5 text-right">
-              {r.delta_vs_stay_out_s == null ? "—" : `${r.delta_vs_stay_out_s.toFixed(1)}s`}
+              {r.delta_vs_stay_out_s == null ? "-" : `${r.delta_vs_stay_out_s.toFixed(1)}s`}
             </td>
             <td className="px-1 py-0.5 text-right">
-              {r.p_best == null ? "—" : r.p_best.toFixed(2)}
+              {r.p_best == null ? "-" : r.p_best.toFixed(2)}
             </td>
           </tr>
         ))}

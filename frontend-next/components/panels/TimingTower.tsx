@@ -114,7 +114,7 @@ const TimingRow = memo(function TimingRow({
       }
     >
       {flash ? <span key={flash.at} className={`tower-flash-${flash.kind}`} /> : null}
-      <span className="text-white">{car.position ?? "—"}</span>
+      <span className="text-white">{car.position ?? "-"}</span>
       <span className="flex items-center gap-1 text-white">
         {isGhost ? (
           <>
@@ -150,18 +150,18 @@ const TimingRow = memo(function TimingRow({
           fmtGap(car.gap_to_leader_s, car.laps_down)
         )}
       </span>
-      <span className="text-right text-white">{isGhost ? "—" : fmtLapTime(car.last_lap_s)}</span>
+      <span className="text-right text-white">{isGhost ? "-" : fmtLapTime(car.last_lap_s)}</span>
       <span className="flex items-center justify-end gap-0.5 text-right text-white">
         {car.fastest_lap ? <span className="text-[9px] text-[#c44dff]">FL</span> : null}
-        {isGhost ? "—" : fmtLapTime(car.best_lap_s)}
+        {isGhost ? "-" : fmtLapTime(car.best_lap_s)}
       </span>
-      <span className={`text-right tabular-nums ${sectorClass(car.s1_colour)}`}>{isGhost ? "—" : fmtSectorTime(car.sector1_s)}</span>
-      <span className={`text-right tabular-nums ${sectorClass(car.s2_colour)}`}>{isGhost ? "—" : fmtSectorTime(car.sector2_s)}</span>
-      <span className={`text-right tabular-nums ${sectorClass(car.s3_colour)}`}>{isGhost ? "—" : fmtSectorTime(car.sector3_s)}</span>
+      <span className={`text-right tabular-nums ${sectorClass(car.s1_colour)}`}>{isGhost ? "-" : fmtSectorTime(car.sector1_s)}</span>
+      <span className={`text-right tabular-nums ${sectorClass(car.s2_colour)}`}>{isGhost ? "-" : fmtSectorTime(car.sector2_s)}</span>
+      <span className={`text-right tabular-nums ${sectorClass(car.s3_colour)}`}>{isGhost ? "-" : fmtSectorTime(car.sector3_s)}</span>
       <span className="flex justify-center">
         <TyreIcon compound={isGhost && car.ghost_in_pits && car.ghost_pit_compound ? car.ghost_pit_compound : car.compound} />
       </span>
-      <span className="text-right text-muted">{isGhost && car.ghost_in_pits ? "—" : car.tyre_life}</span>
+      <span className="text-right text-muted">{isGhost && car.ghost_in_pits ? "-" : car.tyre_life}</span>
       <span className="text-right text-muted">
         {isGhost && car.ghost_in_pits
           ? "PIT"
@@ -204,11 +204,11 @@ export function TimingTower() {
 
   const banner =
     racePhase === "SC"
-      ? `SC DEPLOYED — Lap ${currentLap}`
+      ? `SC DEPLOYED · Lap ${currentLap}`
       : racePhase === "VSC"
-        ? `VSC DEPLOYED — Lap ${currentLap}`
+        ? `VSC DEPLOYED · Lap ${currentLap}`
         : racePhase === "RED_FLAG"
-          ? `RED FLAG — Lap ${currentLap}`
+          ? `RED FLAG · Lap ${currentLap}`
           : null;
 
   return (

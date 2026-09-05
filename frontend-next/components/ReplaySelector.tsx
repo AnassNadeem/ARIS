@@ -79,7 +79,6 @@ export function ReplaySelector({
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <div className="font-mono-data text-[10px] uppercase tracking-[0.22em] text-red">Season & race</div>
-          <p className="mt-1 font-mono-data text-[11px] text-muted">Scroll the list — the first completed race is selected.</p>
         </div>
         <div className="flex items-center gap-2">
           <span className="font-mono-data text-[10px] uppercase tracking-widest text-muted">Season</span>
@@ -101,7 +100,7 @@ export function ReplaySelector({
                     }`}
                   >
                     {y}
-                    <span className="pointer-events-none absolute bottom-[calc(100%+8px)] left-1/2 z-20 w-max max-w-[220px] -translate-x-1/2 rounded border border-border bg-obsidian px-2 py-1 text-center font-mono-data text-[10px] leading-snug text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+                    <span aria-hidden="true" className="pointer-events-none absolute bottom-[calc(100%+8px)] left-1/2 z-20 w-max max-w-[220px] -translate-x-1/2 rounded border border-border bg-obsidian px-2 py-1 text-center font-mono-data text-[10px] leading-snug text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
                       {REPLAY_YEAR_TOOLTIP}
                     </span>
                   </button>

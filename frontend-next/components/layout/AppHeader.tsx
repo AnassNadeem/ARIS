@@ -46,12 +46,12 @@ export function AppHeader({
           ←
         </button>
       )}
-      <Link
-        href="/"
-        className="flex shrink-0 items-center gap-2 font-mono-data text-sm font-bold uppercase tracking-widest text-white"
-      >
-        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red" />
-        ARIS
+      <Link href="/" className="flex shrink-0 items-center gap-2" aria-label="ARIS home">
+        <img
+          src="/brand/aris-logo-dark-transparent.png"
+          alt="ARIS"
+          className={compact ? "h-6 w-auto" : "h-7 w-auto"}
+        />
         <span className="rounded bg-red/20 px-1.5 py-0.5 font-sans text-[9px] font-semibold uppercase tracking-wider text-red">
           Beta
         </span>

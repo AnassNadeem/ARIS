@@ -80,12 +80,12 @@ export function isRaceSession(sessionType: string | null | undefined): boolean {
 }
 
 export function hubEndedSessionCopy(session: HubSession): string {
-  return `This session has ended — ${sessionLabel(session.session_type)} is no longer available for live viewing.`;
+  return `This session has ended. ${sessionLabel(session.session_type)} is no longer available for live viewing.`;
 }
 
 export function hubNonRaceReplayCopy(session: HubSession): string | null {
   if (isRaceSession(session.session_type)) return null;
-  return "Practice and qualifying replays are not available. Race replays are available at /replay for all 2024–2026 races.";
+  return "Practice and qualifying replays are not available. Race replays are on Replay for 2024-2026.";
 }
 
 /** Practice packs load from OpenF1 only (FastF1 has no recent FP data). */

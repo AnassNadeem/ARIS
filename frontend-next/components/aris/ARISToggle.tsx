@@ -64,7 +64,7 @@ export function ARISToggle({ disabled, disabledReason }: { disabled?: boolean; d
               className="rounded border border-border bg-carbon px-2 py-1 text-white"
             >
               {drivers.map((d) => (
-                <option key={d.driver_code} value={d.driver_code}>{d.driver_code} — {d.full_name}</option>
+                <option key={d.driver_code} value={d.driver_code}>{d.driver_code} · {d.full_name}</option>
               ))}
             </select>
           </div>

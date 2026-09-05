@@ -69,9 +69,9 @@ export function SpeedWidget() {
           onClick={() => setMph((v) => !v)}
           className="flex flex-col items-start font-mono-data"
         >
-          <span className="text-[8px] uppercase tracking-wide text-muted">{driver ?? "—"}</span>
+          <span className="text-[8px] uppercase tracking-wide text-muted">{driver ?? "-"}</span>
           <span className="text-[13px] leading-none text-white" data-testid="speed-hud-value">
-            {value || "—"} <span className="text-[9px] text-muted">{unit}</span>
+            {value || "-"} <span className="text-[9px] text-muted">{unit}</span>
           </span>
         </button>
         {ghostDelta != null && (

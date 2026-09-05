@@ -58,6 +58,8 @@ export class MockRaceFeed {
     this.store.getState().setCurrentLap(1);
     this.store.getState().setPlaybackSpeed(1);
     this.store.getState().setIsPlaying(this.store.getState().consolePlayState === "racing");
+    const oval = zandvoortOvalCoords();
+    this.store.getState().setCircuitOutline({ x: oval.x, y: oval.y, available: true });
     this.interval = setInterval(() => this.tick(), 500);
     this.commsTimer = setInterval(() => this.maybeEmitComms(), 6000);
     this.tick();
@@ -119,6 +121,7 @@ export class MockRaceFeed {
         pit_stops: r.d.pitStops,
         is_pitted: false,
         is_dnf: false,
+        path_frac: ((r.frac % 1) + 1) % 1,
         x: point.x,
         y: point.y,
         speed_kph: 200 + Math.sin(r.frac * Math.PI * 2) * 100 + 120,
@@ -203,7 +206,7 @@ export class MockRaceFeed {
     if (!isARISOn) return;
     const lines = [
       "Gap to car ahead stable at 1.8s. Undercut window remains open.",
-      "Tyre delta tracking G1.5 prior — HARD 0.03 s/lap.",
+      "Tyre delta tracking G1.5 prior. HARD 0.03 s/lap.",
       "No SC risk detected in the next 3 laps.",
     ];
     pushComms({

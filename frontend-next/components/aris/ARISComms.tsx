@@ -37,7 +37,7 @@ function SourceLabel({ source }: { source: string }) {
     USER: { text: "YOU", cls: "text-white" },
     ARIS_ANALYSIS: { text: "[ARIS ANALYSIS]", cls: "text-amber" },
     FIELD: { text: "FIELD", cls: "text-[#4FA8E0]" },
-    ARIS_RESET: { text: "⚑ [ARIS — STRATEGY RESET]", cls: "text-[#E8002D]" },
+    ARIS_RESET: { text: "⚑ [ARIS · STRATEGY RESET]", cls: "text-[#E8002D]" },
   };
   const cfg = map[source] ?? { text: source, cls: "text-muted" };
   return <span className={`font-mono-data text-[9px] uppercase ${cfg.cls}`}>{cfg.text}</span>;
@@ -106,7 +106,7 @@ function MainComms() {
             <div className="mt-0.5 font-mono-data text-[11px] leading-relaxed text-white/90">{m.text}</div>
             {m.wetHeuristic && (
               <div className="mt-1 inline-block rounded bg-amber/15 px-1.5 py-0.5 font-mono-data text-[9px] text-amber">
-                ⚠ HEURISTIC — reduced confidence in wet conditions
+                ⚠ HEURISTIC · reduced confidence in wet conditions
               </div>
             )}
           </div>

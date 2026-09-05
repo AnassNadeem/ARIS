@@ -21,7 +21,7 @@ export function connectionStatusView(
     return { label: "RECONNECTING…", note: null, tone: "warn" };
   }
   if (consoleMode === "live") {
-    return { label: "CONNECTED", note: "OpenF1 live · ~5–7s delay", tone: "ok" };
+    return { label: "CONNECTED", note: "OpenF1 live · ~5-7s delay", tone: "ok" };
   }
-  return { label: "CONNECTED  FastF1", note: null, tone: "ok" };
+  return { label: "CONNECTED", note: "Replay", tone: "ok" };
 }

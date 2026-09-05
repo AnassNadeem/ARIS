@@ -88,7 +88,7 @@ export function LiveSessionPicker({
         <h2 className="mt-1 text-xl font-bold tracking-wide text-white uppercase sm:text-2xl">Live timing</h2>
         <p className="mt-1 font-mono-data text-[11px] text-muted">
           Pick this weekend&apos;s session. Live sessions open the pit wall at the current lap. Completed practice and
-          qualifying are not replayable here — race replays live at /replay.
+          qualifying are not replayable here. Race replays are on Replay.
         </p>
         <div className="mt-3 inline-flex w-fit overflow-hidden rounded-[8px] border border-border bg-obsidian" role="group" aria-label="ARIS toggle">
           <button
@@ -115,9 +115,9 @@ export function LiveSessionPicker({
         <p className="mt-2 font-mono-data text-[11px] text-muted">
           {arisEnabled
             ? selected && !isArisCapableSession(selected.session_type)
-              ? "ARIS on is Race and FP2 — pick one of those sessions."
-              : "ARIS on — ghost car and delta will show on the timing tower."
-            : "ARIS off — timing only."}
+              ? "ARIS on: Race and FP2. Pick one of those sessions."
+              : "ARIS on. Ghost car and delta show on the timing tower."
+            : "ARIS off. Timing only."}
         </p>
       </div>
 

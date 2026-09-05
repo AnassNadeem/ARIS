@@ -297,7 +297,7 @@ export function ARISConsole({
   }, [mode, setConsoleMode]);
 
   useEffect(() => {
-    if (!session) return;
+    if (!session || allowMock) return;
     let cancelled = false;
     getCircuitCoords(session.year, session.round).then((c) => {
       if (cancelled || !c.x.length) return;
@@ -306,7 +306,7 @@ export function ARISConsole({
     return () => {
       cancelled = true;
     };
-  }, [session?.year, session?.round]);
+  }, [session?.year, session?.round, allowMock]);
 
   useEffect(() => {
     if (!arisCapable && isARISOn) setARISOn(false);
@@ -350,37 +350,19 @@ export function ARISConsole({
     setConnectionStatus("connecting");
 
     if (mode === "live") {
-      const feed = new LiveSseFeed();
-      let mock: MockRaceFeed | null = null;
-      feed.onOpen = () => {
-        mock?.stop();
-        mock = null;
-      };
-      feed.onFailure = () => {
-        if (allowMock && !mock) {
-          mock = new MockRaceFeed(store);
-          mock.start();
-        }
-      };
-      feed.connect();
       if (allowMock) {
-        const fallback = setTimeout(() => {
-          if (store.getState().connectionStatus !== "connected") {
-            mock = new MockRaceFeed(store);
-            mock.start();
-            setConnectionStatus("connected", 0);
-          }
-        }, 4000);
+        const mock = new MockRaceFeed(store);
+        mock.start();
+        setConnectionStatus("connected", 0);
         return () => {
-          clearTimeout(fallback);
-          feed.disconnect();
-          mock?.stop();
+          mock.stop();
           setConnectionStatus("disconnected");
         };
       }
+      const feed = new LiveSseFeed();
+      feed.connect();
       return () => {
         feed.disconnect();
-        mock?.stop();
         setConnectionStatus("disconnected");
       };
     }
@@ -570,7 +552,7 @@ export function ARISConsole({
               disabled={!canEnableStrategy && !isARISOn}
               title={
                 !arisCapable
-                  ? "ARIS runs on Race and FP2 (live wiring probe)."
+                  ? "ARIS runs on Race and FP2."
                   : undefined
               }
               className={`hidden shrink-0 rounded px-2 py-0.5 font-mono-data text-[10px] uppercase md:inline-flex ${
@@ -635,7 +617,7 @@ export function ARISConsole({
           disabled={!canEnableStrategy && !isARISOn}
           title={
             !arisCapable
-              ? "ARIS runs on Race and FP2 (live wiring probe)."
+              ? "ARIS runs on Race and FP2."
               : undefined
           }
           className={`justify-self-end rounded px-2 py-0.5 font-mono-data text-[10px] uppercase ${
@@ -689,10 +671,10 @@ export function ARISConsole({
                   : "bg-[#FF8700]/20 text-[#FF8700]"
           }`}
         >
-          {racePhase === "SC" && "🟡 SAFETY CAR — Pit loss reduced to ~11s. Cheap pit window."}
-          {racePhase === "VSC" && "🟡 VIRTUAL SAFETY CAR — Pace delta limited."}
-          {racePhase === "RED_FLAG" && "🔴 RED FLAG — Free tyre change. Strategy reset."}
-          {racePhase === "STANDING_START" && "🏁 STANDING START — Prior lap deltas cleared."}
+          {racePhase === "SC" && "SAFETY CAR. Pit loss reduced to ~11s. Cheap pit window."}
+          {racePhase === "VSC" && "VIRTUAL SAFETY CAR. Pace delta limited."}
+          {racePhase === "RED_FLAG" && "RED FLAG. Free tyre change. Strategy reset."}
+          {racePhase === "STANDING_START" && "STANDING START. Prior lap deltas cleared."}
         </div>
       )}
       <StrategyChangeBanner />

@@ -73,7 +73,7 @@ export function UndercutWindow() {
         </select>
         <span className="font-mono-data text-[10px] text-muted">
           Pit loss {pitLoss.toFixed(1)}s · window &lt; {(pitLoss - UNDERCUT_GAIN_S).toFixed(1)}s
-          {openLaps.length ? ` · open L${openLaps[0]}–L${openLaps[openLaps.length - 1]}` : " · closed"}
+          {openLaps.length ? ` · open L${openLaps[0]}-L${openLaps[openLaps.length - 1]}` : " · closed"}
         </span>
       </div>
       <div className="relative min-h-0 flex-1">

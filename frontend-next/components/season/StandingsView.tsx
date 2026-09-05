@@ -67,7 +67,7 @@ export function StandingsView({ yearParam }: { yearParam?: string }) {
         <div className="mx-auto max-w-6xl">
           <div className="font-mono-data text-[10px] uppercase tracking-[0.22em] text-red">Championship</div>
           <h1 className="mt-1 text-2xl font-bold uppercase tracking-wide text-white">Standings</h1>
-          <p className="mt-1 font-mono-data text-[11px] text-muted">Driver and constructor tables for 2024–2026.</p>
+          <p className="mt-1 font-mono-data text-[11px] text-muted">Driver and constructor tables for 2024-2026.</p>
 
           <div className="mt-5 flex flex-wrap items-center gap-3">
             <YearSelector year={year} onChange={selectYear} />
@@ -201,7 +201,7 @@ function ConstructorsTable({ data }: { data: ConstructorStandingsResponse | null
             <td className="px-3 py-2.5">{r.wins}</td>
             <td className="px-3 py-2.5">{r.podiums}</td>
             <td className="px-3 py-2.5">{r.gap_to_leader}</td>
-            <td className="px-3 py-2.5 text-muted">{r.drivers.join(" / ") || "—"}</td>
+            <td className="px-3 py-2.5 text-muted">{r.drivers.join(" / ") || "-"}</td>
           </tr>
         ))}
       </tbody>

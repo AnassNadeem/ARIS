@@ -29,7 +29,7 @@ export default function TornOffPanelPage() {
   const setTotalLaps = useRaceStore((s) => s.setTotalLaps);
 
   useEffect(() => {
-    document.title = `ARIS — ${catalogueEntry(panelId)?.label ?? panelId}`;
+    document.title = `ARIS | ${catalogueEntry(panelId)?.label ?? panelId}`;
     return subscribeRaceState((msg) => {
       if (msg.type !== "tick") return;
       const payload = msg.payload as TickPayload;

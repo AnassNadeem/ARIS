@@ -40,7 +40,7 @@ export function StrategyPanel() {
           data-testid="strategy-revised-marker"
           className="mb-1.5 rounded border border-amber/50 bg-amber/10 px-1.5 py-1 font-mono-data text-[9px] uppercase tracking-wide text-amber"
         >
-          REVISED LAP {revised.lap} — {revised.reason}
+          REVISED LAP {revised.lap}: {revised.reason}
         </div>
       )}
       <div className="flex flex-col gap-1">
@@ -57,7 +57,7 @@ export function StrategyPanel() {
               <TyreIcon compound={normalizeCompound(seg.compound)} />
               <span className="w-14">
                 L{seg.startLap}
-                {seg.endLap != null ? `–${seg.endLap}` : "+"}
+                {seg.endLap != null ? `-${seg.endLap}` : "+"}
               </span>
               <span className="flex-1">{seg.compound}</span>
               {isCurrent && <span className="text-[9px] uppercase text-red">● current</span>}

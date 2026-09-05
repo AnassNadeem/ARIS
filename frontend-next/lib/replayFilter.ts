@@ -3,7 +3,7 @@ import type { CircuitMarker, RoundCard } from "@/lib/types";
 /** Replay FastF1 window — keep in sync with backend.calendar.ALLOWED_REPLAY_YEARS. */
 export const ALLOWED_REPLAY_YEARS = [2024, 2025, 2026] as const;
 export const REPLAY_FROM_YEAR = 2024;
-export const REPLAY_YEAR_TOOLTIP = "Replay limited to 2024–2026 for faster loading.";
+export const REPLAY_YEAR_TOOLTIP = "Replay covers 2024-2026.";
 export const REPLAY_YEAR_BLOCKED_MSG = "Replay is only available for 2024, 2025, and 2026.";
 
 export function isAllowedReplayYear(year: number): boolean {

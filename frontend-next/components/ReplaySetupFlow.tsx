@@ -191,7 +191,7 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
 
       try {
         if (r2Configured()) {
-          store.setWaiting(true, "Loading race from R2…");
+          store.setWaiting(true, "Loading race data…");
           const field = await fetchRaceField(year, round.round, (loaded, total) => {
             const pct = total ? loaded / total : Math.min(0.9, loaded / 2_000_000);
             useRaceStore.getState().setPackStatus({ stage: "minimal", progress: pct, gpsReady: false });
@@ -513,7 +513,7 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
               <p className="font-mono-data text-[11px] text-muted">Loading this race&apos;s driver grid…</p>
             ) : drivers.length === 0 ? (
               <p className="font-mono-data text-[11px] text-muted">
-                No driver grid in race_field.json for this race.
+                No driver grid for this race.
               </p>
             ) : (
               <ARISConfigPanel

@@ -31,7 +31,7 @@ export function ExplainPanel() {
     return (
       <PanelEmpty
         title="Explain"
-        detail="Degradation curves, ARIS ghost vs real, and race debrief. Set NEXT_PUBLIC_ARIS_EXPLAIN=1 to enable this panel."
+        detail="Degradation curves, ARIS ghost vs real, and race debrief are not available in this build."
       />
     );
   }

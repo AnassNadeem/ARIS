@@ -60,9 +60,6 @@ export function RecommendationCard() {
       <div className="mb-1 font-mono-data text-[10px] uppercase tracking-wide text-red">
         L{rec.lap} [{isAuto ? "ARIS STRATEGY" : "ARIS RECOMMENDS"}] {rec.label}
       </div>
-      <div className="font-mono-data text-[11px] text-muted">
-        Projected: P4 · +2.1s ahead · {(rec.rank_score * 100).toFixed(0)}% confidence
-      </div>
       <div className="mt-1 font-mono-data text-[10px] text-muted">
         Delta {rec.delta_vs_stay_out_s.toFixed(1)}s · std {rec.confidence_std_s.toFixed(1)}s · evidence: {rec.evidence}
       </div>
@@ -94,7 +91,7 @@ export function RecommendationCard() {
         </>
       ) : (
         <div className="mt-2 font-mono-data text-[10px] text-muted">
-          Auto mode — ARIS is executing this call now. No approval needed.
+          Auto mode. ARIS is executing this call now. No approval needed.
         </div>
       )}
 

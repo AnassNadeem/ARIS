@@ -49,7 +49,7 @@ export function ArisHomeControls({
           >
             {drivers.map((d) => (
               <option key={d.driver_code} value={d.driver_code}>
-                {d.driver_code} — {d.full_name}
+                {d.driver_code} · {d.full_name}
               </option>
             ))}
           </select>

@@ -18,7 +18,7 @@ import {
   viewBoxFor,
   wrap01,
 } from "@/lib/trackGeometry";
-import { onTrackCarCodes } from "@/lib/mapCars";
+import { onTrackCarCodes, resolveLivePathFrac } from "@/lib/mapCars";
 import { chequeredSfFlag, startFinishMarker } from "@/lib/replayFilter";
 import { PlaybackControls } from "@/components/ui/PlaybackControls";
 import { TrackLightsOut } from "@/components/ui/TrackLightsOut";
@@ -89,7 +89,7 @@ function resolveSectors(coords: CircuitCoords): CircuitSectorPath[] {
   if (sectorsAreUsable(coords.sectorPaths)) return coords.sectorPaths as CircuitSectorPath[];
   const { paths, usedFallback } = sectorPathsFromOutline(coords.x, coords.y, coords.markers);
   if (usedFallback && coords.x.length >= 4) {
-    console.warn("[ARIS map] Sector markers missing or unordered — using equal-distance S1/S2/S3 thirds.");
+    console.warn("[ARIS map] Sector markers missing or unordered. Using equal-distance S1/S2/S3 thirds.");
   }
   return paths;
 }
@@ -135,6 +135,14 @@ export function TrackMap() {
 
   useEffect(() => {
     let mounted = true;
+    const existing = useRaceStore.getState().circuitOutline;
+    if (existing?.x?.length) {
+      setCoords(existing);
+      setOutlineSettled(true);
+      return () => {
+        mounted = false;
+      };
+    }
     setOutlineSettled(false);
     getCircuitCoords(session?.year ?? new Date().getUTCFullYear(), session?.round ?? 15)
       .then((c) => {
@@ -234,6 +242,8 @@ export function TrackMap() {
             frac = pb.path_frac;
           } else if (field && store.consoleMode === "replay") {
             frac = replayDisplayFrac(field, code, displayElapsedRef.current);
+          } else if (store.consoleMode === "live") {
+            frac = resolveLivePathFrac(car, line, prevKnown);
           } else if (car.path_frac != null && Number.isFinite(car.path_frac)) {
             frac = car.path_frac;
           } else if (prevKnown != null && Number.isFinite(prevKnown)) {
@@ -430,7 +440,7 @@ export function TrackMap() {
                 fontWeight={700}
                 fill="#ffffff"
               >
-                {`ARIS PIT — ${ghostPitLabel ?? ""}`}
+                {`ARIS PIT · ${ghostPitLabel ?? ""}`}
               </text>
             </g>
           )}
@@ -468,14 +478,14 @@ export function TrackMap() {
             data-testid="track-map-red-flag"
             className="absolute left-1/2 top-2 z-20 -translate-x-1/2 animate-pulse rounded border-2 border-[#E8002D] bg-carbon/90 px-3 py-1 font-mono-data text-[11px] font-bold uppercase tracking-wide text-[#E8002D]"
           >
-            🔴 RED FLAG — Field frozen
+            🔴 RED FLAG · Field frozen
           </div>
         )}
         {showGhostLegend && (
           <div className="absolute bottom-2 left-2 z-10 rounded border border-white/30 bg-carbon/85 px-2 py-1 font-sans text-[10px] uppercase tracking-wide text-white">
             {ghostInPits
-              ? `⬛ ARIS — IN PITS (${ghostPitLabel ?? ""})`
-              : "● ARIS Ghost — independent simulated strategy"}
+              ? `⬛ ARIS · IN PITS (${ghostPitLabel ?? ""})`
+              : "● ARIS Ghost · independent simulated strategy"}
           </div>
         )}
         <TrackLightsOut />

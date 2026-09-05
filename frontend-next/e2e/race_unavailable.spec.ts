@@ -35,7 +35,7 @@ test("race_field.json 404 shows unavailable, not a spinner", async ({ page }) =>
   const startBtn = page.getByRole("button", { name: /Start Race/i });
   await expect(startBtn).toBeEnabled({ timeout: 20_000 });
   await startBtn.click();
-  await expect(page.getByText("Race data unavailable — check back soon")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("Race data unavailable. Check back soon")).toBeVisible({ timeout: 15_000 });
   await expect(page.locator(".animate-pulse")).toHaveCount(0);
 });
 

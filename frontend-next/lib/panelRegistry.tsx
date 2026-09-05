@@ -36,7 +36,7 @@ export const PANEL_CATALOGUE: PanelCatalogueEntry[] = [
   { componentId: "trackmap", label: "Track map", status: "built", category: "core", singleton: true, description: "Live circuit map with car positions, dead-reckoned between ticks." },
   { componentId: "timingtower", label: "Timing tower", status: "built", category: "core", singleton: true, description: "Classic F1 timing tower: position, gap, last lap, tyre." },
   { componentId: "laptimes", label: "Lap times", status: "built", category: "analytics", description: "Lap time trace with safety car zones overlaid." },
-  { componentId: "comms", label: "ARIS comms", status: "built", category: "core", singleton: true, description: "ARIS radio channel — recommendations, Ask ARIS, and Copilot." },
+  { componentId: "comms", label: "ARIS comms", status: "built", category: "core", singleton: true, description: "ARIS radio channel: recommendations, Ask ARIS, and Copilot." },
   { componentId: "tyredeg", label: "Tyre degradation", status: "built", category: "analytics", description: "Lap-time vs tyre age, per compound, for selected driver." },
   { componentId: "sectortimes", label: "Sector times", status: "built", category: "analytics", description: "S1/S2/S3 per lap, delta from personal best." },
   { componentId: "gapchart", label: "Gap chart", status: "built", category: "analytics", description: "Gap to car ahead and car behind over race distance." },

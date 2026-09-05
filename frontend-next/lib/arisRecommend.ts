@@ -143,19 +143,19 @@ export function autoDecisionStatement(
 
   if (ctx.phase === "RED_FLAG") {
     return {
-      text: `RED FLAG — free tyre change. ARIS is restarting on ${compound}.`,
+      text: `RED FLAG. Free tyre change. ARIS is restarting on ${compound}.`,
       kind: "red_flag_reset",
     };
   }
   if (ctx.phase === "SC" || ctx.phase === "VSC") {
     const window = ctx.phase === "SC" ? "SC WINDOW" : "VSC WINDOW";
     return isPit
-      ? { text: `${window} — ARIS is pitting now for ${compound}.`, kind: "sc_window" }
-      : { text: `${window} — ARIS is staying out.`, kind: "sc_window" };
+      ? { text: `${window}. ARIS is pitting now for ${compound}.`, kind: "sc_window" }
+      : { text: `${window}. ARIS is staying out.`, kind: "sc_window" };
   }
   if (rec.wet_heuristic) {
     const label = ctx.rainfall ? "RAIN DETECTED" : "TRACK DRYING";
-    return { text: `${label} — ARIS is pitting for ${compound}.`, kind: "wet_switch" };
+    return { text: `${label}. ARIS is pitting for ${compound}.`, kind: "wet_switch" };
   }
   return {
     text: isPit
@@ -178,7 +178,7 @@ export function annotateVsActivePlan(
     return `Consider moving to lap ${recPit} (plan was lap ${planned}).`;
   }
   if (rec.action.kind === "stay_out" && planned != null) {
-    return `Stay out — your lap ${planned} stop is still the call.`;
+    return `Stay out. Your lap ${planned} stop is still the call.`;
   }
   return recommendNarration(rec);
 }

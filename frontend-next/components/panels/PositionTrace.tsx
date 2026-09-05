@@ -46,7 +46,7 @@ export function PositionTrace() {
         ) : data.length === 0 ? (
           <PanelEmpty
             title="Position trace"
-            detail="Position (P1–P20) per lap for the field. Empty until lap positions arrive from the session feed."
+            detail="Position (P1-P20) per lap for the field. Empty until lap positions arrive from the session feed."
           />
         ) : (
         <ResponsiveContainer width="100%" height="100%">

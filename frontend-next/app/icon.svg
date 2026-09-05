@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 220" width="220" height="220" role="img">
+<title>ARIS icon</title>
+<rect width="220" height="220" fill="#0A0A0A"/>
+<path d="M110,30 L42,174 L64,174 L92,130 L110,108 L128,130 L156,174 L178,174 Z" fill="#E8002D"/>
+<polyline points="48,190 68,190 112,144 134,144" fill="none" stroke="#FFFFFF" stroke-width="13" stroke-linecap="square" stroke-linejoin="miter"/>
+<circle cx="134" cy="144" r="9" fill="#E8002D"/>
+</svg>

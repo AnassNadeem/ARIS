@@ -202,7 +202,7 @@ export function buildRaceStory(opts: {
       const lost = to - from;
       const who = passer ? `${passer} ` : "";
       lines.push(
-        `Lap ${cur.lap}: ${who}passed ${code} — lost ${lost} place${lost === 1 ? "" : "s"} (P${from} → P${to}).`,
+        `Lap ${cur.lap}: ${who}passed ${code}, lost ${lost} place${lost === 1 ? "" : "s"} (P${from} → P${to}).`,
       );
     } else {
       const victim = driverAtPosition(pack!, cur.lap, to, code);
@@ -237,7 +237,7 @@ export function buildRaceStory(opts: {
   }
   if (worst && worst.slope > 0.02) {
     lines.push(
-      `Tyre degradation was worst on ${worst.compound} (laps ${worst.start}–${worst.end}), about +${worst.slope.toFixed(2)}s per lap of rubber age.`,
+      `Tyre degradation was worst on ${worst.compound} (laps ${worst.start}-${worst.end}), about +${worst.slope.toFixed(2)}s per lap of rubber age.`,
     );
   }
 

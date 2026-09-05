@@ -153,7 +153,7 @@ describe("hubSessionCta", () => {
   it("explains ended practice sessions and points race replays to /replay", () => {
     const fp1 = sess({ session_type: "FP1", status: "COMPLETED", replayable: true });
     expect(hubEndedSessionCopy(fp1)).toBe(
-      "This session has ended — FP1 is no longer available for live viewing.",
+      "This session has ended. FP1 is no longer available for live viewing.",
     );
     expect(hubNonRaceReplayCopy(fp1)).toMatch(/Practice and qualifying replays are not available/);
     expect(hubNonRaceReplayCopy(sess({ session_type: "R", status: "COMPLETED", replayable: true }))).toBeNull();

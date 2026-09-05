@@ -114,7 +114,7 @@ export function GhostVsRealChart({
         )}
         {data && (
           <span className="text-muted">
-            Ghost pits {data.ghost.pit_laps.join(",") || "—"} · Real pits {data.real.pit_laps.join(",") || "—"}
+            Ghost pits {data.ghost.pit_laps.join(",") || "-"} · Real pits {data.real.pit_laps.join(",") || "-"}
           </span>
         )}
       </div>

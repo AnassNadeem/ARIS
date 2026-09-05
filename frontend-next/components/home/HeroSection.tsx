@@ -48,7 +48,7 @@ export function HeroSection() {
           Always On Race Intelligence System
         </p>
         <p className="mt-3 max-w-md font-mono-data text-[11px] leading-relaxed text-muted-2">
-          Classical decision support, not a black box — ARIS shows its evidence and races a ghost
+          Classical decision support, not a black box. ARIS shows its evidence and races a ghost
           driver against the field.
         </p>
 

@@ -138,7 +138,7 @@ function maybeAnnounceGhostBoxing(car: CarState, driver: string | null): void {
       id: `ghost-boxing-${lap}-${Date.now()}`,
       lap,
       source: "ARIS" as const,
-      text: `L${lap} — ARIS is boxing now for ${compound}.`,
+      text: `L${lap}. ARIS is boxing now for ${compound}.`,
       timestamp: Date.now(),
       kind: "pit_now" as const,
       big: true,
@@ -570,7 +570,7 @@ export class ReplayFrameFeed {
       if (await this.tryR2(year, round, sessionType)) return;
       if (replayUsesR2Pack(sessionType) && r2Configured()) {
         const cur = useRaceStore.getState().waitingMessage;
-        store.setWaiting(true, cur && cur !== "Loading race from R2…" ? cur : R2_LOAD_ERROR);
+        store.setWaiting(true, cur && cur !== "Loading race data…" ? cur : R2_LOAD_ERROR);
         setFeedStatus("disconnected");
         this.onFailure?.();
         return;
@@ -618,7 +618,7 @@ export class ReplayFrameFeed {
     const store = useRaceStore.getState();
     if (!r2Configured() && !store.r2RaceField) return false;
     try {
-      store.setWaiting(true, "Loading race from R2…");
+      store.setWaiting(true, "Loading race data…");
       let field = store.r2RaceField;
       if (!field) {
         field = await fetchRaceField(year, round, (loaded, total) => {

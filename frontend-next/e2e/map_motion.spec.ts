@@ -331,4 +331,31 @@ test.describe("map motion", () => {
       .toBe(true);
     await expect(page.getByTestId("speed-hud-ghost-delta")).toBeVisible({ timeout: 15_000 });
   });
+
+  test("demo live map cars move along the oval", async ({ page }) => {
+    await page.goto("/live?demo=1");
+    await expect.poll(async () => (await readDots(page)).length, { timeout: 25_000 }).toBeGreaterThanOrEqual(8);
+    const origin = await readDots(page);
+    const originFrac = origin.find((d) => d.id === "car-dot-VER")?.frac ?? origin[0]?.frac;
+    await expect
+      .poll(
+        async () => {
+          const now = await readDots(page);
+          return now.some((d) => {
+            const prev = origin.find((p) => p.id === d.id);
+            if (prev == null) return false;
+            const moved = Math.hypot(d.x - prev.x, d.y - prev.y) > 4;
+            const fracMoved =
+              prev.frac != null && d.frac != null && Math.abs(wrappedDelta(prev.frac, d.frac)) > 0.01;
+            return moved || fracMoved;
+          });
+        },
+        { timeout: 12_000 },
+      )
+      .toBe(true);
+    const later = await readDots(page);
+    const laterFrac = later.find((d) => d.id === "car-dot-VER")?.frac ?? later[0]?.frac;
+    expect(originFrac, "demo VER path_frac at t0").not.toBeNull();
+    expect(laterFrac, "demo VER path_frac after wait").not.toBeNull();
+  });
 });

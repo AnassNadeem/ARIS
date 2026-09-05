@@ -107,7 +107,7 @@ export function TyreDegradation() {
           onChange={(e) => setCompareDriver(e.target.value)}
           className="rounded border border-border bg-surface px-2 py-0.5 font-mono-data text-xs text-white"
         >
-          <option value="">—</option>
+          <option value="">-</option>
           {drivers.filter((d) => d.driver_code !== driver).map((d) => (
             <option key={d.driver_code} value={d.driver_code}>{d.driver_code}</option>
           ))}
@@ -124,7 +124,7 @@ export function TyreDegradation() {
         ) : !hasPoints ? (
           <PanelEmpty
             title="Tyre degradation"
-            detail="Lap-time delta versus tyre age, per compound, for the selected driver. Empty until stint and lap data exist — typically after a few completed laps."
+            detail="Lap-time delta versus tyre age, per compound, for the selected driver. Empty until stint and lap data exist, typically after a few completed laps."
           />
         ) : (
         <ResponsiveContainer width="100%" height="100%">

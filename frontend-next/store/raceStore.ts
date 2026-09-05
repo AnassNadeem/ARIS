@@ -633,7 +633,7 @@ export const useRaceStore = create<RaceStore>()(
               id: `${rec.id}-recompute-failed-${Date.now()}`,
               lap: rec.lap,
               source: "ARIS",
-              text: `Could not resimulate the ghost for ${rec.label} — staying on the current plan.`,
+              text: `Could not resimulate the ghost for ${rec.label}. Staying on the current plan.`,
               timestamp: Date.now(),
             },
           ],
