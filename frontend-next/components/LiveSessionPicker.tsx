@@ -1,7 +1,7 @@
 "use client";
 
 import { useCountdown } from "@/lib/useCountdown";
-import { hubSessionCtaCopy } from "@/lib/liveSetup";
+import { hubEndedSessionCopy, hubNonRaceReplayCopy, hubSessionCtaCopy, isRaceSession } from "@/lib/liveSetup";
 import { isArisCapableSession, sessionLabel } from "@/lib/sessionFlow";
 import { sessionIsLiveNow } from "@/lib/sessionWindow";
 import type { HubSession, LiveHub } from "@/lib/types";
@@ -28,7 +28,11 @@ function SessionTimer({ session }: { session: HubSession }) {
     );
   }
   if (session.status === "COMPLETED" || session.replayable) {
-    return <span className="font-mono-data text-[12px] text-muted">Replay</span>;
+    return (
+      <span className="font-mono-data text-[12px] text-muted">
+        {isRaceSession(session.session_type) ? "Replay" : "Ended"}
+      </span>
+    );
   }
   if (upcoming && session.datetime_utc) {
     return <UpcomingCountdown iso={session.datetime_utc} />;
@@ -83,8 +87,8 @@ export function LiveSessionPicker({
         <div className="font-mono-data text-[10px] uppercase tracking-[0.22em] text-red">ARIS</div>
         <h2 className="mt-1 text-xl font-bold tracking-wide text-white uppercase sm:text-2xl">Live timing</h2>
         <p className="mt-1 font-mono-data text-[11px] text-muted">
-          Pick this weekend&apos;s session. Completed sessions open as replay. Live sessions open the pit wall at the
-          current lap.
+          Pick this weekend&apos;s session. Live sessions open the pit wall at the current lap. Completed practice and
+          qualifying are not replayable here — race replays live at /replay.
         </p>
         <div className="mt-3 inline-flex w-fit overflow-hidden rounded-[8px] border border-border bg-obsidian" role="group" aria-label="ARIS toggle">
           <button
@@ -152,7 +156,7 @@ export function LiveSessionPicker({
                   </span>
                 ) : replay ? (
                   <span className="rounded bg-white/10 px-1.5 py-0.5 font-mono-data text-[9px] uppercase tracking-wide text-white">
-                    Replay
+                    {isRaceSession(s.session_type) ? "Replay" : "Ended"}
                   </span>
                 ) : null}
               </div>
@@ -166,18 +170,26 @@ export function LiveSessionPicker({
       </div>
 
       {selected && (
-        <button
-          type="button"
-          onClick={onContinue}
-          disabled={arisBlocked || ctaCopy(selected).disabled}
-          className={`self-start rounded-[8px] border px-5 py-2.5 font-mono-data text-[11px] uppercase tracking-widest ${
-            arisBlocked || ctaCopy(selected).disabled
-              ? "cursor-not-allowed border-border text-muted-2"
-              : "border-red bg-red/10 text-red hover:bg-red/20"
-          }`}
-        >
-          {ctaCopy(selected).label}
-        </button>
+        <>
+          {(selected.status === "COMPLETED" || selected.replayable) && (
+            <p className="font-mono-data text-[11px] text-muted">{hubEndedSessionCopy(selected)}</p>
+          )}
+          {(selected.status === "COMPLETED" || selected.replayable) && hubNonRaceReplayCopy(selected) && (
+            <p className="font-mono-data text-[11px] text-muted">{hubNonRaceReplayCopy(selected)}</p>
+          )}
+          <button
+            type="button"
+            onClick={onContinue}
+            disabled={arisBlocked || ctaCopy(selected).disabled}
+            className={`self-start rounded-[8px] border px-5 py-2.5 font-mono-data text-[11px] uppercase tracking-widest ${
+              arisBlocked || ctaCopy(selected).disabled
+                ? "cursor-not-allowed border-border text-muted-2"
+                : "border-red bg-red/10 text-red hover:bg-red/20"
+            }`}
+          >
+            {ctaCopy(selected).label}
+          </button>
+        </>
       )}
     </section>
   );

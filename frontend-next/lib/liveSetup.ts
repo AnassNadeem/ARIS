@@ -44,7 +44,12 @@ export function hubSessionCtaCopy(session: HubSession, now = Date.now()): { labe
   const name = sessionLabel(session.session_type);
   const cta = hubSessionCta(session, now);
   if (cta === "live") return { label: `Join Live · ${name}`, disabled: false };
-  if (cta === "replay") return { label: `Replay ${name}`, disabled: false };
+  if (cta === "replay") {
+    if (!isRaceSession(session.session_type)) {
+      return { label: `${name} has ended`, disabled: true };
+    }
+    return { label: `Replay ${name}`, disabled: false };
+  }
   return { label: "Waiting for Session to Start", disabled: true };
 }
 
@@ -74,7 +79,16 @@ export function isRaceSession(sessionType: string | null | undefined): boolean {
   return asSessionType(sessionType) === "R";
 }
 
-/** Practice packs load from OpenF1; give FastF1-fallback more than the race R2 window. */
+export function hubEndedSessionCopy(session: HubSession): string {
+  return `This session has ended — ${sessionLabel(session.session_type)} is no longer available for live viewing.`;
+}
+
+export function hubNonRaceReplayCopy(session: HubSession): string | null {
+  if (isRaceSession(session.session_type)) return null;
+  return "Practice and qualifying replays are not available. Race replays are available at /replay for all 2024–2026 races.";
+}
+
+/** Practice packs load from OpenF1 only (FastF1 has no recent FP data). */
 export function replayPackWaitMs(sessionType: string | null | undefined): number {
   const t = asSessionType(sessionType);
   if (t === "FP1" || t === "FP2" || t === "FP3") return 90_000;

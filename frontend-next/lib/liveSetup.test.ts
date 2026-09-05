@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   asSessionType,
   autoArisForHubSession,
+  hubEndedSessionCopy,
+  hubNonRaceReplayCopy,
   hubSessionCta,
   hubSessionCtaCopy,
   liveHubSession,
@@ -133,7 +135,11 @@ describe("hubSessionCta", () => {
       disabled: false,
     });
     expect(hubSessionCtaCopy(sess({ session_type: "FP1", status: "COMPLETED", replayable: true }))).toEqual({
-      label: "Replay FP1",
+      label: "FP1 has ended",
+      disabled: true,
+    });
+    expect(hubSessionCtaCopy(sess({ session_type: "R", status: "COMPLETED", replayable: true }))).toEqual({
+      label: "Replay Race",
       disabled: false,
     });
     expect(
@@ -142,6 +148,15 @@ describe("hubSessionCta", () => {
       label: "Waiting for Session to Start",
       disabled: true,
     });
+  });
+
+  it("explains ended practice sessions and points race replays to /replay", () => {
+    const fp1 = sess({ session_type: "FP1", status: "COMPLETED", replayable: true });
+    expect(hubEndedSessionCopy(fp1)).toBe(
+      "This session has ended — FP1 is no longer available for live viewing.",
+    );
+    expect(hubNonRaceReplayCopy(fp1)).toMatch(/Practice and qualifying replays are not available/);
+    expect(hubNonRaceReplayCopy(sess({ session_type: "R", status: "COMPLETED", replayable: true }))).toBeNull();
   });
 });
 
