@@ -1454,7 +1454,8 @@ def _driver_start_compound(year: int, round_number: int, driver_code: str) -> st
         mine = [
             lap
             for lap in laps
-            if str(lap.driver_code or "").upper() == code and int(getattr(lap, "lap_number", 0) or 0) == 1
+            if str(lap.driver_code or "").upper() == code
+            and int(getattr(lap, "lap_number", 0) or 0) == 1
         ]
         if mine and mine[0].compound:
             return _expand_compound(mine[0].compound)
