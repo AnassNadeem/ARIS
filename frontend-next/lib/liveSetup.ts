@@ -37,7 +37,7 @@ export function pickArisHubSession(sessions: HubSession[]): HubSession | null {
 export function hubSessionCta(session: HubSession, now = Date.now()): "live" | "replay" | "wait" {
   if (sessionIsLiveNow(session, now)) return "live";
   if (session.status === "COMPLETED" || session.replayable) return "replay";
-  return "wait";
+  return isRaceSession(session.session_type) ? "live" : "wait";
 }
 
 export function hubSessionCtaCopy(session: HubSession, now = Date.now()): { label: string; disabled: boolean } {
