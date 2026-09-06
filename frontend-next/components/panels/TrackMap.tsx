@@ -304,6 +304,10 @@ export function TrackMap() {
                 playbackSpeed: store.playbackSpeed,
               });
               lastFrac.current.set(code, frac);
+            } else if (store.consoleMode === "live" && !seek && !speedChanged) {
+              // GPS position unchanged or stale: keep the coast window alive so
+              // the dot keeps rolling instead of freezing after LIVE_COAST_MS.
+              animator.renewCoast(now);
             }
           }
           const pos = animator.currentPosition(now, playing || !racing);
@@ -330,6 +334,9 @@ export function TrackMap() {
         if (!live.has(code)) {
           animators.current.delete(code);
           lastFrac.current.delete(code);
+          // Clear GPS-staleness tracking so a pit-exit re-entry starts fresh
+          lastGpsSig.current.delete(code);
+          lastGpsChangeAt.current.delete(code);
         }
       }
       rafRef.current = requestAnimationFrame(frame);

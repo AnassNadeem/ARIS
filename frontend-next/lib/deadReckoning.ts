@@ -132,7 +132,7 @@ const TRAVEL_FRAC_OF_INTERVAL = 0.85;
 /** Live: 90% of the way to the target in 0.9 s (just before the next 1 Hz tick). */
 const LIVE_TRAVEL_MS = 900;
 /** After OpenF1 goes quiet, keep rolling along the line for this long. */
-export const LIVE_COAST_MS = 6000;
+export const LIVE_COAST_MS = 12000;
 /** ~55 s/lap cap so a coast cannot sprint. Typical race pace is ~80 s/lap. */
 export const LIVE_COAST_MAX_FRAC_PER_MS = 0.000018;
 /** Fallback when we have not yet measured a tick-to-tick rate (~80 s/lap). */
@@ -175,6 +175,21 @@ export class PathCarAnimator {
   setTickInterval(ms: number) {
     if (!Number.isFinite(ms) || ms <= 0) return;
     this.tickIntervalMs = ms;
+  }
+
+  /**
+   * Live mode: keep coast alive when GPS polls arrive but position hasn't
+   * changed (car crawling, same-integer GPS coordinates, SC/VSC bunching).
+   * Re-anchors lastTickAt so sinceTick stays just inside the coast-start
+   * threshold — the car keeps rolling at the last measured speed instead of
+   * freezing after LIVE_COAST_MS.  No-op in replay mode or before first tick.
+   */
+  renewCoast(now: number): void {
+    if (this.tickIntervalMs !== LIVE_TICK_INTERVAL_MS) return;
+    if (this.lastTickAt < 0) return;
+    // Hold sinceTick at 1.2× tickInterval so the coast condition
+    // (sinceTick > tickInterval * 1.15) is always satisfied.
+    this.lastTickAt = now - Math.round(this.tickIntervalMs * 1.2);
   }
 
   onTick(frac: number, now: number, kinematics?: PathTickKinematics) {

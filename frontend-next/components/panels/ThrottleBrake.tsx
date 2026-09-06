@@ -22,10 +22,20 @@ export function ThrottleBrake() {
   const focused = useFocusDriver();
   const [driver, setDriver] = useState(focused);
   const field = useRaceStore((s) => s.r2RaceField);
+  const consoleMode = useRaceStore((s) => s.consoleMode);
   const ready = useAnalyticsReady();
   const loading = usePanelFeedLoading();
   const drivers = useRaceStore((s) => s.gridDrivers);
   const { lap, setLap, pinned, follow, currentLap } = useFollowRaceLap();
+
+  if (consoleMode === "live") {
+    return (
+      <PanelEmpty
+        title="Throttle / brake"
+        detail="Derived from GPS speed samples, which are only available in replay mode. Open a completed race replay to use this panel."
+      />
+    );
+  }
 
   const data = useMemo(() => {
     if (!field || !ready) return [];

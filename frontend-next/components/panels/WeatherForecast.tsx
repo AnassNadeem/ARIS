@@ -22,12 +22,13 @@ export function WeatherForecast() {
   const totalLaps = useRaceStore((s) => s.totalLaps);
   const currentLap = useRaceStore((s) => s.currentLap);
   const field = useRaceStore((s) => s.r2RaceField);
+  const liveWeather = useRaceStore((s) => s.liveWeather);
   const rainfall = useRaceStore((s) => s.rainfall);
   const loading = usePanelFeedLoading();
   const ready = useAnalyticsReady();
 
   const trend = useMemo(() => {
-    const rows = field?.weather ?? [];
+    const rows = field?.weather?.length ? field.weather : liveWeather;
     const cap = Math.max(1, currentLap);
     return rows
       .filter((w) => w.lap <= cap)
@@ -37,7 +38,7 @@ export function WeatherForecast() {
         airTempC: w.air_temp_c,
         rain: w.rainfall ? 1 : 0,
       }));
-  }, [field, currentLap]);
+  }, [field, liveWeather, currentLap]);
 
   const wetLaps = trend.filter((t) => t.rain).map((t) => t.lap);
 

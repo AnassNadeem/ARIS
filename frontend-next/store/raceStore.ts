@@ -12,6 +12,7 @@ import type {
   DriverListing,
   ApiLapRow,
   ApiStintRow,
+  RaceFieldWeather,
   StratPlan,
   RaceField,
   GhostData,
@@ -79,6 +80,8 @@ export interface RaceStore {
   gridDrivers: DriverListing[];
   lapRows: ApiLapRow[];
   stintRows: ApiStintRow[];
+  /** Per-lap OpenF1 weather snapshots for live WeatherForecast (replay uses r2RaceField.weather). */
+  liveWeather: RaceFieldWeather[];
   waitingForRace: boolean;
   waitingMessage: string | null;
   circuitOutline: CircuitCoords | null;
@@ -161,6 +164,7 @@ export interface RaceStore {
   setGridDrivers: (drivers: DriverListing[]) => void;
   setLapRows: (rows: ApiLapRow[]) => void;
   setStintRows: (rows: ApiStintRow[]) => void;
+  upsertLiveWeather: (row: RaceFieldWeather) => void;
   setWaiting: (waiting: boolean, message?: string | null) => void;
   setCircuitOutline: (coords: CircuitCoords | null) => void;
   seekToLap: (lap: number) => void;
@@ -229,6 +233,7 @@ const initialState = {
   gridDrivers: [] as DriverListing[],
   lapRows: [] as ApiLapRow[],
   stintRows: [] as ApiStintRow[],
+  liveWeather: [] as RaceFieldWeather[],
   waitingForRace: false,
   waitingMessage: null as string | null,
   circuitOutline: null as CircuitCoords | null,
@@ -319,6 +324,7 @@ export const useRaceStore = create<RaceStore>()(
         waitingMessage: null,
         lapRows: [],
         stintRows: [],
+        liveWeather: [],
         commsLog: [],
         phaseHistory: [],
         rainfall: false,
@@ -497,6 +503,25 @@ export const useRaceStore = create<RaceStore>()(
         if (a.driver_code === b.driver_code && a.lap_end === b.lap_end && a.compound === b.compound) return;
       }
       set({ stintRows });
+    },
+    upsertLiveWeather: (row) => {
+      const prev = get().liveWeather;
+      const idx = prev.findIndex((w) => w.lap === row.lap);
+      if (idx >= 0) {
+        const cur = prev[idx];
+        if (
+          cur.rainfall === row.rainfall &&
+          cur.track_temp_c === row.track_temp_c &&
+          cur.air_temp_c === row.air_temp_c
+        ) {
+          return;
+        }
+        const next = prev.slice();
+        next[idx] = row;
+        set({ liveWeather: next });
+        return;
+      }
+      set({ liveWeather: [...prev, row].sort((a, b) => a.lap - b.lap) });
     },
     setWaiting: (waitingForRace, waitingMessage = null) => set({ waitingForRace, waitingMessage }),
     setCircuitOutline: (circuitOutline) => set({ circuitOutline }),
