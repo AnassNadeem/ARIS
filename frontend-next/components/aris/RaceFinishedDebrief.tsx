@@ -42,6 +42,7 @@ export function RaceFinishedDebrief() {
   const field = useRaceStore((s) => s.r2RaceField);
   const isARISOn = useRaceStore((s) => s.isARISOn);
   const ghostReason = useRaceStore((s) => s.ghostReason);
+  const consoleMode = useRaceStore((s) => s.consoleMode);
 
   const ended =
     raceFinished ||
@@ -49,8 +50,9 @@ export function RaceFinishedDebrief() {
   const sid = explainSessionId(session);
 
   useEffect(() => {
+    if (consoleMode === "live") return;
     if (ended) setDebriefOpen(true);
-  }, [ended, setDebriefOpen]);
+  }, [ended, setDebriefOpen, consoleMode]);
 
   const finish = useMemo(() => {
     if (!arisDriver) return null;
@@ -81,6 +83,7 @@ export function RaceFinishedDebrief() {
 
   const pitSwings = useMemo(() => (compare ? pitPositionSwings(compare) : []), [compare]);
 
+  if (consoleMode === "live") return null;
   if (!ended && !debriefOpen) return null;
 
   const collapsed = ended && !debriefOpen;

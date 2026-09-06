@@ -264,6 +264,7 @@ export function ARISComms() {
   const [threadId, setThreadId] = useState("c1");
   const [threadSeq, setThreadSeq] = useState(1);
   const clearAskComms = useRaceStore((s) => s.clearAskComms);
+  const consoleMode = useRaceStore((s) => s.consoleMode);
   // Canonical chat panel: Copilot (tool-calling, cites retrieved chunks,
   // supports approve/deny/alter) is preferred over the plain Ask ARIS panel.
   // `copilotFeatureEnabled()` is on by default outside production and off in
@@ -278,6 +279,16 @@ export function ARISComms() {
   useEffect(() => {
     if (!tabs.some((t) => t.id === tab)) setTab(tabs[0]?.id ?? "chat");
   }, [tabs, tab]);
+
+  if (consoleMode === "live") {
+    return (
+      <div className="flex h-full items-center justify-center bg-carbon px-4">
+        <p className="text-center font-sans text-xs text-muted">
+          ARIS strategy available in Replay — select any completed race at /replay
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full flex-col bg-carbon">

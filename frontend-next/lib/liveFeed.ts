@@ -34,6 +34,12 @@ import {
 } from "@/lib/r2Replay";
 import type { ApiLapRow, ApiStintRow, CircuitCoords, LivePosition, LiveTimingRow } from "@/lib/types";
 
+type LiveWeatherSnap = {
+  rainfall?: boolean | null;
+  track_temp?: number | null;
+  air_temp?: number | null;
+};
+
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
 
 function setFeedStatus(status: "connecting" | "connected" | "disconnected" | "reconnecting", lagMs?: number) {
@@ -387,6 +393,7 @@ export class LiveSseFeed {
   private es: EventSource | null = null;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private lapsTimer: ReturnType<typeof setInterval> | null = null;
+  private weatherTimer: ReturnType<typeof setInterval> | null = null;
   private closed = false;
   private opened = false;
   private lastFp = "";
@@ -453,7 +460,12 @@ export class LiveSseFeed {
       const merged = mergeCars(store.cars, cars);
       if (merged !== store.cars) store.setCars(merged);
     }
-    applyGhost(payload);
+    if (store.consoleMode !== "live") applyGhost(payload);
+    else if (store.ghostCar || store.ghostData || store.ghostReason !== "aris_disabled") {
+      store.setGhostCar(null);
+      store.setGhostData(null);
+      store.setGhostReason("aris_disabled");
+    }
     setFeedStatus("connected", 0);
     if ((status?.is_live || payload.timing?.is_live) && !this.opened) {
       this.opened = true;
@@ -463,7 +475,7 @@ export class LiveSseFeed {
 
   private async fetchLiveGhost(): Promise<{ ghost?: unknown; ghost_reason?: string | null } | null> {
     const store = useRaceStore.getState();
-    if (!store.isARISOn) return null;
+    if (store.consoleMode === "live" || !store.isARISOn) return null;
     const driver = store.arisDriver ?? store.session?.driverCode ?? store.focusDriver;
     const session = store.session;
     if (!driver || !session) return null;
@@ -506,6 +518,10 @@ export class LiveSseFeed {
     if (!this.lapsTimer) {
       this.lapsTimer = setInterval(() => void this.pollLapsAndStints(), 5000);
     }
+    if (!this.weatherTimer) {
+      this.weatherTimer = setInterval(() => void this.pollWeather(), 30000);
+      void this.pollWeather();
+    }
   }
 
   private async pollLapsAndStints() {
@@ -527,14 +543,33 @@ export class LiveSseFeed {
     }
   }
 
+  private async pollWeather() {
+    try {
+      const wx = (await fetchJson(`${API_BASE}/api/live/weather`)) as LiveWeatherSnap | null;
+      if (!wx || this.closed) return;
+      const store = useRaceStore.getState();
+      if (typeof wx.rainfall === "boolean") store.setRainfall(wx.rainfall);
+      store.upsertLiveWeather({
+        lap: Math.max(1, store.currentLap || 1),
+        rainfall: Boolean(wx.rainfall),
+        track_temp_c: wx.track_temp ?? null,
+        air_temp_c: wx.air_temp ?? null,
+      });
+    } catch {
+      /* keep last-known weather */
+    }
+  }
+
   disconnect() {
     this.closed = true;
     this.es?.close();
     this.es = null;
     if (this.pollTimer) clearInterval(this.pollTimer);
     if (this.lapsTimer) clearInterval(this.lapsTimer);
+    if (this.weatherTimer) clearInterval(this.weatherTimer);
     this.pollTimer = null;
     this.lapsTimer = null;
+    this.weatherTimer = null;
     this.lastPositions = [];
     this.lastFp = "";
   }

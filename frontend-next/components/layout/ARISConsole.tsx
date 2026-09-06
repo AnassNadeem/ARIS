@@ -219,7 +219,8 @@ export function ARISConsole({
   onBack?: () => void;
 }) {
   const session = useRaceStore((s) => s.session);
-  const isARISOn = useRaceStore((s) => s.isARISOn);
+  const storeARISOn = useRaceStore((s) => s.isARISOn);
+  const isARISOn = mode === "live" ? false : storeARISOn;
   const arisDriver = useRaceStore((s) => s.arisDriver);
   const ghostReason = useRaceStore((s) => s.ghostReason);
   const currentLap = useRaceStore((s) => s.currentLap);
@@ -246,18 +247,25 @@ export function ARISConsole({
 
   const layoutRef = useRef<ILayoutApi | null>(null);
   const [model, setModel] = useState<Model>(() =>
-    Model.fromJson(buildDefaultModel(useRaceStore.getState().isARISOn)),
+    Model.fromJson(buildDefaultModel(mode === "live" ? false : useRaceStore.getState().isARISOn)),
   );
   const canPersistLayout = useRef(false);
   const suppressPersistUntil = useRef(0);
   const [layoutReady, setLayoutReady] = useState(false);
   const isNarrow = useIsNarrow();
   const [analyticsSlots, setAnalyticsSlots] = useState<string[]>(() =>
-    defaultAnalyticsIds({ arisOn: useRaceStore.getState().isARISOn }),
+    defaultAnalyticsIds({ arisOn: mode === "live" ? false : useRaceStore.getState().isARISOn }),
   );
   const [layoutEpoch, setLayoutEpoch] = useState(0);
 
   useEffect(() => {
+    if (mode === "live") {
+      setARISOn(false);
+      setModel(Model.fromJson(buildDefaultModel(false)));
+      setAnalyticsSlots(defaultAnalyticsIds({ arisOn: false }));
+      setLayoutReady(true);
+      return;
+    }
     const saved = loadPersistedLayout();
     const extra = loadAnalyticsSlots();
     if (saved) {
@@ -274,7 +282,7 @@ export function ARISConsole({
       setAnalyticsSlots(extra);
     }
     setLayoutReady(true);
-  }, []);
+  }, [mode, setARISOn]);
 
   const arisCapable = !session || canToggleArisInConsole(session.sessionType);
   const canEnableStrategy = arisCapable;
@@ -294,7 +302,8 @@ export function ARISConsole({
 
   useEffect(() => {
     setConsoleMode(mode);
-  }, [mode, setConsoleMode]);
+    if (mode === "live") setARISOn(false);
+  }, [mode, setConsoleMode, setARISOn]);
 
   useEffect(() => {
     if (!session || allowMock) return;
@@ -330,7 +339,7 @@ export function ARISConsole({
   // Do not re-run on every model mutation — that was resizing the dock after Reset view.
   useEffect(() => {
     if (!layoutReady) return;
-    const wantComms = isARISOn || copilotDocked;
+    const wantComms = mode !== "live" && (isARISOn || copilotDocked);
     if (!wantComms) return;
     if (model.getNodeById(COMMS_TABSET_ID)) return;
     const mainRow = model.getNodeById(MAIN_ROW_ID);
@@ -404,12 +413,13 @@ export function ARISConsole({
 
   const handleModelChange = useCallback((changedModel: Model) => {
     const ids = analyticsIdsFromModel(changedModel);
-    setAnalyticsSlots(ids.length ? ids : defaultAnalyticsIds({ arisOn: isARISOn }));
-    saveAnalyticsSlots(ids.length ? ids : defaultAnalyticsIds({ arisOn: isARISOn }));
-    if (canPersistLayout.current && Date.now() >= suppressPersistUntil.current) {
+    const nextIds = ids.length ? ids : defaultAnalyticsIds({ arisOn: isARISOn });
+    setAnalyticsSlots(nextIds);
+    if (mode !== "live") saveAnalyticsSlots(nextIds);
+    if (mode !== "live" && canPersistLayout.current && Date.now() >= suppressPersistUntil.current) {
       savePersistedLayout(changedModel);
     }
-  }, [isARISOn]);
+  }, [isARISOn, mode]);
 
   useEffect(() => {
     if (!layoutReady) return;
@@ -450,7 +460,7 @@ export function ARISConsole({
   }, []);
 
   function handleAddPanel(componentId: string) {
-    if (componentId === "explain") return;
+    if (componentId === "explain" || (mode === "live" && (componentId === "ghostdelta" || componentId === "comms"))) return;
     const entry = catalogueEntry(componentId);
     if (isNarrow) {
       addAnalytics(componentId);
@@ -524,7 +534,12 @@ export function ARISConsole({
                 </>
               ) : null}
             </span>
-            {isARISOn && arisDriver && (
+            {mode === "live" && (
+              <span className="hidden font-sans text-[11px] text-muted md:inline">
+                ARIS strategy available in Replay — select any completed race at /replay
+              </span>
+            )}
+            {mode !== "live" && isARISOn && arisDriver && (
               <span className="hidden rounded bg-red/15 px-2 py-0.5 font-mono-data text-[10px] uppercase text-red md:inline">
                 ARIS for {arisDriver}
               </span>
@@ -547,25 +562,27 @@ export function ARISConsole({
                 {lightsOut ? "Lights out…" : "Start Race"}
               </button>
             )}
-            <button
-              onClick={() => canEnableStrategy && setARISOn(!isARISOn)}
-              disabled={!canEnableStrategy && !isARISOn}
-              title={
-                !arisCapable
-                  ? "ARIS runs on Race and FP2."
-                  : undefined
-              }
-              className={`hidden shrink-0 rounded px-2 py-0.5 font-mono-data text-[10px] uppercase md:inline-flex ${
-                !arisCapable || (!canEnableStrategy && !isARISOn)
-                  ? "cursor-not-allowed border border-border text-muted-2 opacity-50"
-                  : isARISOn
-                    ? "bg-red/15 text-red"
-                    : "border border-border text-muted hover:text-white"
-              }`}
-            >
-              {isARISOn ? "● ARIS ON" : "○ ARIS OFF"}
-            </button>
-            {!isARISOn && (
+            {mode !== "live" && (
+              <button
+                onClick={() => canEnableStrategy && setARISOn(!isARISOn)}
+                disabled={!canEnableStrategy && !isARISOn}
+                title={
+                  !arisCapable
+                    ? "ARIS runs on Race and FP2."
+                    : undefined
+                }
+                className={`hidden shrink-0 rounded px-2 py-0.5 font-mono-data text-[10px] uppercase md:inline-flex ${
+                  !arisCapable || (!canEnableStrategy && !isARISOn)
+                    ? "cursor-not-allowed border border-border text-muted-2 opacity-50"
+                    : isARISOn
+                      ? "bg-red/15 text-red"
+                      : "border border-border text-muted hover:text-white"
+                }`}
+              >
+                {isARISOn ? "● ARIS ON" : "○ ARIS OFF"}
+              </button>
+            )}
+            {mode !== "live" && !isARISOn && (
               <button
                 type="button"
                 onClick={() => setCopilotDocked(true)}
@@ -611,25 +628,31 @@ export function ARISConsole({
             <span />
           )}
         </div>
-        <button
-          type="button"
-          onClick={() => canEnableStrategy && setARISOn(!isARISOn)}
-          disabled={!canEnableStrategy && !isARISOn}
-          title={
-            !arisCapable
-              ? "ARIS runs on Race and FP2."
-              : undefined
-          }
-          className={`justify-self-end rounded px-2 py-0.5 font-mono-data text-[10px] uppercase ${
-            !arisCapable || (!canEnableStrategy && !isARISOn)
-              ? "cursor-not-allowed border border-border text-muted-2 opacity-50"
-              : isARISOn
-                ? "bg-red/15 text-red"
-                : "border border-border text-muted hover:text-white"
-          }`}
-        >
-          {isARISOn ? "● ARIS ON" : "○ ARIS OFF"}
-        </button>
+        {mode === "live" ? (
+          <span className="justify-self-end text-right font-sans text-[10px] leading-tight text-muted">
+            ARIS strategy available in Replay — select any completed race at /replay
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => canEnableStrategy && setARISOn(!isARISOn)}
+            disabled={!canEnableStrategy && !isARISOn}
+            title={
+              !arisCapable
+                ? "ARIS runs on Race and FP2."
+                : undefined
+            }
+            className={`justify-self-end rounded px-2 py-0.5 font-mono-data text-[10px] uppercase ${
+              !arisCapable || (!canEnableStrategy && !isARISOn)
+                ? "cursor-not-allowed border border-border text-muted-2 opacity-50"
+                : isARISOn
+                  ? "bg-red/15 text-red"
+                  : "border border-border text-muted hover:text-white"
+            }`}
+          >
+            {isARISOn ? "● ARIS ON" : "○ ARIS OFF"}
+          </button>
+        )}
       </div>
       <div>
         {consolePlayState === "racing" && <SpeedWidget />}
@@ -649,7 +672,7 @@ export function ARISConsole({
           {packToast}
         </div>
       )}
-      {isARISOn && (ghostReason === "driver_did_not_race" || ghostReason === "ghost_data_gap") && (
+      {mode !== "live" && isARISOn && (ghostReason === "driver_did_not_race" || ghostReason === "ghost_data_gap") && (
         <div role="alert" className="shrink-0 bg-amber/10 px-4 py-2 font-mono-data text-[11px] text-amber">
           {ghostUnavailableMessage(ghostReason, arisDriver, true)}
         </div>
@@ -661,7 +684,7 @@ export function ARISConsole({
           note={waitingMessage ?? "Waiting for live data to come."}
         />
       )}
-      {isARISOn && racePhase !== "GREEN" && racePhase !== "FORMATION_LAP" && (
+      {mode !== "live" && isARISOn && racePhase !== "GREEN" && racePhase !== "FORMATION_LAP" && (
         <div
           className={`shrink-0 px-4 py-2 font-sans text-xs font-semibold ${
             racePhase === "RED_FLAG"
@@ -677,13 +700,13 @@ export function ARISConsole({
           {racePhase === "STANDING_START" && "STANDING START. Prior lap deltas cleared."}
         </div>
       )}
-      <StrategyChangeBanner />
+      {mode !== "live" && <StrategyChangeBanner />}
       <div className="relative min-h-0 flex-1 overflow-hidden">
-        <RaceFinishedDebrief />
+        {mode !== "live" && <RaceFinishedDebrief />}
         {isNarrow ? (
           <div className="h-full min-h-0 overflow-y-auto [overflow-anchor:none]">
             <MobileConsole
-              showComms={isARISOn || copilotDocked}
+              showComms={mode !== "live" && (isARISOn || copilotDocked)}
               slots={analyticsSlots}
               onAdd={addAnalytics}
               onRemove={removeAnalytics}

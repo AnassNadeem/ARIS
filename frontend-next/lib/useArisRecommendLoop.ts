@@ -45,7 +45,7 @@ export function useArisRecommendLoop() {
   }, [arisDriver, strategyEpoch]);
 
   useEffect(() => {
-    if (!isARISOn || !session) return;
+    if (consoleMode === "live" || !isARISOn || !session) return;
     const driver = arisDriver ?? session.driverCode;
     if (!driver) return;
     const packOk = consoleMode !== "replay" || packStage === "minimal" || packStage === "full";

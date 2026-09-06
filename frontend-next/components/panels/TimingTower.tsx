@@ -203,9 +203,9 @@ export function TimingTower() {
   const rows = useMemo(() => {
     // Tower ghost is independent of NEXT_PUBLIC_ARIS_GHOST_MAP (map-dot only).
     const list = Object.values(cars).filter((c) => !isGhostRow(c));
-    const ghost = isARISOn && ghostCar ? { ...ghostCar, is_ghost: true as const } : null;
+    const ghost = consoleMode !== "live" && isARISOn && ghostCar ? { ...ghostCar, is_ghost: true as const } : null;
     return orderTimingTower(ghost ? [...list, ghost] : list);
-  }, [cars, ghostCar, isARISOn]);
+  }, [cars, ghostCar, isARISOn, consoleMode]);
 
   const flashes = useTowerFlashes(rows);
 
