@@ -11,6 +11,24 @@ export function ghostCodeFor(driver: string): string {
   return `${GHOST_PREFIX}${code}`;
 }
 
+/**
+ * Lap whose ghost tick supplies cumulative_delta / tower rank.
+ * Live has no replay clock (`replayElapsedS` stays 0) — use the race lap.
+ * Replay follows the ghost's own playback lap.
+ */
+export function ghostTickLapForDelta(opts: {
+  live: boolean;
+  currentLap: number;
+  realLap?: number | null;
+  playbackLap?: number | null;
+}): number {
+  const raceLap = Math.max(1, Math.floor(opts.realLap || opts.currentLap || 1));
+  if (opts.live) return raceLap;
+  const pb = opts.playbackLap;
+  if (pb != null && Number.isFinite(pb) && pb > 0) return Math.max(1, Math.floor(pb));
+  return raceLap;
+}
+
 export function asGhostTick(raw: unknown): GhostTickData | null {
   if (!raw || typeof raw !== "object") return null;
   const g = raw as Record<string, unknown>;
@@ -31,6 +49,8 @@ export function asGhostTick(raw: unknown): GhostTickData | null {
   const tyre = normalizeCompound(String(g.ghost_compound || g.ghost_tyre || "HARD"));
   const typical = Number(g.typical_lap_s);
   const onTrack = Number(g.ghost_position_on_track);
+  const rawDelta = g.ghost_cumulative_delta ?? g.cumulative_delta_s ?? g.delta;
+  const delta = Number(rawDelta);
   return {
     driver_code: driver,
     divergence_lap: Number(g.divergence_lap) || 1,
@@ -39,7 +59,7 @@ export function asGhostTick(raw: unknown): GhostTickData | null {
     ghost_tyre: tyre,
     ghost_tyre_age: Number(g.ghost_tyre_age) || 0,
     ghost_position: Number(g.ghost_position) || 0,
-    ghost_cumulative_delta: Number(g.ghost_cumulative_delta) || 0,
+    ghost_cumulative_delta: Number.isFinite(delta) ? delta : 0,
     gap_to_leader_s: Number.isFinite(Number(g.gap_to_leader_s)) ? Number(g.gap_to_leader_s) : undefined,
     active: g.active !== false,
     outcome:

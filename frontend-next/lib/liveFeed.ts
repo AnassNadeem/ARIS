@@ -3,8 +3,8 @@ import type { CarState } from "@/lib/types";
 import { circuitCoordsFromReplayOutline } from "@/lib/api";
 import { postGhostRecompute } from "@/lib/api";
 import { isFullCircuitOutline, shouldApplyFallbackOutline } from "@/lib/circuitCache";
-import { annotateGhostTower, mapTimingAndPositions, mergeByDriverCode, mergeCars, sessionFlagToPhase, timingFingerprint } from "@/lib/mapCars";
-import { asGhostTick, ghostCarFromTick, ghostLastLapS, ghostPlaybackAt, ghostStartFracFromSamples, maybeLogGhostDiagnostics, probeGhostCar, syntheticGhostCar, syntheticGhostTick } from "@/lib/ghostCar";
+import { annotateGhostTower, mapTimingAndPositions, mergeByDriverCode, mergeCars, mergeLivePositions, sessionFlagToPhase, timingFingerprint } from "@/lib/mapCars";
+import { asGhostTick, ghostCarFromTick, ghostLastLapS, ghostPlaybackAt, ghostStartFracFromSamples, ghostTickLapForDelta, maybeLogGhostDiagnostics, probeGhostCar, syntheticGhostCar, syntheticGhostTick } from "@/lib/ghostCar";
 import { normalizeCompound } from "@/lib/compounds";
 import {
   fetchGhost,
@@ -272,8 +272,13 @@ function applyGhost(payload: SsePayload) {
       },
     });
   }
-  const ghostLap = playback?.lap ?? store.currentLap;
-  const towerLap = playback?.towerLap ?? ghostLap;
+  const ghostLap = ghostTickLapForDelta({
+    live: store.consoleMode === "live",
+    currentLap: store.currentLap,
+    realLap: real?.lap_number ?? real?.laps_completed,
+    playbackLap: playback?.lap,
+  });
+  const towerLap = store.consoleMode === "live" ? ghostLap : (playback?.towerLap ?? ghostLap);
   const rankTick = driver ? ghostTickAtOrBefore(store.ghostTicksByLap, ghostLap) : undefined;
   const compoundTick = driver
     ? ghostTickAtOrBefore(store.ghostTicksByLap, towerLap) ?? rankTick
@@ -385,6 +390,7 @@ export class LiveSseFeed {
   private closed = false;
   private opened = false;
   private lastFp = "";
+  private lastPositions: LivePosition[] = [];
   onOpen?: () => void;
   onFailure?: () => void;
 
@@ -392,11 +398,12 @@ export class LiveSseFeed {
     this.closed = false;
     clearLiveReplayGhost();
     setFeedStatus("connecting");
+    this.startLiveTicks();
     void this.pollSnapshot();
     try {
       this.es = new EventSource(`${API_BASE}/api/live/stream`);
     } catch {
-      this.startPoll();
+      this.onFailure?.();
       return;
     }
     this.es.onopen = () => {
@@ -415,7 +422,7 @@ export class LiveSseFeed {
       setFeedStatus("disconnected");
       this.es?.close();
       this.es = null;
-      this.startPoll();
+      this.onFailure?.();
     };
     this.lapsTimer = setInterval(() => void this.pollLapsAndStints(), 5000);
     void this.pollLapsAndStints();
@@ -425,7 +432,8 @@ export class LiveSseFeed {
     const store = useRaceStore.getState();
     const status = payload.status;
     const timingRows = payload.timing?.rows ?? [];
-    const positions = payload.positions?.positions ?? [];
+    const positions = mergeLivePositions(this.lastPositions, payload.positions?.positions);
+    this.lastPositions = positions;
     const stub = payload.seq === 0 && !timingRows.length && !positions.length && !payload.ghost;
     if (stub) return;
     const lap = status?.current_lap ?? payload.timing?.current_lap;
@@ -491,14 +499,10 @@ export class LiveSseFeed {
     }
   }
 
-  private startPoll() {
+  /** REST positions every second so the map does not freeze if SSE stalls or buffers. */
+  private startLiveTicks() {
     if (this.pollTimer || this.closed) return;
-    this.onFailure?.();
-    const tick = async () => {
-      await this.pollSnapshot();
-    };
-    void tick();
-    this.pollTimer = setInterval(() => void tick(), 2000);
+    this.pollTimer = setInterval(() => void this.pollSnapshot(), 1000);
     if (!this.lapsTimer) {
       this.lapsTimer = setInterval(() => void this.pollLapsAndStints(), 5000);
     }
@@ -531,6 +535,8 @@ export class LiveSseFeed {
     if (this.lapsTimer) clearInterval(this.lapsTimer);
     this.pollTimer = null;
     this.lapsTimer = null;
+    this.lastPositions = [];
+    this.lastFp = "";
   }
 }
 
@@ -1175,7 +1181,7 @@ async function fetchJson(url: string, timeoutMs = 12000): Promise<any> {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { signal: controller.signal });
+    const res = await fetch(url, { signal: controller.signal, cache: "no-store" });
     if (!res.ok) return null;
     return await res.json();
   } catch {

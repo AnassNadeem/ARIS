@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ghostCarFromTick, ghostPlaybackAt, PIT_ENTRY_FRAC, probeGhostCar, SEEK_JUMP_GRACE_S } from "./ghostCar";
+import { asGhostTick, ghostCarFromTick, ghostPlaybackAt, ghostTickLapForDelta, PIT_ENTRY_FRAC, probeGhostCar, SEEK_JUMP_GRACE_S } from "./ghostCar";
 import { PathCarAnimator } from "./deadReckoning";
 import { buildPath } from "./trackGeometry";
 import type { GhostTickData } from "./types";
@@ -251,6 +251,31 @@ describe("ghostCarFromTick playback", () => {
     expect(car.is_pitted).toBe(true);
     expect(car.ghost_pit_compound).toBe("HARD");
     expect(car.ghost_skip_seek_jump).toBe(true);
+  });
+});
+
+describe("ghostTickLapForDelta", () => {
+  it("uses the live race lap, not playback lap 1 from elapsed=0", () => {
+    expect(
+      ghostTickLapForDelta({ live: true, currentLap: 18, realLap: 18, playbackLap: 1 }),
+    ).toBe(18);
+    expect(ghostTickLapForDelta({ live: true, currentLap: 18, playbackLap: 1 })).toBe(18);
+  });
+
+  it("uses playback lap in replay", () => {
+    expect(
+      ghostTickLapForDelta({ live: false, currentLap: 18, realLap: 18, playbackLap: 4 }),
+    ).toBe(4);
+  });
+});
+
+describe("asGhostTick", () => {
+  it("reads cumulative_delta_s when ghost_cumulative_delta is missing", () => {
+    const tick = asGhostTick({
+      driver_code: "NOR",
+      cumulative_delta_s: -2.4,
+    });
+    expect(tick?.ghost_cumulative_delta).toBeCloseTo(-2.4);
   });
 });
 

@@ -350,6 +350,12 @@ export function ghostClassifiedGap(
   return realGapToLeader - cumulativeDeltaS;
 }
 
+function classifiedGapToLeader(car: Pick<CarState, "gap_to_leader_s" | "position">): number | null {
+  if (car.gap_to_leader_s != null && Number.isFinite(car.gap_to_leader_s)) return car.gap_to_leader_s;
+  if (car.position === 1) return 0;
+  return null;
+}
+
 /**
  * Rank the ghost among real classified cars by gap-to-leader.
  * Mirrors `aris.ghost.rank_ghost_by_gap`: position = 1 + how many real cars
@@ -386,26 +392,29 @@ export function annotateGhostTower(
     (c) => !isGhostRow(c) && !c.is_dnf && c.status !== "DNS",
   );
   const fieldGaps = field
-    .map((c) => c.gap_to_leader_s)
+    .map((c) => classifiedGapToLeader(c))
     .filter((g): g is number => g != null && Number.isFinite(g));
   const delta = ghost.ghost_cumulative_delta ?? 0;
-  const ghostGap = ghostClassifiedGap(focus?.gap_to_leader_s, delta);
+  const focusGap = focus ? classifiedGapToLeader(focus) : null;
+  const ghostGap = ghostClassifiedGap(focusGap, delta);
   const fallback = ghost.position && ghost.position > 0 ? ghost.position : (focus?.position ?? 1);
   const position = rankGhostByGap(ghostGap, fieldGaps, fallback);
   const ordered = [...field].sort((a, b) => towerPosition(a) - towerPosition(b));
   const ahead = [...ordered].reverse().find((c) => towerPosition(c) < position);
   const behind = ordered.find((c) => towerPosition(c) >= position);
   const adjacent = ahead ?? behind;
+  const aheadGap = ahead ? classifiedGapToLeader(ahead) : null;
+  const adjacentGap = adjacent ? classifiedGapToLeader(adjacent) : null;
   const gapAhead =
-    ahead && ahead.gap_to_leader_s != null && ghostGap != null
-      ? ghostGap - ahead.gap_to_leader_s
+    ahead && aheadGap != null && ghostGap != null
+      ? ghostGap - aheadGap
       : ahead
         ? null
         : 0;
   let ghostDeltaS: number | null = null;
   let ghostDeltaVs: string | undefined;
-  if (adjacent && adjacent.gap_to_leader_s != null && ghostGap != null) {
-    ghostDeltaS = adjacent.gap_to_leader_s - ghostGap;
+  if (adjacent && adjacentGap != null && ghostGap != null) {
+    ghostDeltaS = adjacentGap - ghostGap;
     ghostDeltaVs = adjacent.driver_code;
   }
   return {

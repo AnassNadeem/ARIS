@@ -841,6 +841,18 @@ describe("annotateGhostTower", () => {
     expect(fmtGap(ahead.gap_to_leader_s)).toBe("LEADER");
   });
 
+  it("treats a P1 with a missing gap as 0 so ghost delta still ranks", () => {
+    const leader = { ...field.VER, gap_to_leader_s: null as unknown as number };
+    const placed = annotateGhostTower(
+      car({ driver_code: "A_VER", ghost_cumulative_delta: 0.4, position: 23 }),
+      { ...field, VER: leader },
+      leader,
+    );
+    expect(placed.gap_to_leader_s).toBeCloseTo(-0.4, 5);
+    expect(placed.position).toBe(1);
+    expect(placed.ghost_delta_s).not.toBeNull();
+  });
+
   it("matches the focus driver's classified position when cumulative_delta is 0", () => {
     const placed = annotateGhostTower(
       car({ driver_code: "A_NOR", ghost_cumulative_delta: 0, position: 23 }),
