@@ -13,22 +13,29 @@ import {
   getReplayPackStatus,
   initReplay,
   circuitCoordsFromReplayOutline,
+  postGhostRecompute,
   prewarmSession,
 } from "@/lib/api";
 import {
+  applyStartCompoundToPlans,
   fetchGhost,
   fetchRaceField,
   fieldToDrivers,
   fieldToLapRows,
   fieldToStintRows,
   ghostTicksMap,
+  ghostWithPlanStrategy,
+  plansMatch,
   r2Configured,
   raceFieldExists,
   r2FetchErrorMessage,
   GhostUnavailableError,
   driverDidNotStart,
+  startCompoundFromField,
   R2_LOAD_ERROR,
 } from "@/lib/r2Replay";
+
+const PREBUILT_STRATEGY_TOAST = "Using prebuilt strategy — custom strategy unavailable";
 import { isFullCircuitOutline, shouldApplyFallbackOutline } from "@/lib/circuitCache";
 import {
   defaultReplayYear,
@@ -243,6 +250,33 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
                   store.setGhostTicks(ghostTicksMap(ghost));
                   store.setGhostReason(null);
                 }
+                // Seed the ghost with the Strat the user picked at setup —
+                // otherwise the R2 prebuilt plan (often Strat B bake) stays.
+                if (plan && ghost && !plansMatch(plan, ghost)) {
+                  const recomputed = await postGhostRecompute({
+                    year,
+                    round: round.round,
+                    driver,
+                    currentLap: 1,
+                    pitLaps: plan.pit_laps,
+                    compounds: plan.pit_compounds,
+                    label: plan.name,
+                  });
+                  if (recomputed?.ticks) {
+                    store.mergeGhostTicksFrom(1, recomputed.ticks);
+                    store.setR2Ghost(ghostWithPlanStrategy(ghost, plan));
+                    store.setActiveStrategy(plan);
+                  } else {
+                    store.setPackToast(PREBUILT_STRATEGY_TOAST);
+                    store.setActiveStrategy({
+                      id: `r2-ghost-${driver}`,
+                      name: ghost.strategy.label || plan.name,
+                      pit_laps: ghost.strategy.pit_laps,
+                      pit_compounds: ghost.strategy.compounds,
+                      start_compound: plan.start_compound,
+                    });
+                  }
+                }
               } catch (ghostErr) {
                 if (ghostErr instanceof GhostUnavailableError) {
                   store.setR2Ghost(null);
@@ -380,7 +414,18 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
     setAnalysisPending(true);
     setStep("strategies");
     const payload = await getQuickAnalysis(year, round.round, driver);
-    const plans = payload?.plans ?? [];
+    let plans = payload?.plans ?? [];
+    // Prefer the real lap-1 compound from race_field (e.g. INTER at Australia
+    // 2025) over the dry MEDIUM default from generate_strat_plans().
+    if (r2Configured()) {
+      try {
+        const field = await fetchRaceField(year, round.round);
+        const start = startCompoundFromField(field, driver);
+        plans = applyStartCompoundToPlans(plans, start);
+      } catch {
+        /* keep API plans when race_field is unavailable */
+      }
+    }
     setStrategies(plans);
     setSelectedStrategy(null);
     setAnalysisPending(false);

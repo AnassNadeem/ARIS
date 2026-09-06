@@ -89,6 +89,9 @@ def _base_state(
     )
 
 
+_WET_START = frozenset({"INTERMEDIATE", "INTER", "WET"})
+
+
 def generate_strat_plans(
     session_id: int,
     driver_id: int,
@@ -104,6 +107,7 @@ def generate_strat_plans(
     hist_scope: str = "2018–present at this circuit",
     score: bool = True,
     use_weekend_form: bool = True,
+    start_compound: str | None = None,
 ) -> StratPlanSet:
     track = load_track_config(country, year=year, round_no=round_no)
     total = track.total_laps
@@ -133,17 +137,37 @@ def generate_strat_plans(
             f"median first stop lap {hist_first_stop}."
         )
 
+    from aris.physics.tires import normalize_compound
+
+    wet_start = False
+    if start_compound:
+        actual_start = normalize_compound(start_compound)
+        wet_start = actual_start in _WET_START or actual_start.startswith("INTER")
+    else:
+        actual_start = "SOFT" if hot_track else "MEDIUM"
+    wet_note = (
+        f" Starting on {actual_start} — dry strategy shown for after rain stops."
+        if wet_start
+        else ""
+    )
+    # Dry plans keep their dry pit targets; wet starts only override the
+    # opening compound so Strat A/B/C never pretend the race began on MEDIUM.
+    dry_a_start = actual_start if wet_start else "MEDIUM"
+    dry_b_start = actual_start if wet_start else "MEDIUM"
+    dry_c_start = actual_start if wet_start else ("SOFT" if hot_track else "MEDIUM")
+
     plans = [
         StratPlan(
             id="A",
             name="Strat A — One-stop early",
             pit_laps=windows["A"],
             pit_compounds=["HARD"],
-            start_compound="MEDIUM",
+            start_compound=dry_a_start,
             description=(
                 f"Box ~lap {windows['A'][0]} ({total}-lap race) when deg is "
                 "high from FP long runs"
                 + hist_note
+                + wet_note
             ),
         ),
         StratPlan(
@@ -151,11 +175,12 @@ def generate_strat_plans(
             name="Strat B — One-stop late",
             pit_laps=windows["B"],
             pit_compounds=["HARD"],
-            start_compound="MEDIUM",
+            start_compound=dry_b_start,
             description=(
                 f"Extend first stint to ~lap {windows['B'][0]} when mediums "
                 "hold from quali pace"
                 + hist_note
+                + wet_note
             ),
         ),
         StratPlan(
@@ -163,11 +188,12 @@ def generate_strat_plans(
             name="Strat C — Two-stop aggressive",
             pit_laps=windows["C"],
             pit_compounds=["HARD", "MEDIUM"],
-            start_compound="SOFT" if hot_track else "MEDIUM",
+            start_compound=dry_c_start,
             description=(
                 f"Two-stop ~laps {windows['C'][0]}/{windows['C'][1]} when "
                 "track temp is high and deg is steep"
                 + hist_note
+                + wet_note
             ),
         ),
     ]

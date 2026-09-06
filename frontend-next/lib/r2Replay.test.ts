@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { annotateVsActivePlan, shouldFetchRecommend } from "./arisRecommend";
 import { mapTimingAndPositions } from "./mapCars";
-import { fieldToDrivers, fieldToLapRows, interpolatedPosFrac, nearestPosSample, normalizeR2Base, plansMatch, r2Configured, replayUsesR2Pack, r2FrameAt, r2TickToGhostTick, raceDurationS, sectorSecondsForLap, speedKphFromPath, deriveGhostLapTimes, pitLossForCircuit, realLapTimesByDriver, GRID_START_LAP_FRAC, blendedPathFrac, gridPathFrac, replayDisplayFrac, ghostTickAtOrBefore, ghostDeltaChartPoints, r2FetchErrorMessage, fetchGhost, RaceFieldNotFoundError, R2_LOAD_ERROR, R2_RACE_UNAVAILABLE, driversFromRaceOrGrid, driverDidNotStart, ghostUnavailableMessage } from "./r2Replay";
+import { fieldToDrivers, fieldToLapRows, interpolatedPosFrac, nearestPosSample, normalizeR2Base, plansMatch, r2Configured, replayUsesR2Pack, r2FrameAt, r2TickToGhostTick, raceDurationS, sectorSecondsForLap, speedKphFromPath, deriveGhostLapTimes, pitLossForCircuit, realLapTimesByDriver, GRID_START_LAP_FRAC, blendedPathFrac, gridPathFrac, replayDisplayFrac, ghostTickAtOrBefore, ghostDeltaChartPoints, r2FetchErrorMessage, fetchGhost, RaceFieldNotFoundError, R2_LOAD_ERROR, R2_RACE_UNAVAILABLE, driversFromRaceOrGrid, driverDidNotStart, ghostUnavailableMessage, startCompoundFromField, applyStartCompoundToPlans, ghostWithPlanStrategy } from "./r2Replay";
 import type { ARISRecommendation, GhostData, RaceField, RaceFieldLap } from "./types";
 
 function rec(over: Partial<ARISRecommendation> = {}): ARISRecommendation {
@@ -82,6 +82,66 @@ describe("plansMatch", () => {
   it("matches selected pit laps to the R2 ghost plan", () => {
     expect(plansMatch({ id: "a", name: "x", pit_laps: [20], pit_compounds: ["HARD"], start_compound: "MEDIUM" }, ghost)).toBe(true);
     expect(plansMatch({ id: "a", name: "x", pit_laps: [18], pit_compounds: ["HARD"], start_compound: "MEDIUM" }, ghost)).toBe(false);
+  });
+  it("ghostWithPlanStrategy keeps plansMatch true after recompute", () => {
+    const plan = { id: "B", name: "Strat B", pit_laps: [27], pit_compounds: ["HARD"], start_compound: "MEDIUM" };
+    const updated = ghostWithPlanStrategy(ghost, plan);
+    expect(plansMatch(plan, updated)).toBe(true);
+    expect(updated.strategy.pit_laps).toEqual([27]);
+  });
+});
+
+describe("startCompoundFromField", () => {
+  const field = {
+    meta: {
+      year: 2025,
+      round: 1,
+      session_type: "R",
+      circuit_name: "Australia",
+      total_laps: 58,
+      date_race: "2025-03-16",
+      green_flag_s: 0,
+      session_key: 1,
+    },
+    outline: { x: [], y: [] },
+    drivers: [{ code: "NOR", name: "Norris", team: "McLaren", colour: "#ff0", grid_position: 1 }],
+    laps: [
+      {
+        lap: 1,
+        driver: "NOR",
+        position: 1,
+        gap_to_leader_s: 0,
+        gap_ahead_s: null,
+        compound: "INTERMEDIATE",
+        tyre_life: 1,
+        stint_number: 1,
+        pit_this_lap: false,
+        is_dnf: false,
+        is_dsq: false,
+        track_status: "1",
+        lap_time_s: 90,
+        sector_1_s: null,
+        sector_2_s: null,
+        sector_3_s: null,
+      },
+    ],
+    stints: [{ driver: "NOR", stint: 1, compound: "INTERMEDIATE", lap_start: 1, lap_end: 10 }],
+    weather: [],
+    race_control: [],
+    pos_samples: {},
+  };
+
+  it("reads lap-1 compound for the driver", () => {
+    expect(startCompoundFromField(field, "NOR")).toBe("INTERMEDIATE");
+  });
+
+  it("patches Strat plans to the wet start compound", () => {
+    const plans = applyStartCompoundToPlans(
+      [{ id: "A", name: "Strat A", pit_laps: [15], pit_compounds: ["HARD"], start_compound: "MEDIUM", description: "dry" }],
+      "INTERMEDIATE",
+    );
+    expect(plans[0]?.start_compound).toBe("INTERMEDIATE");
+    expect(plans[0]?.description).toMatch(/Starting on INTERMEDIATE/);
   });
 });
 

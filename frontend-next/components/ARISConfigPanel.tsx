@@ -19,6 +19,11 @@ function strategyKind(plan: StratPlan, index: number): "recommended" | "alternat
   return "alternative";
 }
 
+function isWetStart(compound: string | null | undefined): boolean {
+  const c = normalizeCompound(compound);
+  return c === "INTERMEDIATE" || c === "WET";
+}
+
 function PlanCard({
   plan,
   index,
@@ -31,9 +36,18 @@ function PlanCard({
   onSelect: () => void;
 }) {
   const kind = strategyKind(plan, index);
-  const compounds = [plan.start_compound, ...plan.pit_compounds].filter(Boolean);
+  const start = normalizeCompound(plan.start_compound);
+  const wet = isWetStart(start);
+  // Wet starts: show opening wet compound, then dry pit targets (not a dry "first stint").
+  const compounds = wet
+    ? [start, ...plan.pit_compounds.map((c) => normalizeCompound(c))]
+    : [plan.start_compound, ...plan.pit_compounds].filter(Boolean);
   const title =
     kind === "recommended" ? "Recommended" : kind === "aggressive" ? "Aggressive" : "Alternative";
+  const wetBanner =
+    wet && !/Starting on /i.test(plan.description || "")
+      ? `Starting on ${start} — dry strategy shown for after rain stops.`
+      : null;
   return (
     <button
       type="button"
@@ -65,8 +79,11 @@ function PlanCard({
         ))}
       </div>
       <div className="mt-2 font-mono-data text-[10px] text-muted-2">
-        Start {plan.start_compound} · pits {plan.pit_laps.length ? plan.pit_laps.map((l) => `L${l}`).join(", ") : "-"}
+        Start {start} · pits {plan.pit_laps.length ? plan.pit_laps.map((l) => `L${l}`).join(", ") : "-"}
       </div>
+      {wetBanner ? (
+        <p className="mt-2 font-mono-data text-[10px] leading-relaxed text-amber">{wetBanner}</p>
+      ) : null}
       {plan.description ? (
         <p className="mt-2 font-mono-data text-[10px] leading-relaxed text-muted">{plan.description}</p>
       ) : null}

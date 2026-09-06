@@ -25,6 +25,7 @@ import type {
   RaceFieldPosSample,
   StratPlan,
 } from "@/lib/types";
+import { normalizeCompound } from "@/lib/compounds";
 import { MOCK_DRIVERS_2025 } from "@/lib/mockData";
 
 export {
@@ -412,6 +413,61 @@ export function plansMatch(a: StratPlan | null | undefined, b: GhostData | null 
   const bp = [...(b.strategy.pit_laps || [])].sort((x, y) => x - y);
   if (ap.length !== bp.length) return false;
   return ap.every((v, i) => v === bp[i]);
+}
+
+/** Lap-1 / opening stint compound for a driver from race_field.json. */
+export function startCompoundFromField(
+  field: RaceField | null | undefined,
+  driver: string | null | undefined,
+): string | null {
+  if (!field || !driver) return null;
+  const code = driver.toUpperCase();
+  const lap1 = field.laps.find((l) => l.driver === code && l.lap === 1);
+  if (lap1?.compound) return normalizeCompound(lap1.compound);
+  const stint = field.stints
+    .filter((s) => s.driver === code)
+    .sort((a, b) => a.lap_start - b.lap_start)[0];
+  if (stint?.compound) return normalizeCompound(stint.compound);
+  return null;
+}
+
+const WET_START = new Set(["INTERMEDIATE", "WET"]);
+
+/** Patch Strat A/B/C so the display matches the driver's real opening compound. */
+export function applyStartCompoundToPlans(plans: StratPlan[], startCompound: string | null): StratPlan[] {
+  if (!startCompound || !plans.length) return plans;
+  const start = normalizeCompound(startCompound);
+  const wet = WET_START.has(start);
+  const wetNote = wet ? `Starting on ${start} — dry strategy shown for after rain stops.` : "";
+  return plans.map((plan) => {
+    const description = wet
+      ? [plan.description?.replace(/\s*Starting on \w[\w ]* — dry strategy shown for after rain stops\.?/gi, "").trim(), wetNote]
+          .filter(Boolean)
+          .join(" ")
+      : plan.description;
+    return {
+      ...plan,
+      start_compound: start,
+      description: description || plan.description,
+    };
+  });
+}
+
+/** Keep r2Ghost.strategy in sync after a successful ghost-recompute so a later
+ * plansMatch() check does not treat the chosen Strat as still unmatched. */
+export function ghostWithPlanStrategy(
+  ghost: GhostData,
+  plan: Pick<StratPlan, "pit_laps" | "pit_compounds" | "name">,
+): GhostData {
+  return {
+    ...ghost,
+    strategy: {
+      ...ghost.strategy,
+      pit_laps: [...plan.pit_laps],
+      compounds: [...plan.pit_compounds],
+      label: plan.name || ghost.strategy.label,
+    },
+  };
 }
 
 export function ghostTicksMap(ghost: GhostData | null): Record<number, GhostR2Tick> {

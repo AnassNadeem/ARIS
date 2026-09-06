@@ -64,6 +64,22 @@ class TestPrewrite:
         # Pulled toward the 2018–present median first stop.
         assert abs(blended["A"][0] - 22) < abs(base["A"][0] - 22)
 
+    def test_start_compound_overrides_dry_default(self):
+        plans = generate_strat_plans(
+            session_id=0,
+            driver_id=0,
+            year=2025,
+            round_no=1,
+            country="Australia",
+            driver_code="NOR",
+            weather={"track_temp_c": 28.0},
+            score=False,
+            use_weekend_form=False,
+            start_compound="INTERMEDIATE",
+        )
+        assert all(p.start_compound == "INTERMEDIATE" for p in plans.plans)
+        assert all("Starting on INTERMEDIATE" in p.description for p in plans.plans)
+
     def test_generate_differs_monaco_vs_belgium(self):
         clear_track_config_cache()
         monaco = generate_strat_plans(

@@ -1383,6 +1383,7 @@ def plans(year: int, round_number: int, driver_code: str) -> StratPlansResponse:
         if str(circuit_key).lower() in {"netherlands", "zandvoort", "dutch"}
         else "2018–present at this circuit"
     )
+    start_compound = _driver_start_compound(year, round_number, code)
     result = generate_strat_plans(
         0,
         0,
@@ -1395,6 +1396,7 @@ def plans(year: int, round_number: int, driver_code: str) -> StratPlansResponse:
         hist_scope=hist_scope,
         score=False,
         use_weekend_form=False,
+        start_compound=start_compound,
     )
     payload = _plans_payload(year, round_number, code, result, track.pit_loss_s)
     _PLANS_CACHE[cache_key] = (time.monotonic(), payload)
@@ -1419,6 +1421,7 @@ def plans(year: int, round_number: int, driver_code: str) -> StratPlansResponse:
                 hist_stop_count=hist_stops,
                 hist_scope=hist_scope,
                 use_weekend_form=False,
+                start_compound=start_compound or _driver_start_compound(year, round_number, code),
             )
             _PLANS_CACHE[cache_key] = (
                 time.monotonic(),
@@ -1429,6 +1432,35 @@ def plans(year: int, round_number: int, driver_code: str) -> StratPlansResponse:
 
     threading.Thread(target=_background, name=f"aris-plans-score-{code}", daemon=True).start()
     return payload
+
+
+def _driver_start_compound(year: int, round_number: int, driver_code: str) -> str | None:
+    """Actual opening compound from stints/laps when the race pack is available."""
+    code = str(driver_code or "").upper()
+    if not code:
+        return None
+    try:
+        stints_all = session_stints(year, round_number, "R").stints
+        mine = [s for s in stints_all if str(s.driver_code or "").upper() == code]
+        if mine:
+            first = min(mine, key=lambda s: int(s.lap_start or 10**9))
+            return _expand_compound(first.compound)
+    except Exception:
+        pass
+    try:
+        from backend.sessions import session_laps
+
+        laps = session_laps(year, round_number, "R").laps
+        mine = [
+            lap
+            for lap in laps
+            if str(lap.driver_code or "").upper() == code and int(getattr(lap, "lap_number", 0) or 0) == 1
+        ]
+        if mine and mine[0].compound:
+            return _expand_compound(mine[0].compound)
+    except Exception:
+        pass
+    return None
 
 
 def _plans_payload(year: int, round_number: int, code: str, result: Any, pit_loss_s: float) -> StratPlansResponse:

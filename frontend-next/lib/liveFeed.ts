@@ -29,6 +29,7 @@ import {
   deriveGhostLapTimes,
   realLapTimesByDriver,
   ghostTickAtOrBefore,
+  ghostWithPlanStrategy,
   r2FetchErrorMessage,
   R2_LOAD_ERROR,
 } from "@/lib/r2Replay";
@@ -742,14 +743,16 @@ export class ReplayFrameFeed {
           });
           if (recomputed?.ticks) {
             store.mergeGhostTicksFrom(1, recomputed.ticks);
+            store.setR2Ghost(ghostWithPlanStrategy(ghost, plan));
+            store.setActiveStrategy(plan);
           } else {
             // Recompute failed — the loaded R2 ghost ticks stay on their
             // own baked-in plan regardless of what the user picked
             // pre-race. Fall activeStrategy back to that baked-in plan so
             // the Strategy Panel shows what the ghost is actually
-            // simulating (matches the Timing Tower/map), instead of an
-            // unfulfilled pick that was never actually resimulated — the
-            // "Main Comms says MEDIUM, the tower says HARD" sync bug.
+            // simulating (matches the Timing Tower/map), and tell the user
+            // instead of silently swapping Strat B for the prebuilt plan.
+            store.setPackToast("Using prebuilt strategy — custom strategy unavailable");
             store.setActiveStrategy({
               id: `r2-ghost-${driver}`,
               name: ghost.strategy.label || plan.name,
@@ -794,7 +797,12 @@ export class ReplayFrameFeed {
         label: plan.name,
         sessionKey: this.sessionKey ?? undefined,
       });
-      if (recomputed?.ticks) store.mergeGhostTicksFrom(1, recomputed.ticks);
+      if (recomputed?.ticks) {
+        store.mergeGhostTicksFrom(1, recomputed.ticks);
+        if (store.r2Ghost) store.setR2Ghost(ghostWithPlanStrategy(store.r2Ghost, plan));
+      } else if (store.r2Ghost) {
+        store.setPackToast("Using prebuilt strategy — custom strategy unavailable");
+      }
     } catch {
       /* pack-status ghost (recommend at lap 1) remains as last resort */
     }
