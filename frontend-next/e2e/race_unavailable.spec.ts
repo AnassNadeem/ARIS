@@ -29,11 +29,24 @@ test("race_field.json 404 shows unavailable, not a spinner", async ({ page }) =>
     await route.fulfill({ status: 404, body: "not found" });
   });
   await page.goto("/replay?year=2024&round=1");
+
+  // Setup defaults ARIS On (button text = Continue / Waiting…). Data-only
+  // Start Race only appears with ARIS Off.
+  const arisOff = page.getByRole("button", { name: /^Off$/i });
+  await expect(arisOff).toBeVisible({ timeout: 20_000 });
+  await arisOff.click();
+
   const raceCard = page.getByRole("button", { name: /R1\b/ }).first();
   await expect(raceCard).toBeVisible({ timeout: 20_000 });
   await raceCard.click();
+
+  // Wait until the R2 preload has settled and the continue control is the
+  // enabled Start Race button — not the disabled "Waiting for race data…" label.
   const startBtn = page.getByRole("button", { name: /Start Race/i });
-  await expect(startBtn).toBeEnabled({ timeout: 20_000 });
+  await expect(startBtn).toBeVisible({ timeout: 30_000 });
+  await expect(startBtn).toBeEnabled({ timeout: 30_000 });
+  await expect(page.getByRole("button", { name: /Waiting for race data/i })).toHaveCount(0);
+
   await startBtn.click();
   await expect(page.getByText("Race data unavailable. Check back soon")).toBeVisible({ timeout: 15_000 });
   await expect(page.locator(".animate-pulse")).toHaveCount(0);

@@ -78,6 +78,8 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
   const [driver, setDriver] = useState<string | null>(urlDriver);
   const [drivers, setDrivers] = useState<DriverListing[]>([]);
   const [driversLoading, setDriversLoading] = useState(false);
+  /** True once the R2 race_field preload for the selected round has settled (ok or failed). */
+  const [driversSettled, setDriversSettled] = useState(false);
   const [analysisPending, setAnalysisPending] = useState(false);
   const [loadReady, setLoadReady] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -95,6 +97,7 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
   useEffect(() => {
     let cancelled = false;
     setDrivers([]);
+    setDriversSettled(false);
     setDriver(null);
     getCalendar(year, { replay: true }).then(async (r) => {
       if (cancelled) return;
@@ -139,17 +142,22 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
     if (!round || !r2Configured()) return;
     let cancelled = false;
     setDriversLoading(true);
+    setDriversSettled(false);
     fetchRaceField(year, round.round)
       .then((field) => {
         if (cancelled) return;
         const list = fieldToDrivers(field);
         setDrivers(list);
         setDriversLoading(false);
+        setDriversSettled(true);
       })
       .catch(() => {
         if (cancelled) return;
+        // Settle even on 404 so Start Race can open LoadingTransition and show
+        // "Race data unavailable" instead of staying on "Waiting for race data…".
         setDrivers([]);
         setDriversLoading(false);
+        setDriversSettled(true);
       });
     return () => {
       cancelled = true;
@@ -172,8 +180,10 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
     void prewarmSession({ year, round_number: round.round, session_type: RACE_SESSION });
   }, [year, round]);
 
+  // R2: enable continue once the race_field preload has settled. Empty drivers
+  // (404) still unlocks Start Race so commitSession can surface R2_RACE_UNAVAILABLE.
   const dataReady = r2Configured()
-    ? !driversLoading && drivers.length > 0
+    ? Boolean(round) && !driversLoading && (drivers.length > 0 || driversSettled)
     : !roundsLoading && Boolean(round);
 
   const commitSession = useCallback(

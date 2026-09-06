@@ -65,18 +65,18 @@ async function startReplay(page: Page, year: number, round: number, driver = "VE
   const rec = page.getByRole("button", { name: /Recommended/i }).first();
   await expect(rec).toBeVisible({ timeout: 30_000 });
   await rec.click();
-  await page.getByRole("button", { name: /Start Race/i }).click();
+  const setupStart = page.getByRole("button", { name: /Start Race/i });
+  await expect(setupStart).toBeEnabled({ timeout: 30_000 });
+  await setupStart.click();
   await page.waitForURL(/\/replay\/console/, { timeout: 60_000 });
   // The console has its own lights-out "Start Race" gate (consolePlayState
-  // "ready"/"starting" -> "racing"). No analytics — sector times, speed,
-  // timing tower rows — are populated before this click (clean pre-race
-  // state); click it before waiting for the tower, or without it the replay
-  // clock never advances and seeks land but time never moves afterwards.
+  // "ready"/"starting" -> "racing"). Wait until the R2 pack is ready enough
+  // for replayStartReady (packStage minimal/full, cars present) before clicking —
+  // a premature click or skip leaves the tower empty / clock frozen.
   const consoleStart = page.getByRole("button", { name: /Start Race/i });
-  if (await consoleStart.isVisible().catch(() => false)) {
-    await expect(consoleStart).toBeEnabled({ timeout: 60_000 });
-    await consoleStart.click();
-  }
+  await expect(consoleStart).toBeVisible({ timeout: 30_000 });
+  await expect(consoleStart).toBeEnabled({ timeout: 30_000 });
+  await consoleStart.click();
   await waitForTower(page);
 }
 
@@ -161,6 +161,18 @@ test.describe("ghost regression", () => {
       await seekToLap(page, lap);
       const row = page.getByTestId("ghost-tower-row");
       await expect(row).toBeVisible({ timeout: 15_000 });
+      // Seek can land before the tower re-reads ghost ticks — wait until the
+      // scrubber is on the target lap and the ghost row exposes a position.
+      await expect
+        .poll(
+          async () => {
+            const scrub = Number(await page.getByTestId("lap-scrubber").inputValue());
+            const pos = (await row.getAttribute("data-position")) ?? "";
+            return scrub === lap && /^\d+$/.test(pos) ? pos : "";
+          },
+          { timeout: 15_000, intervals: [100, 200, 400] },
+        )
+        .toMatch(/^\d+$/);
       samples.push((await row.getAttribute("data-position")) ?? "");
     }
     const allP1 = samples.every((p) => p === "1");

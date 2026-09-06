@@ -8,6 +8,9 @@
     },
     "linear": {
       "enabled": true
+    },
+    "neon-postgres": {
+      "enabled": true
     }
   }
 }
