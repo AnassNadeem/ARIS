@@ -1,6 +1,6 @@
 """Live session calendar windows and OpenF1 helper parsing — no network."""
 
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 
 from backend.cache import TTL_NEXT_RACE
 from backend.calendar import _session_status, get_round_sessions
@@ -15,9 +15,9 @@ def test_ttl_next_race_is_short():
 def test_replay_pack_complete_after_session_end():
     from backend.live import replay_pack_is_complete
 
-    pack = {"date_end": datetime(2025, 8, 31, 15, 0, tzinfo=timezone.utc)}
-    assert replay_pack_is_complete(pack, datetime(2025, 8, 31, 15, 10, tzinfo=timezone.utc))
-    assert not replay_pack_is_complete(pack, datetime(2025, 8, 31, 14, 59, tzinfo=timezone.utc))
+    pack = {"date_end": datetime(2025, 8, 31, 15, 0, tzinfo=UTC)}
+    assert replay_pack_is_complete(pack, datetime(2025, 8, 31, 15, 10, tzinfo=UTC))
+    assert not replay_pack_is_complete(pack, datetime(2025, 8, 31, 14, 59, tzinfo=UTC))
 
 
 def test_circuit_match_ignores_accents_and_country_name():
@@ -65,7 +65,7 @@ def test_live_status_replay_skips_openf1(monkeypatch):
 
 def test_ensure_replay_pack_miss_does_not_call_openf1(monkeypatch):
     import asyncio
-    from datetime import datetime, timezone
+    from datetime import datetime
     from types import SimpleNamespace
 
     from backend import live as live_mod
@@ -88,7 +88,7 @@ def test_ensure_replay_pack_miss_does_not_call_openf1(monkeypatch):
         markers=[],
         drs_segments=[],
     )
-    start = datetime(2025, 3, 2, 15, 0, tzinfo=timezone.utc)
+    start = datetime(2025, 3, 2, 15, 0, tzinfo=UTC)
 
     def fake_assets(*_a, **_k):
         return {
@@ -117,7 +117,7 @@ def test_ensure_replay_pack_miss_does_not_call_openf1(monkeypatch):
             "positions": [],
             "race_control": [],
             "date_start": start,
-            "date_end": datetime(2025, 3, 2, 17, 0, tzinfo=timezone.utc),
+            "date_end": datetime(2025, 3, 2, 17, 0, tzinfo=UTC),
         }
 
     monkeypatch.setattr("backend.sessions.circuit_map_quick", lambda *_a, **_k: cmap)
@@ -136,7 +136,7 @@ def test_ensure_replay_pack_miss_does_not_call_openf1(monkeypatch):
 
 def test_ensure_replay_pack_minimal_does_not_wait_for_gps(monkeypatch):
     import asyncio
-    from datetime import datetime, timezone
+    from datetime import datetime
     from types import SimpleNamespace
 
     from backend import live as live_mod
@@ -159,7 +159,7 @@ def test_ensure_replay_pack_minimal_does_not_wait_for_gps(monkeypatch):
         markers=[],
         drs_segments=[],
     )
-    start = datetime(2025, 3, 2, 15, 0, tzinfo=timezone.utc)
+    start = datetime(2025, 3, 2, 15, 0, tzinfo=UTC)
     calls: list[bool] = []
 
     def fake_assets(*_a, **k):
@@ -191,7 +191,7 @@ def test_ensure_replay_pack_minimal_does_not_wait_for_gps(monkeypatch):
             "positions": [],
             "race_control": [],
             "date_start": start,
-            "date_end": datetime(2025, 3, 2, 17, 0, tzinfo=timezone.utc),
+            "date_end": datetime(2025, 3, 2, 17, 0, tzinfo=UTC),
             "synthetic_gps": False,
         }
 
@@ -486,7 +486,7 @@ def test_replay_pack_disk_roundtrip():
     disk.pop(replay_pack_disk_key(key), default=None)
     pack = {
         "laps": [{"driver_number": 1, "lap_number": 1, "lap_duration": 72.1}],
-        "date_end": datetime(2025, 8, 31, 15, 0, tzinfo=timezone.utc),
+        "date_end": datetime(2025, 8, 31, 15, 0, tzinfo=UTC),
         "source": "openf1",
     }
     assert save_replay_pack_disk(key, pack) is True
@@ -524,7 +524,7 @@ def test_stub_pack_hydrates_from_disk():
     _REPLAY_PACKS.pop(key, None)
     pack = {
         "laps": [{"driver_number": 1, "lap_number": 1, "lap_duration": 90.0}],
-        "date_end": datetime(2024, 12, 1, 15, 0, tzinfo=timezone.utc),
+        "date_end": datetime(2024, 12, 1, 15, 0, tzinfo=UTC),
         "year": 2024,
         "round_number": 22,
         "session_type": "R",
@@ -551,7 +551,7 @@ def test_stub_pack_hydrates_from_disk():
 
 
 def test_ff1_clock_bounds_without_telemetry():
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from backend.sessions import _ff1_clock_bounds
 
@@ -560,7 +560,7 @@ def test_ff1_clock_bounds_without_telemetry():
         def t0_date(self):
             raise RuntimeError("The data you are trying to access has not been loaded yet")
 
-    start = datetime(2025, 8, 31, 13, 0, tzinfo=timezone.utc)
+    start = datetime(2025, 8, 31, 13, 0, tzinfo=UTC)
     t0, t1 = _ff1_clock_bounds(
         _Sess(),
         [{"date_start": start.isoformat(), "lap_duration": 90.0}],
@@ -584,14 +584,14 @@ def test_history_ttl_keeps_current_season_shorter():
 def test_zandvoort_2026_notes_include_hadjar():
     from backend.calendar import get_round
 
-    rnd = get_round(2026, 12, as_of=datetime(2026, 8, 23, 10, 0, tzinfo=timezone.utc))
+    rnd = get_round(2026, 12, as_of=datetime(2026, 8, 23, 10, 0, tzinfo=UTC))
     blob = " ".join(rnd.notes).lower()
     assert "hadjar" in blob
     assert rnd.circuit_key == "netherlands"
 
 
 def test_sq_live_window_at_zandvoort_2026():
-    as_of = datetime(2026, 8, 21, 15, 2, tzinfo=timezone.utc)
+    as_of = datetime(2026, 8, 21, 15, 2, tzinfo=UTC)
     weekend = get_round_sessions(2026, 12, as_of=as_of)
     by = {s.session_type: s.status for s in weekend.sessions}
     assert by["FP1"] == "COMPLETED"
@@ -602,13 +602,13 @@ def test_sq_live_window_at_zandvoort_2026():
 
 
 def test_sq_duration_covers_chequered_not_overnight():
-    start = datetime(2026, 8, 21, 14, 30, tzinfo=timezone.utc)
-    assert _session_status(start, datetime(2026, 8, 21, 15, 2, tzinfo=timezone.utc), 0.8) == "LIVE"
-    assert _session_status(start, datetime(2026, 8, 21, 15, 40, tzinfo=timezone.utc), 0.8) == "COMPLETED"
+    start = datetime(2026, 8, 21, 14, 30, tzinfo=UTC)
+    assert _session_status(start, datetime(2026, 8, 21, 15, 2, tzinfo=UTC), 0.8) == "LIVE"
+    assert _session_status(start, datetime(2026, 8, 21, 15, 40, tzinfo=UTC), 0.8) == "COMPLETED"
 
 
 def test_after_sq_next_is_sprint():
-    as_of = datetime(2026, 8, 21, 15, 40, tzinfo=timezone.utc)
+    as_of = datetime(2026, 8, 21, 15, 40, tzinfo=UTC)
     weekend = get_round_sessions(2026, 12, as_of=as_of)
     by = {s.session_type: s.status for s in weekend.sessions}
     assert by["FP1"] == "COMPLETED"
@@ -621,7 +621,7 @@ def test_after_sq_next_is_sprint():
 def test_zandvoort_race_is_open_before_lights():
     from backend.calendar import session_is_open
 
-    as_of = datetime(2026, 8, 23, 12, 20, tzinfo=timezone.utc)
+    as_of = datetime(2026, 8, 23, 12, 20, tzinfo=UTC)
     assert session_is_open(2026, 12, "R", as_of=as_of) is True
     assert session_is_open(2025, 15, "R", as_of=as_of) is False
 
@@ -638,7 +638,7 @@ def test_open_race_does_not_load_fastf1_laps(monkeypatch):
 def test_after_zandvoort_race_next_is_monza():
     from backend.calendar import get_calendar, next_race
 
-    as_of = datetime(2026, 8, 23, 16, 0, tzinfo=timezone.utc)
+    as_of = datetime(2026, 8, 23, 16, 0, tzinfo=UTC)
     cal = get_calendar(2026, as_of=as_of)
     nl = next(r for r in cal.rounds if r.round_number == 12)
     assert nl.status == "COMPLETED"
@@ -773,7 +773,7 @@ def test_calendar_2026_race_morning_uses_overlay():
     from backend.calendar import _SCHED_MEM, get_calendar, next_race
 
     _SCHED_MEM.pop(2026, None)
-    as_of = datetime(2026, 8, 23, 11, 0, tzinfo=timezone.utc)
+    as_of = datetime(2026, 8, 23, 11, 0, tzinfo=UTC)
     cal = get_calendar(2026, as_of=as_of)
     nl = next(r for r in cal.rounds if r.round_number == 12)
     assert nl.status == "LIVE"
@@ -791,8 +791,8 @@ def test_chequered_closes_live_window():
         "date_start": "2026-08-22T10:00:00+00:00",
         "date_end": "2026-08-22T11:00:00+00:00",
     }
-    still = datetime(2026, 8, 22, 10, 33, tzinfo=timezone.utc)
-    done = datetime(2026, 8, 22, 10, 35, tzinfo=timezone.utc)
+    still = datetime(2026, 8, 22, 10, 33, tzinfo=UTC)
+    done = datetime(2026, 8, 22, 10, 35, tzinfo=UTC)
     assert _session_window_live(sess, still) is True
     assert _session_window_live(sess, done) is False
     _STATE["race_control"] = []
@@ -807,7 +807,7 @@ def test_stale_chequered_blocks_next_session_until_cleared():
         "date_start": "2026-09-06T13:00:00+00:00",
         "date_end": "2026-09-06T15:00:00+00:00",
     }
-    as_of = datetime(2026, 9, 6, 13, 5, tzinfo=timezone.utc)
+    as_of = datetime(2026, 9, 6, 13, 5, tzinfo=UTC)
     assert _session_window_live(race, as_of) is False
     _STATE["race_control"] = []
     assert _session_window_live(race, as_of) is True
@@ -818,8 +818,8 @@ def test_session_window_opens_20_min_before_sprint():
         "date_start": "2026-08-22T10:00:00+00:00",
         "date_end": "2026-08-22T11:00:00+00:00",
     }
-    early = datetime(2026, 8, 22, 9, 42, tzinfo=timezone.utc)
-    too_early = datetime(2026, 8, 22, 9, 35, tzinfo=timezone.utc)
+    early = datetime(2026, 8, 22, 9, 42, tzinfo=UTC)
+    too_early = datetime(2026, 8, 22, 9, 35, tzinfo=UTC)
     assert _session_window_live(sess, early) is True
     assert _session_window_live(sess, too_early) is False
 
@@ -829,8 +829,8 @@ def test_session_window_ends_after_short_grace():
         "date_start": "2026-08-21T14:30:00+00:00",
         "date_end": "2026-08-21T15:14:00+00:00",
     }
-    live_at = datetime(2026, 8, 21, 15, 16, tzinfo=timezone.utc)
-    done_at = datetime(2026, 8, 21, 15, 30, tzinfo=timezone.utc)
+    live_at = datetime(2026, 8, 21, 15, 16, tzinfo=UTC)
+    done_at = datetime(2026, 8, 21, 15, 30, tzinfo=UTC)
     assert _session_window_live(sess, live_at) is True
     assert _session_window_live(sess, done_at) is False
 
@@ -880,7 +880,7 @@ def test_sector_colours_from_openf1_segments():
 def test_replay_clock_filters_laps_and_weather():
     from backend.live import _laps_upto, _weather_at
 
-    as_of = datetime(2026, 8, 21, 10, 45, tzinfo=timezone.utc)
+    as_of = datetime(2026, 8, 21, 10, 45, tzinfo=UTC)
     laps = [
         {"driver_number": 1, "date_start": "2026-08-21T10:31:00+00:00", "lap_duration": 72.1, "lap_number": 1},
         {"driver_number": 1, "date_start": "2026-08-21T10:50:00+00:00", "lap_duration": 71.4, "lap_number": 2},
@@ -901,7 +901,7 @@ def test_replay_clock_filters_laps_and_weather():
 def test_best_lap_ignores_unfinished():
     from backend.live import _best_ms_from_laps
 
-    as_of = datetime(2026, 8, 21, 10, 32, tzinfo=timezone.utc)
+    as_of = datetime(2026, 8, 21, 10, 32, tzinfo=UTC)
     laps = [
         {
             "driver_number": 44,
@@ -911,7 +911,7 @@ def test_best_lap_ignores_unfinished():
         }
     ]
     assert _best_ms_from_laps(laps, as_of) == {}
-    later = datetime(2026, 8, 21, 10, 33, tzinfo=timezone.utc)
+    later = datetime(2026, 8, 21, 10, 33, tzinfo=UTC)
     assert _best_ms_from_laps(laps, later)[44] == 90_000
 
 
@@ -1020,7 +1020,7 @@ def test_ff1_position_sample():
 def test_race_start_uses_lap_one_when_no_green_flag():
     from backend.live import _race_start_s
 
-    start = datetime(2026, 8, 23, 13, 0, tzinfo=timezone.utc)
+    start = datetime(2026, 8, 23, 13, 0, tzinfo=UTC)
     pack = {
         "green_flag_s": None,
         "date_start": start,
@@ -1173,11 +1173,11 @@ def test_eliminated_from_resumption_order_and_stopped():
 
 
 def test_gps_usable_rejects_origin_and_stale():
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     from backend.live import _circ_delta, _circ_mean_frac, _gps_usable
 
-    now = datetime(2026, 8, 23, 13, 34, tzinfo=timezone.utc)
+    now = datetime(2026, 8, 23, 13, 34, tzinfo=UTC)
     assert not _gps_usable({"x": 0, "y": 0, "date": now.isoformat()})
     assert _gps_usable({"x": 1788, "y": 4309, "date": now.isoformat()}, now=now)
     old = (now - timedelta(seconds=40)).isoformat()
@@ -1223,7 +1223,7 @@ def test_ff1_car_sample():
 def test_replay_timing_rows_use_clock_car_data():
     from backend.live import _timing_rows_from_payload
 
-    as_of = datetime(2026, 8, 23, 14, 12, tzinfo=timezone.utc)
+    as_of = datetime(2026, 8, 23, 14, 12, tzinfo=UTC)
     rows = _timing_rows_from_payload(
         codes={1: "VER"},
         colours={1: "#3671C6"},
@@ -1246,7 +1246,7 @@ def test_replay_timing_rows_use_clock_car_data():
 def test_replay_timing_rows_ignore_live_car_state():
     from backend.live import _STATE, _timing_rows_from_payload
 
-    as_of = datetime(2026, 8, 23, 14, 12, tzinfo=timezone.utc)
+    as_of = datetime(2026, 8, 23, 14, 12, tzinfo=UTC)
     _STATE["car_data"] = {1: {"throttle": 99, "brake": 0, "speed": 300, "drs": 14}}
     try:
         rows = _timing_rows_from_payload(
@@ -1269,8 +1269,8 @@ def test_replay_timing_rows_ignore_live_car_state():
 def test_cars_from_samples_at_clock():
     from backend.live import _cars_from_samples
 
-    clock = datetime(2026, 8, 23, 14, 0, 10, tzinfo=timezone.utc)
-    t0 = datetime(2026, 8, 23, 14, 0, 0, tzinfo=timezone.utc).timestamp()
+    clock = datetime(2026, 8, 23, 14, 0, 10, tzinfo=UTC)
+    t0 = datetime(2026, 8, 23, 14, 0, 0, tzinfo=UTC).timestamp()
     pack = {
         "codes": {1: "VER"},
         "ff1": {
