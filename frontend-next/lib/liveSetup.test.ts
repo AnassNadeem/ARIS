@@ -110,7 +110,7 @@ describe("shouldAutoStartLiveSession", () => {
     expect(shouldAutoStartLiveSession(liveHub)).toBe(false);
     expect(shouldAutoStartLiveSession(liveHub, Date.now(), { watch: true, session: "R" })).toBe(true);
     expect(liveHubSession(liveHub)?.session_type).toBe("R");
-    expect(autoArisForHubSession(liveHubSession(liveHub))).toBe(true);
+    expect(autoArisForHubSession(liveHubSession(liveHub))).toBe(false);
   });
 
   it("waits when nothing is live", () => {
@@ -188,7 +188,7 @@ describe("liveHubEnterHref", () => {
   it("skips the picker for a live Race from the homepage Watch Live link", () => {
     expect(
       liveHubEnterHref(sess({ session_type: "R", status: "LIVE", live: true }), { arisOn: true, driver: "VER" }),
-    ).toBe("/live?session=R&watch=1&aris=1&driver=VER");
+    ).toBe("/live?session=R&watch=1");
   });
 
   it("falls back to the live hub when nothing is live", () => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CartesianGrid,
   Legend,
@@ -39,13 +39,19 @@ function phaseBandStyle(phase: string): { fill: string; fillOpacity: number } | 
 export function LapTimesChart() {
   const arisDriver = useFocusDriver();
   const isARISOn = useRaceStore((s) => s.isARISOn);
+  const consoleMode = useRaceStore((s) => s.consoleMode);
   const ghostData = useRaceStore((s) => s.ghostData);
   const phaseHistory = useRaceStore((s) => s.phaseHistory);
   const cars = useRaceStore((s) => s.cars);
   const [filter, setFilter] = useState<Filter>("top5");
+  const showArisFilter = consoleMode !== "live" && isARISOn;
 
   const { laps, drivers, currentLap } = usePanelHistory();
   const loading = usePanelFeedLoading();
+
+  useEffect(() => {
+    if (filter === "aris" && !showArisFilter) setFilter("top5");
+  }, [filter, showArisFilter]);
 
   const driverCodes = useMemo(() => {
     if (filter === "aris") return arisDriver ? [arisDriver] : [];
@@ -99,7 +105,7 @@ export function LapTimesChart() {
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-carbon p-2 [overflow-anchor:none]">
       <div className="mb-2 flex gap-2">
-        {(["all", "top5", "aris"] as Filter[]).map((f) => (
+        {((showArisFilter ? ["all", "top5", "aris"] : ["all", "top5"]) as Filter[]).map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}

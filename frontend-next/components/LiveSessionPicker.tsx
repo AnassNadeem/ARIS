@@ -1,8 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useCountdown } from "@/lib/useCountdown";
 import { hubEndedSessionCopy, hubNonRaceReplayCopy, hubSessionCtaCopy, isRaceSession } from "@/lib/liveSetup";
-import { isArisCapableSession, sessionLabel } from "@/lib/sessionFlow";
+import { sessionLabel } from "@/lib/sessionFlow";
 import { sessionIsLiveNow } from "@/lib/sessionWindow";
 import type { HubSession, LiveHub } from "@/lib/types";
 
@@ -60,17 +61,13 @@ function ctaCopy(session: HubSession): { label: string; disabled: boolean } {
 export function LiveSessionPicker({
   hub,
   selected,
-  arisEnabled,
   onSelect,
   onContinue,
-  onArisChange,
 }: {
   hub: LiveHub;
   selected: HubSession | null;
-  arisEnabled: boolean;
   onSelect: (session: HubSession) => void;
   onContinue: () => void;
-  onArisChange: (on: boolean) => void;
 }) {
   const dateLabel = hub.next.date_race
     ? new Date(hub.next.date_race).toLocaleDateString(undefined, {
@@ -79,7 +76,6 @@ export function LiveSessionPicker({
         day: "numeric",
       })
     : "";
-  const arisBlocked = Boolean(selected && !isArisCapableSession(selected.session_type) && arisEnabled);
 
   return (
     <section className="flex flex-col gap-5">
@@ -90,35 +86,19 @@ export function LiveSessionPicker({
           Pick this weekend&apos;s session. Live sessions open the pit wall at the current lap. Completed practice and
           qualifying are not replayable here. Race replays are on Replay.
         </p>
-        <div className="mt-3 inline-flex w-fit overflow-hidden rounded-[8px] border border-border bg-obsidian" role="group" aria-label="ARIS toggle">
-          <button
-            type="button"
-            aria-pressed={!arisEnabled}
-            onClick={() => onArisChange(false)}
-            className={`px-5 py-2.5 font-mono-data text-[12px] uppercase tracking-widest ${
-              !arisEnabled ? "bg-red/15 text-red" : "text-muted hover:text-white"
-            }`}
-          >
-            Off
-          </button>
-          <button
-            type="button"
-            aria-pressed={arisEnabled}
-            onClick={() => onArisChange(true)}
-            className={`px-5 py-2.5 font-mono-data text-[12px] uppercase tracking-widest ${
-              arisEnabled ? "bg-red/15 text-red" : "text-muted hover:text-white"
-            }`}
-          >
-            On
-          </button>
+        <div
+          className="mt-3 max-w-md rounded-[8px] border border-border bg-obsidian px-4 py-3"
+          data-testid="live-aris-coming-soon"
+        >
+          <p className="font-sans text-sm text-white">ARIS live strategy — coming soon.</p>
+          <p className="mt-1 font-sans text-xs text-muted">
+            Full pit-wall strategy available now in{" "}
+            <Link href="/replay" className="text-red underline-offset-2 hover:underline">
+              Replay
+            </Link>{" "}
+            mode.
+          </p>
         </div>
-        <p className="mt-2 font-mono-data text-[11px] text-muted">
-          {arisEnabled
-            ? selected && !isArisCapableSession(selected.session_type)
-              ? "ARIS on: Race and FP2. Pick one of those sessions."
-              : "ARIS on. Ghost car and delta show on the timing tower."
-            : "ARIS off. Timing only."}
-        </p>
       </div>
 
       <div>
@@ -180,9 +160,9 @@ export function LiveSessionPicker({
           <button
             type="button"
             onClick={onContinue}
-            disabled={arisBlocked || ctaCopy(selected).disabled}
+            disabled={ctaCopy(selected).disabled}
             className={`self-start rounded-[8px] border px-5 py-2.5 font-mono-data text-[11px] uppercase tracking-widest ${
-              arisBlocked || ctaCopy(selected).disabled
+              ctaCopy(selected).disabled
                 ? "cursor-not-allowed border-border text-muted-2"
                 : "border-red bg-red/10 text-red hover:bg-red/20"
             }`}

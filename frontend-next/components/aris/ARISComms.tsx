@@ -140,6 +140,7 @@ function AskARIS({ threadId }: { threadId: string }) {
   const totalLaps = useRaceStore((s) => s.totalLaps);
   const lastRecommendation = useRaceStore((s) => s.lastRecommendation);
   const ghostPosition = useRaceStore((s) => s.ghostCar?.position ?? null);
+  const consoleMode = useRaceStore((s) => s.consoleMode);
   const [pending, setPending] = useState(false);
   const [items, setItems] = useState<{ id: string; source: "USER" | "ARIS_ANALYSIS"; text: string }[]>([]);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
@@ -225,6 +226,8 @@ function AskARIS({ threadId }: { threadId: string }) {
     setPending(false);
   }
 
+  if (consoleMode === "live") return null;
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <div ref={scrollerRef} className="min-h-0 flex-1 overflow-y-auto p-2 [overflow-anchor:none]">
@@ -280,15 +283,7 @@ export function ARISComms() {
     if (!tabs.some((t) => t.id === tab)) setTab(tabs[0]?.id ?? "chat");
   }, [tabs, tab]);
 
-  if (consoleMode === "live") {
-    return (
-      <div className="flex h-full items-center justify-center bg-carbon px-4">
-        <p className="text-center font-sans text-xs text-muted">
-          ARIS strategy available in Replay — select any completed race at /replay
-        </p>
-      </div>
-    );
-  }
+  if (consoleMode === "live") return null;
 
   return (
     <div className="flex h-full flex-col bg-carbon">

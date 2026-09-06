@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import {
   Actions,
   DockLocation,
@@ -535,8 +536,15 @@ export function ARISConsole({
               ) : null}
             </span>
             {mode === "live" && (
-              <span className="hidden font-sans text-[11px] text-muted md:inline">
-                ARIS strategy available in Replay — select any completed race at /replay
+              <span
+                className="hidden max-w-xs font-sans text-[11px] leading-snug text-muted md:inline"
+                data-testid="live-aris-coming-soon"
+              >
+                ARIS live strategy — coming soon. Full pit-wall strategy available now in{" "}
+                <Link href="/replay" className="text-red underline-offset-2 hover:underline">
+                  Replay
+                </Link>{" "}
+                mode.
               </span>
             )}
             {mode !== "live" && isARISOn && arisDriver && (
@@ -630,7 +638,10 @@ export function ARISConsole({
         </div>
         {mode === "live" ? (
           <span className="justify-self-end text-right font-sans text-[10px] leading-tight text-muted">
-            ARIS strategy available in Replay — select any completed race at /replay
+            ARIS live strategy — coming soon.{" "}
+            <Link href="/replay" className="text-red underline-offset-2 hover:underline">
+              Replay
+            </Link>
           </span>
         ) : (
           <button

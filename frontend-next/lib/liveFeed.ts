@@ -4,7 +4,7 @@ import { circuitCoordsFromReplayOutline } from "@/lib/api";
 import { postGhostRecompute } from "@/lib/api";
 import { isFullCircuitOutline, shouldApplyFallbackOutline } from "@/lib/circuitCache";
 import { annotateGhostTower, mapTimingAndPositions, mergeByDriverCode, mergeCars, mergeLivePositions, sessionFlagToPhase, timingFingerprint } from "@/lib/mapCars";
-import { asGhostTick, ghostCarFromTick, ghostLastLapS, ghostPlaybackAt, ghostStartFracFromSamples, ghostTickLapForDelta, maybeLogGhostDiagnostics, probeGhostCar, syntheticGhostCar, syntheticGhostTick } from "@/lib/ghostCar";
+import { asGhostTick, ghostCarFromTick, ghostLastLapS, ghostPlaybackAt, ghostStartFracFromSamples, ghostTickLapForDelta, maybeLogGhostDiagnostics, syntheticGhostCar, syntheticGhostTick } from "@/lib/ghostCar";
 import { normalizeCompound } from "@/lib/compounds";
 import {
   fetchGhost,
@@ -198,6 +198,15 @@ export function finalizeGhostCar(
 
 function applyGhost(payload: SsePayload) {
   const store = useRaceStore.getState();
+  // Live ARIS is deferred — never accumulate ghost / poll strategy in live mode.
+  if (store.consoleMode === "live") {
+    if (store.ghostCar || store.ghostData || store.ghostReason !== "aris_disabled") {
+      store.setGhostCar(null);
+      store.setGhostData(null);
+      store.setGhostReason("aris_disabled");
+    }
+    return;
+  }
   if (!store.isARISOn) {
     if (store.ghostCar || store.ghostData || store.ghostReason !== "aris_disabled") {
       store.setGhostCar(null);
@@ -279,12 +288,12 @@ function applyGhost(payload: SsePayload) {
     });
   }
   const ghostLap = ghostTickLapForDelta({
-    live: store.consoleMode === "live",
+    live: false,
     currentLap: store.currentLap,
     realLap: real?.lap_number ?? real?.laps_completed,
     playbackLap: playback?.lap,
   });
-  const towerLap = store.consoleMode === "live" ? ghostLap : (playback?.towerLap ?? ghostLap);
+  const towerLap = playback?.towerLap ?? ghostLap;
   const rankTick = driver ? ghostTickAtOrBefore(store.ghostTicksByLap, ghostLap) : undefined;
   const compoundTick = driver
     ? ghostTickAtOrBefore(store.ghostTicksByLap, towerLap) ?? rankTick
@@ -347,17 +356,6 @@ function applyGhost(payload: SsePayload) {
     store.setGhostCar(car);
     store.setGhostData(syntheticGhostTick(rec, driver, store.currentLap));
     store.setGhostReason(null);
-    return;
-  }
-  if (real && store.consoleMode === "live") {
-    const car = finalizeGhostCar(
-      { ...probeGhostCar(real, store.currentLap, store.totalLaps), position: null },
-      real,
-      null,
-    );
-    maybeAnnounceGhostBoxing(car, driver);
-    store.setGhostCar(car);
-    store.setGhostReason(store.ghostReason === "live_probe" ? "live_probe" : payload.ghost_reason ?? "live_probe");
     return;
   }
   store.setGhostCar(null);

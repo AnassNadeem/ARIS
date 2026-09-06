@@ -73,6 +73,7 @@ function LivePageInner() {
       driverCode: arisDriver ?? "VER",
     });
     setARISDriver(arisDriver ?? "VER");
+    useRaceStore.getState().setARISOn(false);
     setWaiting(true, "Waiting for live data to come.");
     setTotalLaps(72);
     setMockConsole(true);

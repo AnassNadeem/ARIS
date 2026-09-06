@@ -27,6 +27,7 @@ function nextId(prefix: string): string {
 }
 
 export function CopilotPanel({ threadId = "default" }: { threadId?: string }) {
+  const consoleMode = useRaceStore((s) => s.consoleMode);
   const session = useRaceStore((s) => s.session);
   const currentLap = useRaceStore((s) => s.currentLap);
   const arisDriver = useRaceStore((s) => s.arisDriver);
@@ -107,6 +108,8 @@ export function CopilotPanel({ threadId = "default" }: { threadId?: string }) {
     ]);
     setPending(false);
   }
+
+  if (consoleMode === "live") return null;
 
   if (!featureOn) {
     return (

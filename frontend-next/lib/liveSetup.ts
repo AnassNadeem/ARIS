@@ -70,9 +70,9 @@ export function shouldAutoStartLiveSession(
   return Boolean(live && asSessionType(live.session_type) === "R");
 }
 
-/** Race and FP2 can run ARIS from the live picker. */
-export function autoArisForHubSession(session: HubSession | null | undefined): boolean {
-  return isArisCapableSession(session?.session_type);
+/** Live ARIS is deferred — always false until live strategy architecture ships. */
+export function autoArisForHubSession(_session: HubSession | null | undefined): boolean {
+  return false;
 }
 
 export function isRaceSession(sessionType: string | null | undefined): boolean {
@@ -98,16 +98,13 @@ export function replayPackWaitMs(sessionType: string | null | undefined): number
 /** Homepage live card: Race can skip the picker; other live sessions only preselect. */
 export function liveHubEnterHref(
   session: HubSession | null,
-  opts?: { arisOn?: boolean; driver?: string | null },
+  _opts?: { arisOn?: boolean; driver?: string | null },
 ): string {
   if (!session) return "/live";
   const qs = new URLSearchParams({ session: session.session_type });
   if (isRaceSession(session.session_type)) {
     qs.set("watch", "1");
-    if (opts?.arisOn) {
-      qs.set("aris", "1");
-      if (opts.driver) qs.set("driver", opts.driver);
-    }
+    // Live ARIS is deferred — never auto-enable strategy via query params.
   }
   return `/live?${qs.toString()}`;
 }

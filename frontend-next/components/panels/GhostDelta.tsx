@@ -50,6 +50,7 @@ function GhostTooltip({
 }
 
 export function GhostDelta() {
+  const consoleMode = useRaceStore((s) => s.consoleMode);
   const ghostData = useRaceStore((s) => s.ghostData);
   const ghostTicks = useRaceStore((s) => s.ghostTicksByLap);
   const currentLap = useRaceStore((s) => s.currentLap);
@@ -64,6 +65,8 @@ export function GhostDelta() {
     [ghostData, ghostTicks, currentLap, ready],
   );
   const hasGhost = Boolean(ghostData) || (isARISOn && Object.keys(ghostTicks).length > 0);
+
+  if (consoleMode === "live") return null;
 
   if (!ready) {
     return (
