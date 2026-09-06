@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useRaceStore } from "@/store/raceStore";
 import { useFocusDriver } from "@/lib/useFocusDriver";
 import { posSamplesFor, speedKphFromPath } from "@/lib/r2Replay";
-import { PanelEmpty, PanelSkeleton, usePanelFeedLoading } from "@/components/ui/PanelStates";
+import { PanelEmpty, PanelSkeleton, ReplayOnlyPlaceholder, usePanelFeedLoading } from "@/components/ui/PanelStates";
 import { useAnalyticsReady, useFollowRaceLap } from "@/lib/usePanelHistory";
 
 interface CornerRow {
@@ -47,12 +47,7 @@ export function CornerAnalysis() {
   const { lap, setLap, pinned, follow, currentLap } = useFollowRaceLap();
 
   if (consoleMode === "live") {
-    return (
-      <PanelEmpty
-        title="Corner analysis"
-        detail="Corner detection requires GPS speed samples, which are only available in replay mode. Open a completed race replay to use this panel."
-      />
-    );
+    return <ReplayOnlyPlaceholder panelName="Corner analysis" />;
   }
 
   const rows = useMemo(() => {

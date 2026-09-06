@@ -464,6 +464,90 @@ def clamp_ghost_first_pit(
     )
 
 
+_DRY_COMPOUNDS = frozenset({"SOFT", "MEDIUM", "HARD"})
+_WET_COMPOUNDS = frozenset({"INTERMEDIATE", "INTER", "WET"})
+
+
+def _mandatory_pit_compound(start: str) -> str:
+    """Harder dry compound for a mandatory stop (FIA two-compound rule)."""
+    from aris.physics.tires import normalize_compound
+
+    s = normalize_compound(start)
+    if s in ("MEDIUM", "SOFT"):
+        return "HARD"
+    return "MEDIUM"
+
+
+def enforce_mandatory_dry_pit(
+    plan: GhostPlan,
+    *,
+    total_laps: int | None = None,
+    pit_loss_s: float = 21.0,
+) -> GhostPlan:
+    """Ensure dry ghost plans have ≥1 stop and use ≥2 dry compounds.
+
+    F1 dry races require at least one pit stop and two different dry compounds.
+    Wet (INTER/WET) strategies are left unchanged.
+    """
+    from aris.physics.tires import normalize_compound
+    from aris.plan.prewrite import derive_pit_windows
+
+    start = normalize_compound(plan.start_compound)
+    compounds = [normalize_compound(c) for c in plan.pit_compounds]
+    if start in _WET_COMPOUNDS or any(c in _WET_COMPOUNDS for c in compounds):
+        return plan
+
+    total = int(total_laps) if total_laps is not None and int(total_laps) > 0 else 57
+    pits = [int(p) for p in plan.pit_laps]
+    target = _mandatory_pit_compound(start)
+
+    if not pits:
+        windows = derive_pit_windows(total, float(pit_loss_s))
+        strat_b = [int(p) for p in (windows.get("B") or [])]
+        pit_lap = strat_b[0] if strat_b else max(8, total // 2)
+        _log.warning(
+            "[ARIS ghost] forced mandatory pit lap %s for %s "
+            "(0-stop strategy is illegal)",
+            pit_lap,
+            target,
+        )
+        return GhostPlan(
+            pit_laps=[pit_lap],
+            pit_compounds=[target],
+            start_compound=start,
+            aris_action=f"PIT_L{pit_lap}_{target}",
+            decision_lap=plan.decision_lap,
+        )
+
+    used = {start} | set(compounds)
+    dry_used = used & _DRY_COMPOUNDS
+    if len(dry_used) >= 2:
+        return plan
+
+    # Same compound as start on every stop — swap first stop to a different dry.
+    new_compounds = list(compounds) if compounds else [target] * len(pits)
+    while len(new_compounds) < len(pits):
+        new_compounds.append(target)
+    if normalize_compound(new_compounds[0]) == start:
+        new_compounds[0] = target
+    else:
+        # All stops somehow same as start under a different spelling; force first.
+        new_compounds[0] = target
+    _log.warning(
+        "[ARIS ghost] changed pit compound to %s "
+        "(must use 2 different dry compounds)",
+        new_compounds[0],
+    )
+    label = f"PIT_L{pits[0]}_{new_compounds[0]}"
+    return GhostPlan(
+        pit_laps=pits,
+        pit_compounds=new_compounds[: len(pits)],
+        start_compound=start,
+        aris_action=label,
+        decision_lap=plan.decision_lap,
+    )
+
+
 def schedule_from_recommendation(
     recommendation,
     *,
@@ -496,9 +580,10 @@ def schedule_from_recommendation(
             aris_action=label or f"Plan: {pits} -> {compounds}",
             decision_lap=int(lap_number),
         )
-        return clamp_ghost_first_pit(
+        plan = clamp_ghost_first_pit(
             plan, decision_lap=int(lap_number), total_laps=total_laps
         )
+        return enforce_mandatory_dry_pit(plan, total_laps=total_laps)
     if kind == "pit_now":
         plan = GhostPlan(
             pit_laps=[int(lap_number)],
@@ -507,9 +592,10 @@ def schedule_from_recommendation(
             aris_action=label or f"PIT_NOW_{pit_compound}",
             decision_lap=int(lap_number),
         )
-        return clamp_ghost_first_pit(
+        plan = clamp_ghost_first_pit(
             plan, decision_lap=int(lap_number), total_laps=total_laps
         )
+        return enforce_mandatory_dry_pit(plan, total_laps=total_laps)
     if kind == "pit_lap" and action.get("pit_lap") is not None:
         pit_lap = int(action["pit_lap"])
         plan = GhostPlan(
@@ -519,16 +605,18 @@ def schedule_from_recommendation(
             aris_action=label or f"PIT_L{pit_lap}_{pit_compound}",
             decision_lap=int(lap_number),
         )
-        return clamp_ghost_first_pit(
+        plan = clamp_ghost_first_pit(
             plan, decision_lap=int(lap_number), total_laps=total_laps
         )
-    return GhostPlan(
+        return enforce_mandatory_dry_pit(plan, total_laps=total_laps)
+    plan = GhostPlan(
         pit_laps=[],
         pit_compounds=[],
         start_compound=start,
         aris_action=label or "STAY_OUT",
         decision_lap=int(lap_number),
     )
+    return enforce_mandatory_dry_pit(plan, total_laps=total_laps)
 
 
 def create_ghost_from_plan(
@@ -544,6 +632,10 @@ def create_ghost_from_plan(
     plan = clamp_ghost_first_pit(
         plan,
         decision_lap=int(getattr(race_state, "lap_number", 1) or 1),
+        total_laps=int(getattr(race_state, "total_laps", 0) or 0) or None,
+    )
+    plan = enforce_mandatory_dry_pit(
+        plan,
         total_laps=int(getattr(race_state, "total_laps", 0) or 0) or None,
     )
     start = normalize_compound(plan.start_compound or race_state.compound)
@@ -726,7 +818,8 @@ def plan_from_pits(
         aris_action=label or ("STAY_OUT" if not pits else f"PIT_L{pits[0]}_{compounds[0]}"),
         decision_lap=1,
     )
-    return clamp_ghost_first_pit(plan, decision_lap=1, total_laps=total_laps)
+    plan = clamp_ghost_first_pit(plan, decision_lap=1, total_laps=total_laps)
+    return enforce_mandatory_dry_pit(plan, total_laps=total_laps)
 
 
 def score_parallel_ghost(

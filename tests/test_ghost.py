@@ -851,3 +851,59 @@ def test_score_parallel_ghost_gap_anchor_survives_retirement_in_field():
         assert ticks[lap]["ghost_position"] == 2, f"lap {lap}: {ticks[lap]['ghost_position']}"
 
 
+def test_mandatory_pit_constraint():
+    """FIA dry rules: ≥1 stop and ≥2 dry compounds on ghost plans."""
+    from aris.ghost import GhostPlan, enforce_mandatory_dry_pit
+    from aris.plan.prewrite import derive_pit_windows
+
+    total = 57
+    strat_b = derive_pit_windows(total, 21.0)["B"][0]
+
+    zero = GhostPlan(
+        pit_laps=[],
+        pit_compounds=[],
+        start_compound="MEDIUM",
+        aris_action="STAY_OUT",
+        decision_lap=1,
+    )
+    forced = enforce_mandatory_dry_pit(zero, total_laps=total)
+    assert forced.pit_laps == [strat_b]
+    assert forced.pit_compounds == ["HARD"]
+    assert forced.start_compound == "MEDIUM"
+
+    same = GhostPlan(
+        pit_laps=[24],
+        pit_compounds=["MEDIUM"],
+        start_compound="MEDIUM",
+        aris_action="PIT_L24_MEDIUM",
+        decision_lap=1,
+    )
+    fixed = enforce_mandatory_dry_pit(same, total_laps=total)
+    assert fixed.pit_laps == [24]
+    assert fixed.pit_compounds == ["HARD"]
+    assert fixed.start_compound == "MEDIUM"
+
+    legal = GhostPlan(
+        pit_laps=[33],
+        pit_compounds=["HARD"],
+        start_compound="MEDIUM",
+        aris_action="PIT_L33_HARD",
+        decision_lap=1,
+    )
+    unchanged = enforce_mandatory_dry_pit(legal, total_laps=72)
+    assert unchanged.pit_laps == [33]
+    assert unchanged.pit_compounds == ["HARD"]
+    assert unchanged.start_compound == "MEDIUM"
+
+    wet = GhostPlan(
+        pit_laps=[],
+        pit_compounds=[],
+        start_compound="INTERMEDIATE",
+        aris_action="STAY_OUT",
+        decision_lap=1,
+    )
+    wet_out = enforce_mandatory_dry_pit(wet, total_laps=total)
+    assert wet_out.pit_laps == []
+    assert wet_out.start_compound == "INTERMEDIATE"
+
+

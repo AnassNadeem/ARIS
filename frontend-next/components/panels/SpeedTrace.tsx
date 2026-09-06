@@ -15,7 +15,7 @@ import { useRaceStore } from "@/store/raceStore";
 import { useFocusDriver } from "@/lib/useFocusDriver";
 import { posSamplesFor, speedKphFromPath } from "@/lib/r2Replay";
 import { AXIS_TICK, xAxisLabel, yAxisLabel } from "@/lib/chartAxis";
-import { PanelEmpty, PanelSkeleton, usePanelFeedLoading } from "@/components/ui/PanelStates";
+import { PanelEmpty, PanelSkeleton, ReplayOnlyPlaceholder, usePanelFeedLoading } from "@/components/ui/PanelStates";
 import { useAnalyticsReady, useFollowRaceLap } from "@/lib/usePanelHistory";
 
 export function SpeedTrace() {
@@ -29,12 +29,7 @@ export function SpeedTrace() {
   const { lap, setLap, pinned, follow, currentLap } = useFollowRaceLap();
 
   if (consoleMode === "live") {
-    return (
-      <PanelEmpty
-        title="Speed trace"
-        detail="GPS/speed samples are only available in replay mode. Open a completed race replay to use this panel."
-      />
-    );
+    return <ReplayOnlyPlaceholder panelName="Speed trace" />;
   }
 
   const data = useMemo(() => {

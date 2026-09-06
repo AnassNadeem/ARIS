@@ -868,7 +868,10 @@ def _get_available_compounds(state: RaceState) -> list[str]:
     if len(dry_part) <= 1 or current not in dry_part:
         return (dry_part if dry_part else list(PIT_COMPOUNDS)) + wet_part
 
-    if current == "SOFT" and remaining >= 15:
+    # Drop SOFT as a pit-to only when already on SOFT with a long race still
+    # ahead (would degrade too fast). Threshold 30 (was 15) so late undercuts
+    # / short SOFT re-fits in the final third stay available.
+    if current == "SOFT" and remaining >= 30:
         if track_temp is None or float(track_temp) >= 20.0:
             dry_part = [c for c in dry_part if c != "SOFT"]
     if current == "MEDIUM" and remaining >= 25:

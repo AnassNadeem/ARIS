@@ -13,7 +13,7 @@ import {
   YAxis,
 } from "recharts";
 import { useRaceStore } from "@/store/raceStore";
-import { PanelEmpty, PanelSkeleton, usePanelFeedLoading } from "@/components/ui/PanelStates";
+import { PanelEmpty, PanelSkeleton, ReplayOnlyPlaceholder, usePanelFeedLoading } from "@/components/ui/PanelStates";
 import { useAnalyticsReady } from "@/lib/usePanelHistory";
 import { AXIS_TICK, xAxisLabel, yAxisLabel } from "@/lib/chartAxis";
 import { ghostDeltaChartPoints, ghostUnavailableMessage } from "@/lib/r2Replay";
@@ -66,7 +66,9 @@ export function GhostDelta() {
   );
   const hasGhost = Boolean(ghostData) || (isARISOn && Object.keys(ghostTicks).length > 0);
 
-  if (consoleMode === "live") return null;
+  if (consoleMode === "live") {
+    return <ReplayOnlyPlaceholder panelName="Ghost delta" />;
+  }
 
   if (!ready) {
     return (

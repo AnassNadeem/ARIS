@@ -250,6 +250,7 @@ def compute_ghost(
     """
     from aris.ghost import (
         clamp_ghost_first_pit,
+        enforce_mandatory_dry_pit,
         field_cumulative_by_lap,
         field_gap_snapshot_by_lap,
         pick_strategy_recommendation,
@@ -296,12 +297,14 @@ def compute_ghost(
     # 72-lap race) that disagrees with the UI.
     plan = None
     label = ""
+    pit_loss_s = 21.0
     try:
         from aris.plan.prewrite import derive_pit_windows
         from aris.tracks import load_track_config
 
         track = load_track_config(country, year=int(year), round_no=int(round_number))
-        windows = derive_pit_windows(total, float(track.pit_loss_s))
+        pit_loss_s = float(track.pit_loss_s)
+        windows = derive_pit_windows(total, pit_loss_s)
         strat_b = [int(p) for p in (windows.get("B") or [])]
         if strat_b and all(1 < p <= total for p in strat_b):
             compounds = ["HARD"] * len(strat_b)
@@ -360,7 +363,9 @@ def compute_ghost(
 
     # Fix 3 safety gate + Fix 2 MIN_STINT_LAPS: never leave a lap-1 / immediate
     # pit in the baked plan (covers Strat B edge cases and recommend() fallback).
+    # Then enforce FIA dry rules: ≥1 stop and ≥2 dry compounds.
     plan = clamp_ghost_first_pit(plan, decision_lap=1, total_laps=total)
+    plan = enforce_mandatory_dry_pit(plan, total_laps=total, pit_loss_s=pit_loss_s)
     if plan.aris_action:
         label = plan.aris_action or label
 

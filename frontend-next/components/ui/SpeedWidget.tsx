@@ -23,6 +23,7 @@ function fmtGhostDelta(v: number): string {
 
 /** Car speed and last sectors for the chosen / focus driver — snaps to sides and corners. */
 export function SpeedWidget() {
+  const consoleMode = useRaceStore((s) => s.consoleMode);
   const racing = useRaceStore((s) => s.consolePlayState === "racing");
   const driver = useRaceStore((s) => chosenDriverCode(s));
   const kph = useRaceStore((s) => {
@@ -57,7 +58,8 @@ export function SpeedWidget() {
   const value = mph ? Math.round(kph * 0.621371) : kph;
   const unit = mph ? "mph" : "km/h";
 
-  if (!racing) return null;
+  // Live OpenF1 lacks dense GPS/car_data for a reliable speed HUD.
+  if (consoleMode === "live" || !racing) return null;
 
   return (
     <DraggableHud storageKey="aris-hud-speed" defaultX={8} defaultY={52} snapToEdges>

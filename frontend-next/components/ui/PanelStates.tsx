@@ -52,3 +52,13 @@ export function PanelEmpty({ title, detail }: { title: string; detail: string })
     </div>
   );
 }
+
+/** Shown in /live for analytics panels that need R2 replay-pack density. */
+export function ReplayOnlyPlaceholder({ panelName }: { panelName: string }) {
+  return (
+    <PanelEmpty
+      title={panelName}
+      detail={`${panelName} available in Replay mode — arisf1.tech/replay`}
+    />
+  );
+}
