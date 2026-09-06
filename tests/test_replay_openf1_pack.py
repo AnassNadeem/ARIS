@@ -248,7 +248,11 @@ def test_run_pack_discards_stale_fastf1_practice_cache(monkeypatch):
         return pack, False
 
     monkeypatch.setattr(live_mod, "_cold_load_minimal", fake_cold)
-    monkeypatch.setattr(live_mod, "hydrate_replay_pack_cache", lambda *_a, **_k: (stale, True, False))
+    monkeypatch.setattr(
+        live_mod,
+        "hydrate_replay_pack_cache",
+        lambda *_a, **_k: (stale, True, False),
+    )
     monkeypatch.setattr(live_mod, "invalidate_replay_pack", lambda *_a, **_k: None)
     monkeypatch.setattr(live_mod, "save_replay_pack_disk", lambda *_a, **_k: True)
 
@@ -308,7 +312,11 @@ def test_cold_load_practice_skips_fastf1_when_openf1_ok(monkeypatch):
         ff1_calls.append("fastf1")
         raise AssertionError("FastF1 must not run when OpenF1 practice pack succeeds")
 
-    monkeypatch.setattr(live_mod, "_calendar_session_status", lambda *_a, **_k: "COMPLETED")
+    monkeypatch.setattr(
+        live_mod,
+        "_calendar_session_status",
+        lambda *_a, **_k: "COMPLETED",
+    )
     monkeypatch.setattr(live_mod, "_fill_pack_map", fake_map)
     monkeypatch.setattr(live_mod, "_fill_pack_openf1", fake_openf1)
     monkeypatch.setattr(live_mod, "_seed_openf1_location_gps", fake_seed)
