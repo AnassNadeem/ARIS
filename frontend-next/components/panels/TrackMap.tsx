@@ -24,6 +24,7 @@ import {
   wrap01,
 } from "@/lib/trackGeometry";
 import { onTrackCarCodes, resolveLivePathFrac } from "@/lib/mapCars";
+import { driverOutOfRace } from "@/lib/timingDisplay";
 import { chequeredSfFlag, startFinishMarker } from "@/lib/replayFilter";
 import { PlaybackControls } from "@/components/ui/PlaybackControls";
 import { TrackLightsOut } from "@/components/ui/TrackLightsOut";
@@ -195,6 +196,8 @@ export function TrackMap() {
   //    payload (mapCars hardcodes 0). Cartesian dead-reckoning (2C) is skipped; along-track
   //    velocity from path_frac deltas is kept.
   const lastFrac = useRef<Map<string, number>>(new Map());
+  const lastGpsSig = useRef<Map<string, string>>(new Map());
+  const lastGpsChangeAt = useRef<Map<string, number>>(new Map());
   const displayElapsedRef = useRef(0);
   const lastStoreElapsedRef = useRef(0);
   const lastPacketAtRef = useRef(0);
@@ -205,7 +208,12 @@ export function TrackMap() {
       const now = performance.now();
       const store = useRaceStore.getState();
       const racing = store.consoleMode === "live" || store.consolePlayState === "racing";
-      const playing = store.isPlaying && racing && store.racePhase !== "RED_FLAG";
+      // Live must follow incoming GPS/path_frac even if the replay clock is
+      // paused or a red flag is showing — otherwise dots sit on S/F.
+      const playing =
+        store.consoleMode === "live"
+          ? true
+          : store.isPlaying && racing && store.racePhase !== "RED_FLAG";
       const storeElapsed = store.replayElapsedS;
       const speedChanged = lastSpeedRef.current !== store.playbackSpeed;
       lastSpeedRef.current = store.playbackSpeed;
@@ -234,7 +242,7 @@ export function TrackMap() {
         for (const code of codesRef.current) {
           const car = readCar(code);
           if (!car) continue;
-          if (car.is_pitted || car.is_dnf) continue;
+          if (car.is_pitted || driverOutOfRace(car.status, car.is_dnf)) continue;
           const prevKnown = lastFrac.current.get(code);
           const isGhost = code.startsWith(GHOST_PREFIX);
           let frac: number;
@@ -251,7 +259,14 @@ export function TrackMap() {
           } else if (field && store.consoleMode === "replay") {
             frac = replayDisplayFrac(field, code, displayElapsedRef.current);
           } else if (store.consoleMode === "live") {
-            frac = resolveLivePathFrac(car, line, prevKnown);
+            const gpsSig = `${car.path_frac ?? ""}|${car.x}|${car.y}`;
+            const prevSig = lastGpsSig.current.get(code);
+            if (prevSig !== gpsSig) {
+              lastGpsSig.current.set(code, gpsSig);
+              lastGpsChangeAt.current.set(code, now);
+            }
+            const gpsAgeMs = now - (lastGpsChangeAt.current.get(code) ?? now);
+            frac = resolveLivePathFrac(car, line, prevKnown, gpsAgeMs);
           } else if (car.path_frac != null && Number.isFinite(car.path_frac)) {
             frac = car.path_frac;
           } else if (prevKnown != null && Number.isFinite(prevKnown)) {
@@ -259,7 +274,7 @@ export function TrackMap() {
           } else {
             frac = fractionAtPoint(line, car.x, car.y);
           }
-          if (!isGhost && !seek && prevKnown != null && Number.isFinite(prevKnown)) {
+          if (!isGhost && !seek && prevKnown != null && Number.isFinite(prevKnown) && store.consoleMode !== "live") {
             const d = wrappedDelta(prevKnown, frac);
             if (d > 0.25) frac = wrap01(prevKnown + 0.25);
             else if (d < -0.05) frac = prevKnown;
@@ -377,8 +392,9 @@ export function TrackMap() {
             const r = isFocus ? 9 : isGhost ? 8 : 6;
             const hideDot =
               Boolean(car.is_pitted) ||
-              Boolean(car.is_dnf) ||
+              driverOutOfRace(car.status, car.is_dnf) ||
               (isGhost && (ghostInPits || Boolean(car.ghost_in_pits)));
+            if (hideDot && !isGhost) return null;
             return (
               <g
                 key={code}

@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { filterReplayRounds, replayYears, defaultReplayYear, startFinishMarker, isReplayableRound, chequeredSfFlag, keepRoundsWithPack, formatRaceDate } from "./replayFilter";
-import { annotateGhostTower, hasLiveGps, LIVE_PATH_FRAC_JITTER, mapTimingAndPositions, mergeByDriverCode, mergeCars, onTrackCarCodes, orderTimingTower, rankGhostByGap, realClassifiedCars, resolveLivePathFrac, sessionFlagToPhase, timingEqual, timingFingerprint } from "./mapCars";
+import { annotateGhostTower, hasLiveGps, LIVE_GPS_STALE_MS, LIVE_PATH_FRAC_JITTER, mapTimingAndPositions, mergeByDriverCode, mergeCars, mergeLivePositions, onTrackCarCodes, orderTimingTower, rankGhostByGap, realClassifiedCars, resolveLivePathFrac, sessionFlagToPhase, timingEqual, timingFingerprint } from "./mapCars";
 import { normalizeCompound, msToSeconds } from "./compounds";
 import { countryFlag } from "./flags";
 import { commsTabs, nextSelectorStep } from "./sessionFlow";
 import { driverOutOfRace, fmtGap, fmtSectorTime, sectorClass } from "./timingDisplay";
 import { buildPath, fractionAtPoint, lerpFrac, pointAtFraction } from "./trackGeometry";
-import { PathCarAnimator, LIVE_TICK_INTERVAL_MS, REPLAY_TICK_INTERVAL_MS, wrappedDelta } from "./deadReckoning";
+import { PathCarAnimator, LIVE_TICK_INTERVAL_MS, REPLAY_TICK_INTERVAL_MS, SEEK_JUMP_LIVE, wrappedDelta } from "./deadReckoning";
 import { isFullCircuitOutline, shouldApplyFallbackOutline } from "./circuitCache";
 import { lapRecordsFromApi, stintsFromLapRecords, topNDriverCodes } from "./panelData";
 import { sectorPathsFromOutline } from "./trackGeometry";
@@ -199,6 +199,34 @@ describe("mapTimingAndPositions", () => {
     expect(cars.GAS.status).toBe("DNF");
   });
 
+  it("treats a retired reason as DNF so the map drops the car", () => {
+    const cars = mapTimingAndPositions(
+      [{
+        position: 16,
+        driver_code: "LEC",
+        gap_to_leader_s: null,
+        gap_to_ahead_s: null,
+        last_lap_ms: null,
+        compound: null,
+        tyre_life: null,
+        pit_count: 0,
+        team_colour: "#E8002D",
+        in_pit: false,
+        lap_number: 18,
+        speed_kph: null,
+        status: "RUNNING",
+        reason: "RETIRED",
+      }],
+      [{ driver_code: "LEC", x: 40, y: 10, team_colour: "#E8002D", is_pitted: false, is_dnf: false, path_frac: 0.4, speed_ms: 0 }],
+      [{ driver_number: 16, driver_code: "LEC", full_name: "Charles Leclerc", team: "Ferrari", team_colour: "#E8002D" }],
+      53,
+      18,
+    );
+    expect(cars.LEC.is_dnf).toBe(true);
+    expect(cars.LEC.status).toBe("DNF");
+    expect(onTrackCarCodes({ LEC: cars.LEC }, null)).toBe("");
+  });
+
   it("labels eliminated live rows as DNF even when status is still RUNNING", () => {
     const cars = mapTimingAndPositions(
       [{
@@ -308,6 +336,7 @@ describe("path interpolation", () => {
   });
 
   it("keeps S/F wrap forward and does not reverse a >0.5 jump", () => {
+    expect(wrappedDelta(0.97, 0.03)).toBeCloseTo(0.06, 5);
     expect(wrappedDelta(0.9, 0.1)).toBeCloseTo(0.2, 5);
     expect(wrappedDelta(0.1, 0.9)).toBeCloseTo(0.8, 5);
     expect(wrappedDelta(0.98, 0.02)).toBeCloseTo(0.04, 5);
@@ -351,7 +380,7 @@ describe("path interpolation", () => {
     expect(frac).toBeLessThan(0.011);
   });
 
-  it("spreads a live 1Hz tick over ~0.85s instead of completing in one frame", () => {
+  it("spreads a live 1Hz tick over ~0.9s instead of completing in one frame", () => {
     const path = buildPath([0, 10, 10, 0], [0, 0, 10, 10]);
     const anim = new PathCarAnimator(path, 0, 140, LIVE_TICK_INTERVAL_MS);
     anim.onTick(0.012, 0, { playbackSpeed: 1 });
@@ -366,6 +395,16 @@ describe("path interpolation", () => {
     }
     expect(frac).toBeGreaterThan(0.01);
     expect(frac).toBeLessThan(0.012);
+  });
+
+  it("does not snap a live 0.3-lap gap when seeking", () => {
+    const path = buildPath([0, 10, 10, 0], [0, 0, 10, 10]);
+    const anim = new PathCarAnimator(path, 0, 140, LIVE_TICK_INTERVAL_MS);
+    anim.onTick(0.01, 0);
+    anim.onTick(0.31, 16, { seek: true });
+    const frac = anim.currentFrac(32);
+    expect(SEEK_JUMP_LIVE).toBe(0.45);
+    expect(frac).toBeLessThan(0.08);
   });
 
   it("snaps onto the new target when playback speed drops", () => {
@@ -518,6 +557,23 @@ describe("SSE car merge", () => {
     expect(timingEqual(prev.VER, { ...base, path_frac: 0.9 })).toBe(true);
   });
 
+  it("keeps last GPS but takes an advancing path_frac when the tick has no coordinates", () => {
+    const prev = { VER: { ...base, path_frac: 0.42, x: 120, y: 80 } };
+    const next = { VER: { ...base, path_frac: 0.48, x: 0, y: 0 } };
+    const merged = mergeCars(prev, next);
+    expect(merged.VER.path_frac).toBe(0.48);
+    expect(merged.VER.x).toBe(120);
+    expect(merged.VER.y).toBe(80);
+  });
+
+  it("keeps the previous position list when a live tick omits GPS", () => {
+    const prev = [{ driver_code: "VER", x: 1, y: 2, team_colour: null, is_pitted: false, is_dnf: false, path_frac: 0.2, speed_ms: null }];
+    expect(mergeLivePositions(prev, [])).toBe(prev);
+    expect(mergeLivePositions(prev, undefined).length).toBe(1);
+    const incoming = [{ driver_code: "VER", x: 3, y: 4, team_colour: null, is_pitted: false, is_dnf: false, path_frac: 0.3, speed_ms: null }];
+    expect(mergeLivePositions(prev, incoming)).toBe(incoming);
+  });
+
   it("keeps last path_frac when the next frame omits it", () => {
     const prev = { VER: { ...base, path_frac: 0.42, x: 9, y: 8 } };
     const next = { VER: { ...base, path_frac: undefined as unknown as number, x: 0, y: 0 } };
@@ -567,6 +623,17 @@ describe("resolveLivePathFrac", () => {
     expect(held).toBe(0.61);
   });
 
+  it("follows a new path_frac when GPS is missing so cars keep moving between polls", () => {
+    const next = resolveLivePathFrac({ x: 0, y: 0, path_frac: 0.44 }, square, 0.4);
+    expect(next).toBeCloseTo(0.44);
+  });
+
+  it("follows backend path_frac when it disagrees with a stale GPS projection", () => {
+    const alongTop = resolveLivePathFrac({ x: 10, y: 0, path_frac: 0 }, square, 0);
+    const advanced = resolveLivePathFrac({ x: 10, y: 0, path_frac: 0.72 }, square, alongTop);
+    expect(advanced).toBeCloseTo(0.72);
+  });
+
   it("suppresses sub-0.002 path_frac jitter so the animator keeps its trajectory", () => {
     const alongTop = resolveLivePathFrac({ x: 10, y: 0, path_frac: 0 }, square, 0);
     const jittered = resolveLivePathFrac({ x: 10, y: 0.04, path_frac: 0 }, square, alongTop);
@@ -589,6 +656,27 @@ describe("resolveLivePathFrac", () => {
     expect(fracs[1]).toBeLessThan(fracs[2]);
     expect(fracs[2]).toBeLessThan(fracs[3]);
     expect(fracs[3]).toBeGreaterThan(0.7);
+  });
+
+  it("uses a mid-track path_frac when GPS projects onto start/finish", () => {
+    const big = buildPath([0, 100, 100, 0], [0, 0, 100, 100]);
+    expect(hasLiveGps(2, 2)).toBe(true);
+    const frac = resolveLivePathFrac({ x: 2, y: 2, path_frac: 0.41 }, big, 0);
+    expect(frac).toBeCloseTo(0.41);
+  });
+
+  it("holds the last mid-track fraction if GPS snaps back to start/finish", () => {
+    const big = buildPath([0, 100, 100, 0], [0, 0, 100, 100]);
+    const held = resolveLivePathFrac({ x: 2, y: 2, path_frac: 0 }, big, 0.41);
+    expect(held).toBe(0.41);
+  });
+
+  it("keeps the last target when the GPS tick is older than 3s", () => {
+    expect(LIVE_GPS_STALE_MS).toBe(3000);
+    const held = resolveLivePathFrac({ x: 10, y: 0, path_frac: 0.72 }, square, 0.4, 3500);
+    expect(held).toBe(0.4);
+    const fresh = resolveLivePathFrac({ x: 10, y: 0, path_frac: 0.72 }, square, 0.4, 500);
+    expect(fresh).toBeCloseTo(0.72);
   });
 });
 
@@ -805,6 +893,7 @@ describe("onTrackCarCodes", () => {
       VER: { ...base, is_pitted: false, is_dnf: false },
       HAM: { ...base, driver_code: "HAM", is_pitted: true, is_dnf: false },
       GAS: { ...base, driver_code: "GAS", is_pitted: false, is_dnf: true, status: "DNF" as const },
+      LEC: { ...base, driver_code: "LEC", is_pitted: false, is_dnf: false, status: "DNF" as const },
     };
     expect(onTrackCarCodes(cars, "A_VER")).toBe("A_VER,VER");
   });

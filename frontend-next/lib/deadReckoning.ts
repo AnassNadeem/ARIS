@@ -90,7 +90,12 @@ export class CarAnimator {
   }
 }
 
-/** Signed along-track delta. S/F wrap stays forward; large forward jumps are not treated as reverse. */
+/**
+ * Signed along-track delta on a 0–1 lap.
+ * S/F wrap is forward: wrappedDelta(0.97, 0.03) === +0.06, not −0.94
+ * (`d = −0.94 < −0.5` → `d += 1`). A >0.5 forward GPS hole stays forward
+ * so cars are not animated backwards across half the circuit.
+ */
 export function wrappedDelta(from: number, to: number): number {
   let d = to - from;
   if (d < -0.5) d += 1;
@@ -114,6 +119,8 @@ export const GPS_HOLD_MS = 100;
 /** Catch-up cap at high speed (~0.08 lap/s at 1×). Scaled by playbackSpeed. */
 export const BASE_MAX_FRAC_PER_MS = 0.00008;
 export const SEEK_JUMP = 0.22;
+/** Live 1 Hz GPS: interpolate gaps up to ~0.45 lap; snap only beyond that. */
+export const SEEK_JUMP_LIVE = 0.45;
 /** 1×: allow a GPS-sized bump per frame, not a hole-teleport. */
 export const BUMP_MAX_FRAC = 0.012;
 /** Live SSE / OpenF1 poll slot — interpolate across the full second. */
@@ -122,6 +129,12 @@ export const LIVE_TICK_INTERVAL_MS = 1000;
 export const REPLAY_TICK_INTERVAL_MS = 250;
 /** Finish ~90% of a tick's travel before the next sample arrives. */
 const TRAVEL_FRAC_OF_INTERVAL = 0.85;
+/** Live: 90% of the way to the target in 0.9 s (just before the next 1 Hz tick). */
+const LIVE_TRAVEL_MS = 900;
+
+function seekJumpThreshold(tickIntervalMs: number): number {
+  return tickIntervalMs === LIVE_TICK_INTERVAL_MS ? SEEK_JUMP_LIVE : SEEK_JUMP;
+}
 
 /** Interpolate along a circuit path so dots stay on the racing line. */
 export class PathCarAnimator {
@@ -179,7 +192,7 @@ export class PathCarAnimator {
 
     const jump = Math.abs(d);
     const allowSeek = Boolean(kinematics?.seek) && !kinematics?.skipSeekJump;
-    if (jump > SEEK_JUMP && allowSeek) {
+    if (jump > seekJumpThreshold(this.tickIntervalMs) && allowSeek) {
       this.lastFrac = target;
       this.visFrac = target;
       this.lastTickAt = now;
@@ -204,13 +217,15 @@ export class PathCarAnimator {
     const dt = Math.min(frameDt, 48);
     let step: number;
     if (speed <= 1) {
-      // Spread each tick over ~0.85× the expected interval (250ms replay / 1s live)
-      // so 1Hz GPS glides instead of snapping in 1–2 frames then freezing.
-      const travelMs = Math.max(80, this.tickIntervalMs * TRAVEL_FRAC_OF_INTERVAL);
+      // Live 1Hz: 90% of travel in 0.9s. Replay: ~0.85× the 250ms tick.
+      const travelMs =
+        this.tickIntervalMs === LIVE_TICK_INTERVAL_MS
+          ? LIVE_TRAVEL_MS
+          : Math.max(80, this.tickIntervalMs * TRAVEL_FRAC_OF_INTERVAL);
       const k = -Math.log(0.1) / travelMs;
       const ease = 1 - Math.exp(-k * dt);
       step = d * Math.min(1, ease);
-      if (Math.abs(d) > SEEK_JUMP) {
+      if (Math.abs(d) > seekJumpThreshold(this.tickIntervalMs)) {
         const maxHole = BASE_MAX_FRAC_PER_MS * speed * dt;
         if (Math.abs(step) > maxHole) step = Math.sign(d) * maxHole;
       }

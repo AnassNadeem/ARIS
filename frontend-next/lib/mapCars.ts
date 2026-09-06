@@ -1,10 +1,13 @@
 import { normalizeCompound, msToSeconds } from "@/lib/compounds";
+import { driverOutOfRace } from "@/lib/timingDisplay";
 import { wrappedDelta } from "@/lib/deadReckoning";
 import { fractionAtPoint, type PathData } from "@/lib/trackGeometry";
 import type { CarState, DriverListing, LivePosition, LiveTimingRow, SectorColour } from "@/lib/types";
 
 /** Ignore GPS projection jitter smaller than this along-track delta. */
 export const LIVE_PATH_FRAC_JITTER = 0.002;
+/** Skip a live path_frac retarget when the GPS sample is this old. */
+export const LIVE_GPS_STALE_MS = 3000;
 
 /** OpenF1 (0,0) placeholders / missing GPS — not a real map coordinate. */
 const GPS_ORIGIN_EPS = 1;
@@ -20,28 +23,70 @@ export function hasLiveGps(x: number | null | undefined, y: number | null | unde
   );
 }
 
+function alongTrackJitter(from: number | undefined, to: number): number {
+  if (from == null || !Number.isFinite(from)) return to;
+  let jitter = wrappedDelta(from, to);
+  if (jitter > 0.5) jitter -= 1;
+  if (Math.abs(jitter) < LIVE_PATH_FRAC_JITTER) return from;
+  return to;
+}
+
 /**
- * Live map fraction from GPS X/Y projected onto the circuit outline.
- * Backend path_frac is ignored while X/Y are present: live ticks often send
- * path_frac=0 (grid snap / timing wrap) even when GPS has moved.
- * Missing GPS keeps the last known fraction instead of snapping to S/F.
+ * Live along-track fraction. A new backend path_frac always wins — that is
+ * what OpenF1 updates every second. GPS is only a fallback when the tick is
+ * a 0/missing placeholder. Stale X/Y must not pin the car after first paint.
+ *
+ * `gpsAgeMs`: age of this position tick vs wall/rAF now. If older than
+ * LIVE_GPS_STALE_MS, keep `prevKnown` so the animator is not yanked to a
+ * 3–12s-old OpenF1 cache sample.
  */
 export function resolveLivePathFrac(
   car: Pick<CarState, "x" | "y" | "path_frac">,
   path: PathData | null | undefined,
   prevKnown: number | undefined,
+  gpsAgeMs?: number,
 ): number {
-  if (path && hasLiveGps(car.x, car.y)) {
-    const next = fractionAtPoint(path, car.x, car.y);
-    if (prevKnown != null && Number.isFinite(prevKnown)) {
-      let jitter = wrappedDelta(prevKnown, next);
-      if (jitter > 0.5) jitter -= 1;
-      if (Math.abs(jitter) < LIVE_PATH_FRAC_JITTER) return prevKnown;
-    }
-    return next;
+  if (
+    gpsAgeMs != null &&
+    Number.isFinite(gpsAgeMs) &&
+    gpsAgeMs > LIVE_GPS_STALE_MS &&
+    prevKnown != null &&
+    Number.isFinite(prevKnown)
+  ) {
+    return prevKnown;
   }
+  const tick = car.path_frac;
+  const tickOk = tick != null && Number.isFinite(tick);
+  const tickMoved = tickOk && tick !== 0;
+  const gps =
+    path && hasLiveGps(car.x, car.y) ? fractionAtPoint(path, car.x, car.y) : null;
+
+  if (tickMoved) {
+    if (gps != null) {
+      let drift = Math.abs(wrappedDelta(gps, tick));
+      if (drift > 0.5) drift = 1 - drift;
+      if (drift > 0.02) return alongTrackJitter(prevKnown, tick);
+      return alongTrackJitter(prevKnown, gps);
+    }
+    return alongTrackJitter(prevKnown, tick);
+  }
+
+  if (gps != null) {
+    const gpsAtSf = gps < 0.015 || gps > 0.985;
+    if (
+      gpsAtSf &&
+      prevKnown != null &&
+      Number.isFinite(prevKnown) &&
+      prevKnown > 0.02 &&
+      prevKnown < 0.98
+    ) {
+      return prevKnown;
+    }
+    return alongTrackJitter(prevKnown, gps);
+  }
+
   if (prevKnown != null && Number.isFinite(prevKnown)) return prevKnown;
-  if (car.path_frac != null && Number.isFinite(car.path_frac)) return car.path_frac;
+  if (tickOk) return tick;
   return 0;
 }
 
@@ -86,11 +131,15 @@ export function mapTimingAndPositions(
     const meta = driverMeta(row.driver_code, drivers);
     const gps = posBy.get(row.driver_code);
     const speedKph = row.speed_kph ?? (gps?.speed_ms != null ? gps.speed_ms * 3.6 : 0);
+    const reason = String(row.reason ?? "").toUpperCase();
+    const retired = /\bDNF\b|\bDNS\b|RETIR|WITHDRAWN|ELIMINATED/.test(reason);
     const status =
       row.status === "DNF" || row.status === "DNS"
         ? row.status
-        : row.eliminated || gps?.is_dnf
-          ? "DNF"
+        : row.eliminated || gps?.is_dnf || retired
+          ? reason.includes("DNS")
+            ? "DNS"
+            : "DNF"
           : (row.status ?? "RUNNING");
     cars[row.driver_code] = {
       driver_code: row.driver_code,
@@ -157,6 +206,15 @@ function carSig(c: CarState): string {
   return `${c.position}|${c.lap_number}|${c.last_lap_s}|${c.best_lap_s}|${c.sector1_s}|${c.sector2_s}|${c.sector3_s}|${c.s1_colour}|${c.s2_colour}|${c.s3_colour}|${c.status}|${c.compound}|${c.tyre_life}|${c.gap_to_leader_s}|${c.fastest_lap}|${c.is_pitted}|${c.is_dnf}|${c.path_frac?.toFixed(4)}|${c.x.toFixed(1)}|${c.y.toFixed(1)}|${Math.round(c.speed_kph)}`;
 }
 
+/** Keep the last live GPS list when a tick omits positions (SSE slim / failed gather). */
+export function mergeLivePositions(
+  prev: LivePosition[],
+  incoming: LivePosition[] | null | undefined,
+): LivePosition[] {
+  if (incoming && incoming.length) return incoming;
+  return prev;
+}
+
 export function mergeByDriverCode<T extends { driver_code: string }>(prev: T[], patch: T[]): T[] {
   if (!patch.length) return prev;
   if (!prev.length) return patch;
@@ -195,14 +253,12 @@ export function mergeCars(
     const nextGpsMissing = !hasLiveGps(b.x, b.y);
     const nextFracMissing = b.path_frac == null || !Number.isFinite(b.path_frac);
     const nextFracPlaceholder = b.path_frac === 0 && nextGpsMissing;
-    if (
-      a &&
-      nextGpsMissing &&
-      (nextFracMissing || nextFracPlaceholder) &&
-      a.path_frac != null &&
-      Number.isFinite(a.path_frac)
-    ) {
-      b = { ...b, path_frac: a.path_frac, x: a.x, y: a.y };
+    if (a && nextGpsMissing) {
+      if ((nextFracMissing || nextFracPlaceholder) && a.path_frac != null && Number.isFinite(a.path_frac)) {
+        b = { ...b, path_frac: a.path_frac, x: a.x, y: a.y };
+      } else {
+        b = { ...b, x: a.x, y: a.y };
+      }
     }
     if (a && carSig(a) === carSig(b)) {
       out[k] = a;
@@ -266,7 +322,7 @@ export function realClassifiedCars(cars: CarState[]): CarState[] {
 
 export function onTrackCarCodes(cars: Record<string, CarState>, ghostCode?: string | null): string {
   const ids = Object.values(cars)
-    .filter((c) => !c.is_pitted && !c.is_dnf && !isGhostRow(c))
+    .filter((c) => !c.is_pitted && !driverOutOfRace(c.status, c.is_dnf) && !isGhostRow(c))
     .map((c) => c.driver_code);
   if (ghostCode) ids.push(ghostCode);
   return ids.sort().join(",");
