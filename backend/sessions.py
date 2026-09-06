@@ -2673,6 +2673,20 @@ def circuit_map_quick(year: int, round_number: int) -> CircuitMapResponse:
     hit = _CIRCUIT_MAP_MEM.get(key)
     if hit is not None and hit.available and hit.x:
         return hit
+    # Disk cache written by /api/circuit/... — avoid FastF1 when already warmed.
+    try:
+        from backend.cache import get_disk
+
+        disk_hit = get_disk().get(f"circuit_map_v6_{int(year)}_{int(round_number)}")
+        if (
+            disk_hit is not None
+            and getattr(disk_hit, "available", False)
+            and getattr(disk_hit, "x", None)
+        ):
+            _CIRCUIT_MAP_MEM[key] = disk_hit
+            return disk_hit
+    except Exception:
+        pass
     open_now = _blocked_open_session(year, round_number, "R")
     # Always try a previous-year outline first so 2025 (and earlier) replays
     # do not block on this year's FastF1 telemetry just to draw the map.

@@ -169,6 +169,95 @@ def test_prefer_openf1_pack_for_practice_only():
     assert _prefer_openf1_pack("Q") is False
 
 
+def test_staged_fill_practice_never_calls_fastf1(monkeypatch):
+    import asyncio
+
+    from backend import live as live_mod
+
+    start = datetime(2026, 9, 4, 14, 0, tzinfo=UTC)
+    key = live_mod.synthetic_session_key(2026, 13, "FP2")
+    pack = live_mod._new_replay_pack(key, 2026, 13, "FP2", start, None)
+    pack["path_x"] = [0.0, 10.0, 10.0, 0.0, 0.0]
+    pack["path_y"] = [0.0, 0.0, 10.0, 10.0, 0.0]
+    live_mod._REPLAY_PACKS[key] = pack
+
+    async def fake_openf1(p, session_key, year, round_number, mapped):
+        p["laps"] = [
+            {
+                "driver_number": 1,
+                "driver_code": "VER",
+                "lap_number": 1,
+                "date_start": "2026-09-04T14:05:00+00:00",
+                "lap_duration": 82.0,
+            }
+        ]
+        p["source"] = "openf1"
+        p["openf1_session_key"] = 11355
+        p["codes"] = {1: "VER"}
+        return True
+
+    async def boom_ff1(*_a, **_k):
+        raise AssertionError("FastF1 must never run for practice packs")
+
+    async def fake_seed(_pack):
+        return None
+
+    monkeypatch.setattr(live_mod, "_fill_pack_openf1", fake_openf1)
+    monkeypatch.setattr(live_mod, "_upgrade_pack_fastf1", boom_ff1)
+    monkeypatch.setattr(live_mod, "_seed_openf1_location_gps", fake_seed)
+    monkeypatch.setattr(live_mod, "save_replay_pack_disk", lambda *_a, **_k: True)
+
+    out = asyncio.run(live_mod._staged_fastf1_fill(pack, key, include_gps=True))
+    assert out["source"] == "openf1"
+    assert out["laps"]
+    assert live_mod.replay_pack_stage(out) == "full"
+    live_mod._REPLAY_PACKS.pop(key, None)
+
+
+def test_run_pack_discards_stale_fastf1_practice_cache(monkeypatch):
+    import asyncio
+
+    from backend import live as live_mod
+
+    start = datetime(2026, 9, 4, 10, 30, tzinfo=UTC)
+    key = live_mod.synthetic_session_key(2026, 13, "FP1")
+    stale = live_mod._new_replay_pack(key, 2026, 13, "FP1", start, None)
+    stale["source"] = "fastf1"
+    stale["laps"] = [{"driver_number": 1, "driver_code": "VER", "lap_number": 1}]
+    stale["stage"] = "full"
+    stale["ff1"] = {"ok": True, "pos_samples": {"VER": [{"lap_frac": 0.0, "path_frac": 0.0}]}}
+    stale["path_traces"] = {"VER": [0.0]}
+    stale["path_traces_v"] = live_mod._PATH_TRACES_V
+    live_mod._REPLAY_PACKS[key] = stale
+
+    async def fake_cold(session_key, year, round_number, mapped, *, executor=None):
+        pack = live_mod._new_replay_pack(session_key, year, round_number, mapped, start, None)
+        pack["laps"] = [
+            {
+                "driver_number": 1,
+                "driver_code": "VER",
+                "lap_number": 1,
+                "date_start": "2026-09-04T10:32:00+00:00",
+                "lap_duration": 84.0,
+            }
+        ]
+        pack["source"] = "openf1"
+        pack["openf1_session_key"] = 11354
+        pack["stage"] = "full"
+        live_mod._REPLAY_PACKS[session_key] = pack
+        return pack, False
+
+    monkeypatch.setattr(live_mod, "_cold_load_minimal", fake_cold)
+    monkeypatch.setattr(live_mod, "hydrate_replay_pack_cache", lambda *_a, **_k: (stale, True, False))
+    monkeypatch.setattr(live_mod, "invalidate_replay_pack", lambda *_a, **_k: None)
+    monkeypatch.setattr(live_mod, "save_replay_pack_disk", lambda *_a, **_k: True)
+
+    out = asyncio.run(live_mod._run_pack_load(key, 2026, 13, session_type="FP1"))
+    assert out["source"] == "openf1"
+    assert out.get("openf1_session_key") == 11354
+    live_mod._REPLAY_PACKS.pop(key, None)
+
+
 def test_openf1_playable_pack_reports_full_stage():
     start = datetime(2026, 9, 4, 10, 30, tzinfo=UTC)
     pack = _new_replay_pack(801_026_131, 2026, 13, "FP1", start, None)
