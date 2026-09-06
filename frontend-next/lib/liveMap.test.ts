@@ -6,7 +6,7 @@ import { countryFlag } from "./flags";
 import { commsTabs, nextSelectorStep } from "./sessionFlow";
 import { driverOutOfRace, fmtGap, fmtSectorTime, sectorClass } from "./timingDisplay";
 import { buildPath, fractionAtPoint, lerpFrac, pointAtFraction } from "./trackGeometry";
-import { PathCarAnimator, LIVE_TICK_INTERVAL_MS, REPLAY_TICK_INTERVAL_MS, SEEK_JUMP_LIVE, wrappedDelta } from "./deadReckoning";
+import { PathCarAnimator, LIVE_COAST_MS, LIVE_TICK_INTERVAL_MS, REPLAY_TICK_INTERVAL_MS, SEEK_JUMP_LIVE, wrappedDelta } from "./deadReckoning";
 import { isFullCircuitOutline, shouldApplyFallbackOutline } from "./circuitCache";
 import { lapRecordsFromApi, stintsFromLapRecords, topNDriverCodes } from "./panelData";
 import { sectorPathsFromOutline } from "./trackGeometry";
@@ -395,6 +395,22 @@ describe("path interpolation", () => {
     }
     expect(frac).toBeGreaterThan(0.01);
     expect(frac).toBeLessThan(0.012);
+  });
+
+  it("coasts forward through a live OpenF1 gap instead of freezing on the last GPS", () => {
+    const path = buildPath([0, 10, 10, 0], [0, 0, 10, 10]);
+    const anim = new PathCarAnimator(path, 0, 140, LIVE_TICK_INTERVAL_MS);
+    anim.onTick(0.01, 0, { playbackSpeed: 1, speedKph: 220 });
+    anim.onTick(0.022, 1000, { playbackSpeed: 1, speedKph: 220 });
+    let t = 1000;
+    let frac = anim.currentFrac(t, true);
+    for (let i = 0; i < 80; i++) {
+      t += 16.67;
+      frac = anim.currentFrac(t, true);
+    }
+    expect(t).toBeGreaterThan(2200);
+    expect(t).toBeLessThan(LIVE_COAST_MS);
+    expect(frac).toBeGreaterThan(0.022);
   });
 
   it("does not snap a live 0.3-lap gap when seeking", () => {

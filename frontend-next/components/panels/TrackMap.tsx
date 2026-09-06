@@ -23,7 +23,7 @@ import {
   viewBoxFor,
   wrap01,
 } from "@/lib/trackGeometry";
-import { onTrackCarCodes, resolveLivePathFrac } from "@/lib/mapCars";
+import { LIVE_GPS_STALE_MS, onTrackCarCodes, resolveLivePathFrac } from "@/lib/mapCars";
 import { driverOutOfRace } from "@/lib/timingDisplay";
 import { chequeredSfFlag, startFinishMarker } from "@/lib/replayFilter";
 import { PlaybackControls } from "@/components/ui/PlaybackControls";
@@ -245,6 +245,8 @@ export function TrackMap() {
           if (car.is_pitted || driverOutOfRace(car.status, car.is_dnf)) continue;
           const prevKnown = lastFrac.current.get(code);
           const isGhost = code.startsWith(GHOST_PREFIX);
+          let liveGpsMoved = true;
+          let liveGpsStale = false;
           let frac: number;
           if (isGhost && store.ghostLapS.length > 1 && racing) {
             const pb = ghostPlaybackAt({
@@ -261,11 +263,13 @@ export function TrackMap() {
           } else if (store.consoleMode === "live") {
             const gpsSig = `${car.path_frac ?? ""}|${car.x}|${car.y}`;
             const prevSig = lastGpsSig.current.get(code);
-            if (prevSig !== gpsSig) {
+            liveGpsMoved = prevSig !== gpsSig;
+            if (liveGpsMoved) {
               lastGpsSig.current.set(code, gpsSig);
               lastGpsChangeAt.current.set(code, now);
             }
             const gpsAgeMs = now - (lastGpsChangeAt.current.get(code) ?? now);
+            liveGpsStale = gpsAgeMs > LIVE_GPS_STALE_MS;
             frac = resolveLivePathFrac(car, line, prevKnown, gpsAgeMs);
           } else if (car.path_frac != null && Number.isFinite(car.path_frac)) {
             frac = car.path_frac;
@@ -290,7 +294,7 @@ export function TrackMap() {
           } else {
             animator.setPath(line);
             animator.setTickInterval(tickIntervalMs);
-            if (packetDue) {
+            if (packetDue && (store.consoleMode !== "live" || liveGpsMoved || seek || speedChanged) && !liveGpsStale) {
               animator.onTick(frac, now, {
                 speedKph: car.speed_kph,
                 headingRad: car.heading_rad,

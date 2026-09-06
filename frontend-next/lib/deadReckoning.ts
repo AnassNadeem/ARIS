@@ -131,6 +131,12 @@ export const REPLAY_TICK_INTERVAL_MS = 250;
 const TRAVEL_FRAC_OF_INTERVAL = 0.85;
 /** Live: 90% of the way to the target in 0.9 s (just before the next 1 Hz tick). */
 const LIVE_TRAVEL_MS = 900;
+/** After OpenF1 goes quiet, keep rolling along the line for this long. */
+export const LIVE_COAST_MS = 6000;
+/** ~55 s/lap cap so a coast cannot sprint. Typical race pace is ~80 s/lap. */
+export const LIVE_COAST_MAX_FRAC_PER_MS = 0.000018;
+/** Fallback when we have not yet measured a tick-to-tick rate (~80 s/lap). */
+const LIVE_COAST_DEFAULT_FRAC_PER_MS = 1 / 80 / 1000;
 
 function seekJumpThreshold(tickIntervalMs: number): number {
   return tickIntervalMs === LIVE_TICK_INTERVAL_MS ? SEEK_JUMP_LIVE : SEEK_JUMP;
@@ -140,12 +146,14 @@ function seekJumpThreshold(tickIntervalMs: number): number {
 export class PathCarAnimator {
   private lastFrac: number;
   private visFrac: number;
-  private lastTickAt = 0;
+  private lastTickAt = -1;
   private lastVisAt = 0;
   private easeMs: number;
   private tickIntervalMs: number;
   private path: PathData;
   private playbackSpeed = 1;
+  /** Last measured along-track rate (frac/ms). Used to coast through GPS gaps. */
+  private fracPerMs = 0;
 
   constructor(
     path: PathData,
@@ -200,8 +208,21 @@ export class PathCarAnimator {
       return;
     }
 
-    // Same GPS sample re-fed every rAF: keep the in-flight glide; do not restart the window.
+    // Same GPS sample re-fed every rAF: keep the in-flight glide / coast.
     if (Math.abs(toLast) < 1e-6) return;
+
+    if (this.lastTickAt >= 0) {
+      const tickDt = Math.max(80, now - this.lastTickAt);
+      if (toLast > 0.0004 && toLast < seekJumpThreshold(this.tickIntervalMs)) {
+        this.fracPerMs = toLast / tickDt;
+      }
+    } else if (this.tickIntervalMs === LIVE_TICK_INTERVAL_MS && this.fracPerMs <= 0) {
+      const kph = kinematics?.speedKph;
+      this.fracPerMs =
+        kph != null && Number.isFinite(kph) && kph > 40
+          ? Math.min(LIVE_COAST_MAX_FRAC_PER_MS, LIVE_COAST_DEFAULT_FRAC_PER_MS * (kph / 220))
+          : LIVE_COAST_DEFAULT_FRAC_PER_MS;
+    }
 
     this.lastFrac = target;
     this.lastTickAt = now;
@@ -215,6 +236,21 @@ export class PathCarAnimator {
     const speed = Math.max(0.25, this.playbackSpeed);
     const d = wrappedDelta(this.visFrac, this.lastFrac);
     const dt = Math.min(frameDt, 48);
+    const live = this.tickIntervalMs === LIVE_TICK_INTERVAL_MS;
+    const sinceTick = this.lastTickAt >= 0 ? now - this.lastTickAt : 0;
+    if (
+      live &&
+      speed <= 1 &&
+      sinceTick > this.tickIntervalMs * 1.15 &&
+      sinceTick < LIVE_COAST_MS
+    ) {
+      const rate = this.fracPerMs > 0 ? this.fracPerMs : LIVE_COAST_DEFAULT_FRAC_PER_MS;
+      const coast = Math.min(rate, LIVE_COAST_MAX_FRAC_PER_MS) * dt;
+      this.visFrac = wrap01(this.visFrac + coast);
+      // Keep the target on the coasted nose so a stale re-feed cannot ease backwards.
+      this.lastFrac = this.visFrac;
+      return this.visFrac;
+    }
     let step: number;
     if (speed <= 1) {
       // Live 1Hz: 90% of travel in 0.9s. Replay: ~0.85× the 250ms tick.
