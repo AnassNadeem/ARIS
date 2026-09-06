@@ -124,6 +124,17 @@ export function pitStopsFromLaps(rows: ApiLapRow[]): PitStopRecord[] {
     }));
 }
 
+/** OpenF1 live laps often omit pit_in_lap; stint starts after stint 1 are boxes. */
+export function pitStopsFromStints(rows: ApiStintRow[]): PitStopRecord[] {
+  return rows
+    .filter((r) => r.stint_number > 1 && r.lap_start > 1)
+    .map((r) => ({
+      driverCode: r.driver_code,
+      lap: r.lap_start,
+      durationS: 2.4,
+    }));
+}
+
 export function lapsUpTo(laps: LapRecord[], currentLap: number): LapRecord[] {
   return laps.filter((l) => l.lap <= Math.max(0, currentLap));
 }

@@ -3,6 +3,7 @@ import {
   lapRecordsFromApi,
   lapsUpTo,
   pitStopsFromLaps,
+  pitStopsFromStints,
   stintRecordsFromApi,
   stintsFromLapRecords,
   stintsUpTo,
@@ -65,10 +66,14 @@ export function usePanelHistory() {
   }
   const laps = hasApi ? lapsUpTo(liveLaps, currentLap) : [];
   const stints = hasApi ? stintsUpTo(liveStints, currentLap) : [];
+  const fromLaps = pitStopsFromLaps(lapRows);
+  const pitStops = (fromLaps.length ? fromLaps : pitStopsFromStints(stintRows)).filter(
+    (p) => p.lap <= currentLap,
+  );
   return {
     laps,
     stints,
-    pitStops: hasApi ? pitStopsFromLaps(lapRows).filter((p) => p.lap <= currentLap) : [],
+    pitStops: hasApi ? pitStops : [],
     drivers: gridDrivers,
     fromApi: hasApi,
     totalLaps,
