@@ -1,6 +1,10 @@
 import { normalizeCompound, msToSeconds } from "@/lib/compounds";
+import { wrappedDelta } from "@/lib/deadReckoning";
 import { fractionAtPoint, type PathData } from "@/lib/trackGeometry";
 import type { CarState, DriverListing, LivePosition, LiveTimingRow, SectorColour } from "@/lib/types";
+
+/** Ignore GPS projection jitter smaller than this along-track delta. */
+export const LIVE_PATH_FRAC_JITTER = 0.002;
 
 /** OpenF1 (0,0) placeholders / missing GPS — not a real map coordinate. */
 const GPS_ORIGIN_EPS = 1;
@@ -28,7 +32,13 @@ export function resolveLivePathFrac(
   prevKnown: number | undefined,
 ): number {
   if (path && hasLiveGps(car.x, car.y)) {
-    return fractionAtPoint(path, car.x, car.y);
+    const next = fractionAtPoint(path, car.x, car.y);
+    if (prevKnown != null && Number.isFinite(prevKnown)) {
+      let jitter = wrappedDelta(prevKnown, next);
+      if (jitter > 0.5) jitter -= 1;
+      if (Math.abs(jitter) < LIVE_PATH_FRAC_JITTER) return prevKnown;
+    }
+    return next;
   }
   if (prevKnown != null && Number.isFinite(prevKnown)) return prevKnown;
   if (car.path_frac != null && Number.isFinite(car.path_frac)) return car.path_frac;
@@ -76,7 +86,12 @@ export function mapTimingAndPositions(
     const meta = driverMeta(row.driver_code, drivers);
     const gps = posBy.get(row.driver_code);
     const speedKph = row.speed_kph ?? (gps?.speed_ms != null ? gps.speed_ms * 3.6 : 0);
-    const status = row.status ?? (row.eliminated ? "DNF" : gps?.is_dnf ? "DNF" : "RUNNING");
+    const status =
+      row.status === "DNF" || row.status === "DNS"
+        ? row.status
+        : row.eliminated || gps?.is_dnf
+          ? "DNF"
+          : (row.status ?? "RUNNING");
     cars[row.driver_code] = {
       driver_code: row.driver_code,
       driver_number: meta?.driver_number ?? 0,
@@ -121,7 +136,7 @@ export function sessionFlagToPhase(flag: string | null | undefined): "GREEN" | "
   const u = (flag ?? "").toUpperCase();
   if (u === "SC") return "SC";
   if (u === "VSC") return "VSC";
-  if (u === "RED") return "RED_FLAG";
+  if (u === "RED" || u === "RED_FLAG" || u.includes("RED FLAG")) return "RED_FLAG";
   return "GREEN";
 }
 

@@ -278,20 +278,16 @@ export async function getCircuitCoords(year: number, round: number): Promise<Cir
 
   return (
     (await dedupe(`GET:/api/circuit/${year}/${round}/map`, async () => {
-      const years = year >= 2026 ? [year, year - 1, year - 2] : [year, year - 1];
-      let preview: CircuitCoords | null = null;
-      for (const y of years) {
-        if (y < 2018) continue;
-        const full = coordsFromMapPayload(
-          await tryFetch<CircuitMapPayload>(`/api/circuit/${y}/${round}/map`, undefined, 45000),
-        );
-        if (full && isFullCircuitOutline(full)) {
-          writeCircuitCache(year, round, full);
-          return full;
-        }
-        if (full?.x?.length && !preview) preview = full;
+      // Same championship round is a different track across years (2026 R13
+      // Monza ≠ 2025 R13). Backend /map already copies the same circuit_key.
+      const full = coordsFromMapPayload(
+        await tryFetch<CircuitMapPayload>(`/api/circuit/${year}/${round}/map`, undefined, 45000),
+      );
+      if (full && isFullCircuitOutline(full)) {
+        writeCircuitCache(year, round, full);
+        return full;
       }
-      return preview;
+      return full;
     })) ?? { x: [], y: [], available: false }
   );
 }

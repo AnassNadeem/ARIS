@@ -116,6 +116,12 @@ export const BASE_MAX_FRAC_PER_MS = 0.00008;
 export const SEEK_JUMP = 0.22;
 /** 1×: allow a GPS-sized bump per frame, not a hole-teleport. */
 export const BUMP_MAX_FRAC = 0.012;
+/** Live SSE / OpenF1 poll slot — interpolate across the full second. */
+export const LIVE_TICK_INTERVAL_MS = 1000;
+/** Replay frame poll cadence. */
+export const REPLAY_TICK_INTERVAL_MS = 250;
+/** Finish ~90% of a tick's travel before the next sample arrives. */
+const TRAVEL_FRAC_OF_INTERVAL = 0.85;
 
 /** Interpolate along a circuit path so dots stay on the racing line. */
 export class PathCarAnimator {
@@ -124,18 +130,30 @@ export class PathCarAnimator {
   private lastTickAt = 0;
   private lastVisAt = 0;
   private easeMs: number;
+  private tickIntervalMs: number;
   private path: PathData;
   private playbackSpeed = 1;
 
-  constructor(path: PathData, initialFrac = 0, easeMs = 140) {
+  constructor(
+    path: PathData,
+    initialFrac = 0,
+    easeMs = 140,
+    tickIntervalMs = REPLAY_TICK_INTERVAL_MS,
+  ) {
     this.path = path;
     this.lastFrac = wrap01(initialFrac);
     this.visFrac = this.lastFrac;
     this.easeMs = easeMs;
+    this.tickIntervalMs = Math.max(1, tickIntervalMs);
   }
 
   setPath(path: PathData) {
     this.path = path;
+  }
+
+  setTickInterval(ms: number) {
+    if (!Number.isFinite(ms) || ms <= 0) return;
+    this.tickIntervalMs = ms;
   }
 
   onTick(frac: number, now: number, kinematics?: PathTickKinematics) {
@@ -156,7 +174,8 @@ export class PathCarAnimator {
     }
 
     const d = wrappedDelta(this.visFrac, target);
-    if (Math.abs(d) < 1e-6 && Math.abs(wrappedDelta(this.lastFrac, target)) < 1e-6) return;
+    const toLast = wrappedDelta(this.lastFrac, target);
+    if (Math.abs(d) < 1e-6 && Math.abs(toLast) < 1e-6) return;
 
     const jump = Math.abs(d);
     const allowSeek = Boolean(kinematics?.seek) && !kinematics?.skipSeekJump;
@@ -167,6 +186,9 @@ export class PathCarAnimator {
       this.lastVisAt = now;
       return;
     }
+
+    // Same GPS sample re-fed every rAF: keep the in-flight glide; do not restart the window.
+    if (Math.abs(toLast) < 1e-6) return;
 
     this.lastFrac = target;
     this.lastTickAt = now;
@@ -182,11 +204,16 @@ export class PathCarAnimator {
     const dt = Math.min(frameDt, 48);
     let step: number;
     if (speed <= 1) {
-      // Follow the timing/GPS target closely so 1× reads as small natural bumps,
-      // not a lagged ease. Still cap a hole so a bad sample cannot teleport.
-      step = d * 0.72;
-      const maxBump = BUMP_MAX_FRAC * (dt / 16.67);
-      if (Math.abs(step) > maxBump) step = Math.sign(d) * maxBump;
+      // Spread each tick over ~0.85× the expected interval (250ms replay / 1s live)
+      // so 1Hz GPS glides instead of snapping in 1–2 frames then freezing.
+      const travelMs = Math.max(80, this.tickIntervalMs * TRAVEL_FRAC_OF_INTERVAL);
+      const k = -Math.log(0.1) / travelMs;
+      const ease = 1 - Math.exp(-k * dt);
+      step = d * Math.min(1, ease);
+      if (Math.abs(d) > SEEK_JUMP) {
+        const maxHole = BASE_MAX_FRAC_PER_MS * speed * dt;
+        if (Math.abs(step) > maxHole) step = Math.sign(d) * maxHole;
+      }
     } else {
       const ease = 1 - Math.pow(1 - 0.18, dt / 16.67);
       step = d * Math.min(1, ease);

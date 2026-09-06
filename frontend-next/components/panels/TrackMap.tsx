@@ -3,7 +3,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRaceStore } from "@/store/raceStore";
 import { getCircuitCoords, ghostMapFeatureEnabled } from "@/lib/api";
-import { PathCarAnimator, GPS_HOLD_MS } from "@/lib/deadReckoning";
+import {
+  PathCarAnimator,
+  GPS_HOLD_MS,
+  LIVE_TICK_INTERVAL_MS,
+  REPLAY_TICK_INTERVAL_MS,
+} from "@/lib/deadReckoning";
 import { PIT_ENTRY_FRAC, ghostPlaybackAt } from "@/lib/ghostCar";
 import { replayDisplayFrac } from "@/lib/r2Replay";
 import { replayDisplayElapsed } from "@/lib/timingPath";
@@ -135,16 +140,22 @@ export function TrackMap() {
 
   useEffect(() => {
     let mounted = true;
-    const existing = useRaceStore.getState().circuitOutline;
-    if (existing?.x?.length) {
-      setCoords(existing);
-      setOutlineSettled(true);
+    const year = session?.year;
+    const round = session?.round;
+    if (year == null || round == null) {
+      setOutlineSettled(false);
       return () => {
         mounted = false;
       };
     }
+    setCoords(null);
     setOutlineSettled(false);
-    getCircuitCoords(session?.year ?? new Date().getUTCFullYear(), session?.round ?? 15)
+    const existing = useRaceStore.getState().circuitOutline;
+    if (existing?.x?.length) {
+      setCoords(existing);
+      setOutlineSettled(true);
+    }
+    getCircuitCoords(year, round)
       .then((c) => {
         if (!mounted) return;
         if (c.x.length) {
@@ -162,10 +173,7 @@ export function TrackMap() {
 
   useEffect(() => {
     if (!circuitOutline?.x?.length) return;
-    setCoords((prev) => {
-      if (prev && prev.x.length >= circuitOutline.x.length) return prev;
-      return circuitOutline;
-    });
+    setCoords(circuitOutline);
   }, [circuitOutline]);
 
   const path = useMemo(() => (coords ? buildPath(coords.x, coords.y) : null), [coords]);
@@ -257,13 +265,16 @@ export function TrackMap() {
             else if (d < -0.05) frac = prevKnown;
           }
           let animator = animators.current.get(code);
+          const tickIntervalMs =
+            store.consoleMode === "live" ? LIVE_TICK_INTERVAL_MS : REPLAY_TICK_INTERVAL_MS;
           if (!animator) {
-            animator = new PathCarAnimator(line, frac, 140);
+            animator = new PathCarAnimator(line, frac, 140, tickIntervalMs);
             animators.current.set(code, animator);
             lastFrac.current.set(code, frac);
             animator.onTick(frac, now, { playbackSpeed: store.playbackSpeed, seek: true, skipSeekJump: true });
           } else {
             animator.setPath(line);
+            animator.setTickInterval(tickIntervalMs);
             if (packetDue) {
               animator.onTick(frac, now, {
                 speedKph: car.speed_kph,

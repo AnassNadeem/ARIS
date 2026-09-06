@@ -705,6 +705,32 @@ def test_live_status_round_matches_monza_weekend(monkeypatch):
     assert status.source == "openf1"
 
 
+def test_fastf1_fallback_without_session_key_is_not_live(monkeypatch):
+    import asyncio
+
+    from backend import live as live_mod
+    from backend.models import LiveStatus
+
+    async def fake_peek(_as_of=None):
+        return None
+
+    def fake_local(_as_of=None):
+        return LiveStatus(
+            is_live=True,
+            year=2026,
+            round_number=13,
+            session_type="Q",
+            session_name="Qualifying",
+            gp_name="Italy",
+        )
+
+    monkeypatch.setattr(live_mod, "peek_live_session", fake_peek)
+    monkeypatch.setattr(live_mod, "_fastf1_window_live", fake_local)
+    status = asyncio.run(live_mod.live_status(datetime(2026, 9, 5, 14, 15, tzinfo=UTC)))
+    assert status.is_live is False
+    assert status.session_key is None
+
+
 def test_weekend_calendar_attaches_live_fp1(monkeypatch):
     import asyncio
 
@@ -770,6 +796,21 @@ def test_chequered_closes_live_window():
     assert _session_window_live(sess, still) is True
     assert _session_window_live(sess, done) is False
     _STATE["race_control"] = []
+
+
+def test_stale_chequered_blocks_next_session_until_cleared():
+    from backend.live import _STATE, _session_window_live
+
+    _STATE["race_control"] = [{"flag": "CHEQUERED", "date": "2026-09-05T15:27:00+00:00"}]
+    race = {
+        "session_name": "Race",
+        "date_start": "2026-09-06T13:00:00+00:00",
+        "date_end": "2026-09-06T15:00:00+00:00",
+    }
+    as_of = datetime(2026, 9, 6, 13, 5, tzinfo=timezone.utc)
+    assert _session_window_live(race, as_of) is False
+    _STATE["race_control"] = []
+    assert _session_window_live(race, as_of) is True
 
 
 def test_session_window_opens_20_min_before_sprint():
@@ -1089,6 +1130,46 @@ def test_flag_from_rc_reads_yellow_and_red():
         )
         == "YELLOW"
     )
+    assert (
+        _flag_from_rc(
+            [
+                {"flag": "Other", "message": "RED FLAG - RACE SUSPENDED"},
+                {"flag": "GREEN", "message": "GREEN LIGHT - PIT EXIT OPEN"},
+                {"flag": "Other", "message": "RESUMPTION ORDER: 63, 10, 3, 81"},
+                {"flag": "YELLOW", "message": "YELLOW IN TRACK SECTOR 8"},
+                {"flag": "CLEAR", "message": "CLEAR IN TRACK SECTOR 8"},
+            ]
+        )
+        == "RED"
+    )
+    assert (
+        _flag_from_rc(
+            [
+                {"flag": "Other", "message": "RED FLAG - RACE SUSPENDED"},
+                {"flag": "GREEN", "message": "LIGHTS OUT"},
+            ]
+        )
+        == "GREEN"
+    )
+
+
+def test_eliminated_from_resumption_order_and_stopped():
+    from backend.live import _eliminated_codes
+
+    codes = {63: "RUS", 10: "GAS", 81: "PIA", 16: "LEC"}
+    out = _eliminated_codes(
+        [
+            {"flag": "Other", "message": "RESUMPTION ORDER: 63, 10, 81"},
+        ],
+        codes,
+    )
+    assert "LEC" in out
+    assert "RUS" not in out
+    crashed = _eliminated_codes(
+        [{"flag": "Other", "message": "CAR 16 STOPPED ON TRACK"}],
+        codes,
+    )
+    assert "LEC" in crashed
 
 
 def test_gps_usable_rejects_origin_and_stale():

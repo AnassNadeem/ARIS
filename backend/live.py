@@ -2267,22 +2267,48 @@ def _eliminated_codes(messages: list[Any], codes: dict[int, str]) -> set[str]:
         "ELIMINATED",
         "KNOCKED OUT",
         "RETIRED",
+        "RETIRES",
         " DNF",
         "WITHDRAWN",
         "DID NOT START",
         "OUT OF THE RACE",
+        "OUT OF THE SESSION",
         "BLACK FLAG",
+        "STOPPED ON TRACK",
+        "STOPPED",
+        "CRASH",
+        "IN THE BARRIER",
+        "IN THE WALL",
+        "HEAVY DAMAGE",
     )
     for row in messages:
         if not isinstance(row, dict):
             continue
         blob = f"{row.get('message') or ''} {row.get('flag') or ''} {row.get('category') or ''}".upper()
+        if "RESUMPTION ORDER" in blob:
+            nums = re.findall(r"\d+", blob.split(":", 1)[-1])
+            present = {by_num.get(n) for n in nums}
+            present.discard(None)
+            field = {c for c in codes.values() if c}
+            if present and field and len(present) < len(field):
+                enough = len(present) >= max(10, len(field) - 4) or (
+                    len(field) <= 8 and len(present) >= max(2, len(field) - 2)
+                )
+                if enough:
+                    for code in field:
+                        if code not in present:
+                            out.add(code)
+            continue
         if not any(tok in blob for tok in stop_words):
             continue
         for code in by_code:
             if code and code in blob:
                 out.add(code)
         for num in re.findall(r"\bCAR\s+(\d+)\b", blob):
+            code = by_num.get(num)
+            if code:
+                out.add(code)
+        for num in re.findall(r"\b(?:#|NO\.?)\s*(\d+)\b", blob):
             code = by_num.get(num)
             if code:
                 out.add(code)
@@ -3774,7 +3800,22 @@ def _flag_from_rc(rc: list[Any]) -> str:
             vsc = False
             yellow_sectors.clear()
             continue
-        if raw_flag == "GREEN" or "TRACK CLEAR" in blob or "GREEN FLAG" in blob or "LIGHTS OUT" in blob:
+        # Pit-exit green / restart order are not the official end of a red flag.
+        if "PIT EXIT" in blob or "GREEN LIGHT" in blob or "RESUMPTION ORDER" in blob:
+            continue
+        if (
+            raw_flag == "GREEN"
+            or "TRACK CLEAR" in blob
+            or "GREEN FLAG" in blob
+            or "LIGHTS OUT" in blob
+            or "RACE RESUMED" in blob
+            or "SESSION RESUMED" in blob
+        ):
+            if red and ("SECTOR" in blob or raw_flag == "CLEAR"):
+                if sector:
+                    yellow_sectors.discard(sector)
+                    yellow_sectors.discard("all")
+                continue
             red = False
             sc = False
             vsc = False

@@ -140,12 +140,19 @@ const TimingRow = memo(function TimingRow({
           <>
             <span className="h-2 w-1 rounded-sm" style={{ background: car.team_colour }} />
             <span>{code}</span>
+            {out ? (
+              <span className="rounded-sm bg-[#E8002D]/20 px-1 text-[9px] font-bold uppercase text-[#E8002D]">
+                {car.status === "DNS" ? "DNS" : "DNF"}
+              </span>
+            ) : null}
           </>
         )}
       </span>
       <span className="text-right text-muted">
         {isGhost && car.ghost_in_pits ? (
           <span className="font-semibold text-white">IN PITS</span>
+        ) : out ? (
+          <span className="font-semibold text-[#E8002D]">{car.status === "DNS" ? "DNS" : "DNF"}</span>
         ) : (
           fmtGap(car.gap_to_leader_s, car.laps_down)
         )}
@@ -214,7 +221,13 @@ export function TimingTower() {
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-carbon font-mono-data text-[11px] [overflow-anchor:none]">
       {banner && (
-        <div className="h-7 shrink-0 bg-[#FF8700]/20 px-2 py-1 text-center text-[10px] font-semibold uppercase text-[#FF8700]">
+        <div
+          className={`h-7 shrink-0 px-2 py-1 text-center text-[10px] font-semibold uppercase ${
+            racePhase === "RED_FLAG"
+              ? "bg-[#E8002D]/25 text-[#E8002D]"
+              : "bg-[#FF8700]/20 text-[#FF8700]"
+          }`}
+        >
           {banner}
         </div>
       )}

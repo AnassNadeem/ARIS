@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { filterReplayRounds, replayYears, defaultReplayYear, startFinishMarker, isReplayableRound, chequeredSfFlag, keepRoundsWithPack, formatRaceDate } from "./replayFilter";
-import { annotateGhostTower, hasLiveGps, mapTimingAndPositions, mergeByDriverCode, mergeCars, onTrackCarCodes, orderTimingTower, rankGhostByGap, realClassifiedCars, resolveLivePathFrac, sessionFlagToPhase, timingEqual, timingFingerprint } from "./mapCars";
+import { annotateGhostTower, hasLiveGps, LIVE_PATH_FRAC_JITTER, mapTimingAndPositions, mergeByDriverCode, mergeCars, onTrackCarCodes, orderTimingTower, rankGhostByGap, realClassifiedCars, resolveLivePathFrac, sessionFlagToPhase, timingEqual, timingFingerprint } from "./mapCars";
 import { normalizeCompound, msToSeconds } from "./compounds";
 import { countryFlag } from "./flags";
 import { commsTabs, nextSelectorStep } from "./sessionFlow";
 import { driverOutOfRace, fmtGap, fmtSectorTime, sectorClass } from "./timingDisplay";
 import { buildPath, fractionAtPoint, lerpFrac, pointAtFraction } from "./trackGeometry";
-import { PathCarAnimator, wrappedDelta } from "./deadReckoning";
+import { PathCarAnimator, LIVE_TICK_INTERVAL_MS, REPLAY_TICK_INTERVAL_MS, wrappedDelta } from "./deadReckoning";
 import { isFullCircuitOutline, shouldApplyFallbackOutline } from "./circuitCache";
 import { lapRecordsFromApi, stintsFromLapRecords, topNDriverCodes } from "./panelData";
 import { sectorPathsFromOutline } from "./trackGeometry";
@@ -198,6 +198,33 @@ describe("mapTimingAndPositions", () => {
     expect(cars.GAS.is_dnf).toBe(true);
     expect(cars.GAS.status).toBe("DNF");
   });
+
+  it("labels eliminated live rows as DNF even when status is still RUNNING", () => {
+    const cars = mapTimingAndPositions(
+      [{
+        position: 20,
+        driver_code: "ALB",
+        gap_to_leader_s: null,
+        gap_to_ahead_s: null,
+        last_lap_ms: null,
+        compound: null,
+        tyre_life: null,
+        pit_count: 0,
+        team_colour: null,
+        in_pit: false,
+        lap_number: 4,
+        speed_kph: null,
+        status: "RUNNING",
+        eliminated: true,
+      }],
+      [],
+      [{ driver_number: 23, driver_code: "ALB", full_name: "Alex Albon", team: "Williams", team_colour: "#1868DB" }],
+      53,
+      4,
+    );
+    expect(cars.ALB.is_dnf).toBe(true);
+    expect(cars.ALB.status).toBe("DNF");
+  });
 });
 
 describe("helpers", () => {
@@ -205,6 +232,8 @@ describe("helpers", () => {
     expect(normalizeCompound("S")).toBe("SOFT");
     expect(msToSeconds(1000)).toBe(1);
     expect(sessionFlagToPhase("SC")).toBe("SC");
+    expect(sessionFlagToPhase("RED")).toBe("RED_FLAG");
+    expect(sessionFlagToPhase("RED FLAG")).toBe("RED_FLAG");
     expect(countryFlag("Netherlands")).toBe("🇳🇱");
   });
 });
@@ -281,6 +310,8 @@ describe("path interpolation", () => {
   it("keeps S/F wrap forward and does not reverse a >0.5 jump", () => {
     expect(wrappedDelta(0.9, 0.1)).toBeCloseTo(0.2, 5);
     expect(wrappedDelta(0.1, 0.9)).toBeCloseTo(0.8, 5);
+    expect(wrappedDelta(0.98, 0.02)).toBeCloseTo(0.04, 5);
+    expect(wrappedDelta(0.02, 0.98)).toBeCloseTo(0.96, 5);
   });
 
   it("eases toward a new tick instead of snapping", () => {
@@ -303,13 +334,38 @@ describe("path interpolation", () => {
     expect(a.frac).toBeLessThan(0.05);
   });
 
-  it("follows a 1x GPS-sized bump instead of lagging it", () => {
+  it("glides a 1x replay tick over the 250ms window instead of snapping", () => {
     const path = buildPath([0, 10, 10, 0], [0, 0, 10, 10]);
-    const anim = new PathCarAnimator(path, 0, 140);
+    const anim = new PathCarAnimator(path, 0, 140, REPLAY_TICK_INTERVAL_MS);
     anim.onTick(0.01, 0, { playbackSpeed: 1 });
     const a = anim.currentPosition(16, true);
-    expect(a.frac).toBeGreaterThan(0.005);
-    expect(a.frac).toBeLessThan(0.012);
+    expect(a.frac).toBeGreaterThan(0);
+    expect(a.frac).toBeLessThan(0.005);
+    let t = 16;
+    let frac = a.frac;
+    for (let i = 0; i < 13; i++) {
+      t += 16.67;
+      frac = anim.currentFrac(t, true);
+    }
+    expect(frac).toBeGreaterThan(0.008);
+    expect(frac).toBeLessThan(0.011);
+  });
+
+  it("spreads a live 1Hz tick over ~0.85s instead of completing in one frame", () => {
+    const path = buildPath([0, 10, 10, 0], [0, 0, 10, 10]);
+    const anim = new PathCarAnimator(path, 0, 140, LIVE_TICK_INTERVAL_MS);
+    anim.onTick(0.012, 0, { playbackSpeed: 1 });
+    const early = anim.currentPosition(16, true);
+    expect(early.frac).toBeGreaterThan(0);
+    expect(early.frac).toBeLessThan(0.002);
+    let t = 16;
+    let frac = early.frac;
+    for (let i = 0; i < 51; i++) {
+      t += 16.67;
+      frac = anim.currentFrac(t, true);
+    }
+    expect(frac).toBeGreaterThan(0.01);
+    expect(frac).toBeLessThan(0.012);
   });
 
   it("snaps onto the new target when playback speed drops", () => {
@@ -509,6 +565,16 @@ describe("resolveLivePathFrac", () => {
   it("holds the last fraction when GPS is missing", () => {
     const held = resolveLivePathFrac({ x: 0, y: 0, path_frac: 0 }, square, 0.61);
     expect(held).toBe(0.61);
+  });
+
+  it("suppresses sub-0.002 path_frac jitter so the animator keeps its trajectory", () => {
+    const alongTop = resolveLivePathFrac({ x: 10, y: 0, path_frac: 0 }, square, 0);
+    const jittered = resolveLivePathFrac({ x: 10, y: 0.04, path_frac: 0 }, square, alongTop);
+    const moved = resolveLivePathFrac({ x: 8, y: 0, path_frac: 0 }, square, alongTop);
+    expect(LIVE_PATH_FRAC_JITTER).toBe(0.002);
+    expect(jittered).toBe(alongTop);
+    expect(moved).not.toBe(alongTop);
+    expect(moved).toBeLessThan(alongTop);
   });
 
   it("advances as a car travels around the outline", () => {
