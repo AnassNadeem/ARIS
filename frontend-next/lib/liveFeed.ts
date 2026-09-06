@@ -149,10 +149,16 @@ function maybeAnnounceGhostBoxing(car: CarState, driver: string | null): void {
   ghostWasInPits = nowInPits;
 }
 
-/** At lights-out the ghost shares the real driver's grid slot. */
+function simulatedTickPosition(pos: number | null | undefined): number | null {
+  const n = Number(pos);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** At lights-out the ghost shares the real driver's grid slot. Replay only. */
 function pinGhostToGridAtStart(car: CarState, real: CarState | null): CarState {
   if (!real?.position || real.position <= 0) return car;
   const store = useRaceStore.getState();
+  if (store.consoleMode === "live") return car;
   const frac = store.r2RaceField
     ? elapsedToLap(store.r2RaceField, store.replayElapsedS).lapFrac
     : store.replayElapsedS <= 0
@@ -169,9 +175,19 @@ function pinGhostToGridAtStart(car: CarState, real: CarState | null): CarState {
   };
 }
 
-function finalizeGhostCar(car: CarState, real: CarState | null): CarState {
+/** Live: tick position or delta ranking. Never copy the real driver's slot. */
+export function finalizeGhostCar(
+  car: CarState,
+  real: CarState | null,
+  tickPosition?: number | null,
+): CarState {
   const store = useRaceStore.getState();
-  return pinGhostToGridAtStart(annotateGhostTower(car, store.cars, real), real);
+  const ranked = annotateGhostTower(car, store.cars, real);
+  if (store.consoleMode === "live") {
+    const fromTick = simulatedTickPosition(tickPosition);
+    return fromTick != null ? { ...ranked, position: fromTick } : ranked;
+  }
+  return pinGhostToGridAtStart(ranked, real);
 }
 
 function applyGhost(payload: SsePayload) {
@@ -270,7 +286,11 @@ function applyGhost(payload: SsePayload) {
     }
     mapped.plan_pit_laps = pitLaps;
     mapped.plan_pit_compounds = pitCompounds as typeof mapped.plan_pit_compounds;
-    const car = finalizeGhostCar(ghostCarFromTick(mapped, real, ghostLap, store.totalLaps, playback), real);
+    const car = finalizeGhostCar(
+      ghostCarFromTick(mapped, real, ghostLap, store.totalLaps, playback),
+      real,
+      rankTick?.position ?? mapped.ghost_position,
+    );
     car.last_lap_s = playback ? ghostLastLapS(ghostLapS, playback.lastCompletedLap) : null;
     if (car.ghost_in_pits && !car.ghost_pit_compound) {
       const pitLap = pitLaps.find((p) => p === ghostLap) ?? ghostLap;
@@ -295,7 +315,11 @@ function applyGhost(payload: SsePayload) {
   const tick = asGhostTick(patched);
   if (tick) {
     store.setGhostData(tick);
-    const car = finalizeGhostCar(ghostCarFromTick(tick, real, ghostLap, store.totalLaps, playback), real);
+    const car = finalizeGhostCar(
+      ghostCarFromTick(tick, real, ghostLap, store.totalLaps, playback),
+      real,
+      tick.ghost_position,
+    );
     maybeAnnounceGhostBoxing(car, driver);
     store.setGhostCar(car);
     store.setGhostReason(null);
@@ -303,7 +327,11 @@ function applyGhost(payload: SsePayload) {
   }
   const rec = store.pendingRecommendation ?? store.lastRecommendation;
   if (rec && real && driver) {
-    const car = finalizeGhostCar(syntheticGhostCar(rec, real, store.currentLap, store.totalLaps, playback), real);
+    const car = finalizeGhostCar(
+      { ...syntheticGhostCar(rec, real, store.currentLap, store.totalLaps, playback), position: null },
+      real,
+      null,
+    );
     maybeAnnounceGhostBoxing(car, driver);
     store.setGhostCar(car);
     store.setGhostData(syntheticGhostTick(rec, driver, store.currentLap));
@@ -311,7 +339,11 @@ function applyGhost(payload: SsePayload) {
     return;
   }
   if (real && store.consoleMode === "live") {
-    const car = finalizeGhostCar(probeGhostCar(real, store.currentLap, store.totalLaps), real);
+    const car = finalizeGhostCar(
+      { ...probeGhostCar(real, store.currentLap, store.totalLaps), position: null },
+      real,
+      null,
+    );
     maybeAnnounceGhostBoxing(car, driver);
     store.setGhostCar(car);
     store.setGhostReason(store.ghostReason === "live_probe" ? "live_probe" : payload.ghost_reason ?? "live_probe");
