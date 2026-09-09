@@ -108,3 +108,44 @@ def test_approaching_does_not_block_sc(monkeypatch):
         ),
     )
     assert check_triggers(session, _event(20)) == DecisionKind.SC
+
+
+def test_rain_start_and_stop_fire_and_bypass_lap_cooldown(monkeypatch):
+    session = _session()
+    _patch_laps(monkeypatch)
+    rain = {"v": False}
+
+    def fake_state(self, lap_number: int | None = None) -> RaceState:
+        return _state(lap=int(lap_number or 40), tyre_life=5).model_copy(
+            update={"rainfall": rain["v"]}
+        )
+
+    monkeypatch.setattr(RaceEngineSession, "build_state", fake_state)
+
+    assert check_triggers(session, _event(40)) is None
+    assert session.prev_rainfall is False
+
+    rain["v"] = True
+    assert check_triggers(session, _event(41)) == DecisionKind.RAIN_START
+    assert session.prev_rainfall is True
+
+    # Already in triggered_laps from a prior pit — rain must still fire.
+    session.triggered_laps.add(42)
+    rain["v"] = False
+    assert check_triggers(session, _event(42)) == DecisionKind.RAIN_STOP
+    assert session.prev_rainfall is False
+
+
+def test_rain_start_does_not_fire_on_first_wet_tick(monkeypatch):
+    session = _session()
+    _patch_laps(monkeypatch)
+    monkeypatch.setattr(
+        RaceEngineSession,
+        "build_state",
+        lambda self, lap_number=None: _state(
+            lap=int(lap_number or 10), tyre_life=5
+        ).model_copy(update={"rainfall": True}),
+    )
+    kind = check_triggers(session, _event(10))
+    assert kind != DecisionKind.RAIN_START
+    assert session.prev_rainfall is True

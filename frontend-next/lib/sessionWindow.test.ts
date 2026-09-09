@@ -26,7 +26,7 @@ const MONZA_HUB: LiveHub = {
   live: {
     is_live: false,
     year: 2026,
-    round_number: 13,
+    round_number: 16,
     session_type: "FP1",
     session_name: "Free Practice 1",
     gp_name: "Italy",
@@ -37,7 +37,7 @@ const MONZA_HUB: LiveHub = {
   },
   next: {
     year: 2026,
-    round_number: 13,
+    round_number: 16,
     name: "Italy",
     circuit_name: "Autodromo Nazionale Monza",
     circuit_key: "italy",

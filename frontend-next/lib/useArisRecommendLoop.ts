@@ -1,7 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { annotateVsActivePlan, autoDecisionStatement, fetchRecommendation, recommendNarration, shouldFetchRecommend } from "@/lib/arisRecommend";
+import {
+  annotateVsActivePlan,
+  autoDecisionStatement,
+  fetchRecommendation,
+  isLightsOutLap,
+  lightsOutPlanStatement,
+  recommendFetchWanted,
+  recommendNarration,
+  shouldFetchRecommend,
+} from "@/lib/arisRecommend";
 import { useRaceStore } from "@/store/raceStore";
 
 /**
@@ -14,7 +23,9 @@ const STALE_RECOMMEND_LAP_TOLERANCE = 2;
 
 /**
  * When ARIS strategy is on and the console is racing, call POST /api/aris/recommend
- * at lights-out, around pit windows, on driver change, and when the user clicks Get strategy.
+ * around pit windows, on driver change, and when the user clicks Get strategy.
+ * At lights-out the ghost already follows Strat B — we only confirm that plan
+ * in comms (never an independent recommend() that ranks lap-1+8=9).
  */
 export function useArisRecommendLoop() {
   const isARISOn = useRaceStore((s) => s.isARISOn);
@@ -28,8 +39,11 @@ export function useArisRecommendLoop() {
   const arisMode = useRaceStore((s) => s.arisMode);
   const strategyEpoch = useRaceStore((s) => s.strategyEpoch);
   const activeStrategy = useRaceStore((s) => s.activeStrategy);
+  const selectedStrategy = useRaceStore((s) => s.selectedStrategy);
+  const isRaining = useRaceStore((s) => s.rainfall);
   const lastLap = useRef<number | null>(null);
   const lastPhase = useRef<string | null>(null);
+  const lightsOutPlanAnnounced = useRef(false);
   const inFlight = useRef(false);
   const forceRef = useRef(false);
   const [retry, setRetry] = useState(0);
@@ -37,6 +51,7 @@ export function useArisRecommendLoop() {
   useEffect(() => {
     lastLap.current = null;
     lastPhase.current = null;
+    lightsOutPlanAnnounced.current = false;
   }, [session?.year, session?.round]);
 
   useEffect(() => {
@@ -54,39 +69,81 @@ export function useArisRecommendLoop() {
     if (playState !== "racing" && !force) return;
     const car = useRaceStore.getState().cars[driver];
     const tyreLife = car?.tyre_life ?? 0;
+    const storeSnap = useRaceStore.getState();
+    const plan =
+      storeSnap.activeStrategy ??
+      storeSnap.selectedStrategy ??
+      (storeSnap.r2Ghost?.strategy?.pit_laps?.length
+        ? {
+            pit_laps: storeSnap.r2Ghost.strategy.pit_laps,
+            pit_compounds: storeSnap.r2Ghost.strategy.compounds,
+            name: storeSnap.r2Ghost.strategy.label,
+          }
+        : null);
     // The ghost already follows the plan the user picked pre-race — never
     // fire an independent lights-out recommend() that could immediately
-    // contradict it. `force` (driver change / "Get strategy" click) must
-    // NOT bypass this specific guard, only the cooldown/throttle checks
-    // below it; otherwise the arisDriver-changed effect below fires a
-    // same-tick force on mount and Auto mode auto-adopts a lap-1 "revision"
-    // seconds after the race started, before the chosen plan ever raced.
-    const lockedToPreRacePlan =
-      Boolean(activeStrategy) && (currentLap === 1 || currentLap === 2) && lastLap.current == null;
-    if (lockedToPreRacePlan) {
+    // contradict it (engine top card at lap 1 is often pit lap 9 = +8 offset).
+    // `force` (driver change / "Get strategy") must NOT bypass this guard.
+    const atLightsOut = isLightsOutLap(currentLap) && lastLap.current == null;
+    const wasRaining = storeSnap.wasRaining;
+    const consumeRainTick = () => {
+      if (wasRaining !== isRaining) {
+        useRaceStore.getState().setWasRaining(isRaining);
+      }
+    };
+
+    if (atLightsOut) {
+      if (!plan) {
+        // Plan still loading into the store — wait; do not mock-pit.
+        lastPhase.current = racePhase;
+        forceRef.current = false;
+        consumeRainTick();
+        return;
+      }
+      if (!lightsOutPlanAnnounced.current) {
+        lightsOutPlanAnnounced.current = true;
+        const text = lightsOutPlanStatement(plan);
+        useRaceStore.getState().pushComms({
+          id: `lights-out-plan-${session.year}-R${session.round}-${driver}`,
+          lap: Math.max(0, currentLap),
+          source: "ARIS",
+          text,
+          timestamp: Date.now(),
+        });
+      }
+      lastLap.current = Math.max(1, currentLap);
       lastPhase.current = racePhase;
       forceRef.current = false;
+      consumeRainTick();
       return;
     }
+
     if (
       !force &&
-      !shouldFetchRecommend({
-        isARISOn,
-        playState,
-        lap: currentLap,
-        lastLap: lastLap.current,
-        tyreLife,
-        phase: racePhase,
-        lastPhase: lastPhase.current,
-        hasActiveStrategy: Boolean(activeStrategy),
-      })
+      !recommendFetchWanted(
+        shouldFetchRecommend({
+          isARISOn,
+          playState,
+          lap: currentLap,
+          lastLap: lastLap.current,
+          tyreLife,
+          phase: racePhase,
+          lastPhase: lastPhase.current,
+          hasActiveStrategy: Boolean(activeStrategy || plan),
+          hasSelectedStrategy: Boolean(selectedStrategy),
+          wasRaining,
+          isRaining,
+        }),
+      )
     ) {
       lastPhase.current = racePhase;
+      consumeRainTick();
       return;
     }
     if (inFlight.current) return;
     inFlight.current = true;
     forceRef.current = false;
+    consumeRainTick();
     const lap = currentLap;
     lastLap.current = lap;
     lastPhase.current = racePhase;
@@ -99,6 +156,8 @@ export function useArisRecommendLoop() {
       lap,
       mode: consoleMode,
       force,
+      isRaining,
+      wasRaining,
     })
       .then((rec) => {
         const store = useRaceStore.getState();
@@ -151,5 +210,20 @@ export function useArisRecommendLoop() {
         useRaceStore.getState().setStrategyLoading(false);
         if (forceRef.current) setRetry((n) => n + 1);
       });
-  }, [isARISOn, playState, currentLap, racePhase, session, arisDriver, consoleMode, packStage, arisMode, strategyEpoch, retry, activeStrategy]);
+  }, [
+    isARISOn,
+    playState,
+    currentLap,
+    racePhase,
+    session,
+    arisDriver,
+    consoleMode,
+    packStage,
+    arisMode,
+    strategyEpoch,
+    retry,
+    activeStrategy,
+    selectedStrategy,
+    isRaining,
+  ]);
 }

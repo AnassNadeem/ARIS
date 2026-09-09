@@ -14,6 +14,7 @@ from aris.ghost_pack import (
     RacePackUnavailable,
     assert_driver_raced,
     clear_ghost_pack_cache,
+    compute_ghost,
     get_or_compute_ghost,
 )
 
@@ -346,3 +347,77 @@ def test_http_json_sends_user_agent_so_public_r2_does_not_403(monkeypatch: pytes
     monkeypatch.setattr("aris.ghost_pack.urllib.request.urlopen", fake_urlopen)
     assert _http_json("https://example.invalid/race_field.json") == {"ok": True}
     assert seen["ua"] == "ARIS-ghost-pack/1.0"
+
+
+def _australia_nor_wet_start_field() -> dict:
+    """Australia 2025-shaped field: NOR actually started INTER; ARIS must not copy that."""
+    laps = []
+    for lap in range(1, 6):
+        laps.append(
+            {
+                "lap": lap,
+                "driver": "NOR",
+                "position": 1,
+                "lap_time_s": 92.0 + lap * 0.1,
+                "compound": "INTERMEDIATE",
+                "tyre_life": lap,
+                "pit_this_lap": False,
+                "is_dnf": False,
+                "gap_to_leader_s": 0.0,
+                "track_status": "1",
+            }
+        )
+    return {
+        "meta": {
+            "year": 2025,
+            "round": 1,
+            "total_laps": 57,
+            "circuit_name": "Australia",
+            "session_key": 1,
+        },
+        "drivers": [
+            {
+                "code": "NOR",
+                "name": "Norris",
+                "team": "McLaren",
+                "colour": "#ff8000",
+                "grid_position": 1,
+                "is_dns": False,
+            }
+        ],
+        "laps": laps,
+    }
+
+
+def test_compute_ghost_starts_on_aris_compound_not_real_driver():
+    ghost = compute_ghost(2025, 1, "NOR", _australia_nor_wet_start_field())
+    assert ghost["ticks"], "ghost produced no ticks"
+    assert ghost["ticks"][0]["compound"] == "MEDIUM"
+    assert ghost["strategy"].get("start_compound") == "MEDIUM"
+
+
+def test_compute_ghost_bahrain_starts_medium_not_real_soft():
+    field = _australia_nor_wet_start_field()
+    field["meta"] = {
+        "year": 2024,
+        "round": 1,
+        "total_laps": 57,
+        "circuit_name": "Bahrain",
+        "session_key": 1,
+    }
+    field["drivers"] = [
+        {
+            "code": "VER",
+            "name": "Verstappen",
+            "team": "Red Bull",
+            "colour": "#1e5bc6",
+            "grid_position": 1,
+            "is_dns": False,
+        }
+    ]
+    for row in field["laps"]:
+        row["driver"] = "VER"
+        row["compound"] = "SOFT"
+    ghost = compute_ghost(2024, 1, "VER", field)
+    assert ghost["ticks"][0]["compound"] == "MEDIUM"
+    assert ghost["strategy"].get("start_compound") == "MEDIUM"

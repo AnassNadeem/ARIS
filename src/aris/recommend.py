@@ -922,7 +922,22 @@ def _inter_rain_confirmed(state: RaceState) -> bool:
         return True
     raining = bool(getattr(state, "rainfall", False))
     session_rain = bool(getattr(state, "weather_rainfall", False))
-    if raining and session_rain and track not in {"DAMP", "DRYING"}:
+    was_raining = getattr(state, "was_raining", None)
+    # Explicit dry→wet edge. was_raining=None means no prior tick — in a
+    # confirmed-rain context treat conservatively as a rain-started edge so
+    # replay/isolation paths that omit the field still shortlist INTER.
+    rain_edge = raining and was_raining is False
+    if (
+        not rain_edge
+        and raining
+        and was_raining is None
+        and (session_rain or (mm is not None and float(mm) > 0.5))
+    ):
+        rain_edge = True
+    # DAMP/DRYING: INTER may compete when rain is confirmed (session rain),
+    # a rain-start edge, or measured intensity. A lone DAMP tick with
+    # rainfall=True and no session rain still does not qualify.
+    if raining and (session_rain or rain_edge):
         return True
     return False
 

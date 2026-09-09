@@ -97,3 +97,80 @@ class TestPrewrite:
         assert by_id_m["A"].pit_laps != by_id_b["A"].pit_laps
         assert by_id_m["B"].pit_laps != by_id_b["B"].pit_laps
         assert by_id_m["A"].pit_laps[0] > by_id_b["A"].pit_laps[0]
+
+    def test_aris_picks_medium_not_the_real_drivers_tyre(self):
+        """Australia / Bahrain Strat B start MEDIUM even without an explicit override."""
+        aus = generate_strat_plans(
+            session_id=0,
+            driver_id=0,
+            year=2025,
+            round_no=1,
+            country="Australia",
+            driver_code="NOR",
+            weather={"track_temp_c": 22.0},
+            score=False,
+            use_weekend_form=False,
+        )
+        bah = generate_strat_plans(
+            session_id=0,
+            driver_id=0,
+            year=2024,
+            round_no=1,
+            country="Bahrain",
+            driver_code="VER",
+            weather={"track_temp_c": 35.0},
+            score=False,
+            use_weekend_form=False,
+        )
+        by_aus = {p.id: p for p in aus.plans}
+        by_bah = {p.id: p for p in bah.plans}
+        assert by_aus["B"].start_compound == "MEDIUM"
+        assert by_aus["A"].start_compound == "MEDIUM"
+        assert by_bah["B"].start_compound == "MEDIUM"
+        assert by_bah["A"].start_compound == "MEDIUM"
+
+    def test_opening_lap_rain_starts_inter(self):
+        plans = generate_strat_plans(
+            session_id=0,
+            driver_id=0,
+            year=2025,
+            round_no=1,
+            country="Australia",
+            driver_code="NOR",
+            weather={"track_temp_c": 22.0, "rainfall_by_lap": [True, True, False, False, False]},
+            score=False,
+            use_weekend_form=False,
+        )
+        assert all(p.start_compound == "INTERMEDIATE" for p in plans.plans)
+
+    def test_session_rainfall_bool_does_not_force_inter(self):
+        """A wet-race session flag must not copy INTER onto ARIS's dry Strat B."""
+        plans = generate_strat_plans(
+            session_id=0,
+            driver_id=0,
+            year=2025,
+            round_no=1,
+            country="Australia",
+            driver_code="NOR",
+            weather={"track_temp_c": 22.0, "rainfall": True},
+            score=False,
+            use_weekend_form=False,
+        )
+        by_id = {p.id: p for p in plans.plans}
+        assert by_id["B"].start_compound == "MEDIUM"
+
+    def test_short_race_strat_c_starts_soft(self):
+        belgium = generate_strat_plans(
+            session_id=0,
+            driver_id=0,
+            year=2024,
+            round_no=14,
+            country="Belgium",
+            driver_code="VER",
+            weather={"track_temp_c": 25.0},
+            score=False,
+            use_weekend_form=False,
+        )
+        by_id = {p.id: p for p in belgium.plans}
+        assert by_id["B"].start_compound == "MEDIUM"
+        assert by_id["C"].start_compound == "SOFT"

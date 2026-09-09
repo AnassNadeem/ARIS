@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { autoDecisionStatement, buildStintPlan, currentStintIndex } from "@/lib/arisRecommend";
-import type { ARISRecommendation, StratPlan } from "@/lib/types";
+import {
+  autoDecisionStatement,
+  buildStintPlan,
+  currentStintIndex,
+  extractRecommendedPitLap,
+  lightsOutPlanStatement,
+  mapRecommendResponse,
+  shouldFetchRecommend,
+} from "@/lib/arisRecommend";
+import type { ARISRecommendation, RecommendApiResponse, StratPlan } from "@/lib/types";
 
 function plan(overrides: Partial<StratPlan> = {}): StratPlan {
   return {
@@ -95,5 +103,85 @@ describe("autoDecisionStatement", () => {
     expect(kind).toBe("strategy_change");
     expect(text).toMatch(/ARIS is pitting on lap 20 for HARD/);
     expect(text).not.toMatch(/\?/);
+  });
+});
+
+describe("shouldFetchRecommend rainfall edge", () => {
+  const midRace = {
+    isARISOn: true,
+    playState: "racing" as const,
+    lap: 45,
+    lastLap: 44,
+    tyreLife: 20,
+    phase: "GREEN",
+    lastPhase: "GREEN",
+    hasActiveStrategy: true,
+  };
+
+  it("bypasses the 8-lap cooldown when rain starts", () => {
+    expect(shouldFetchRecommend({ ...midRace, wasRaining: false, isRaining: false })).toBe(false);
+    expect(shouldFetchRecommend({ ...midRace, wasRaining: false, isRaining: true })).toEqual({
+      fetch: true,
+      bypassCooldown: true,
+      reason: "rain_started",
+    });
+  });
+
+  it("bypasses the 8-lap cooldown when rain stops", () => {
+    expect(shouldFetchRecommend({ ...midRace, wasRaining: true, isRaining: false })).toEqual({
+      fetch: true,
+      bypassCooldown: true,
+      reason: "rain_stopped",
+    });
+  });
+});
+
+describe("lights-out plan statement", () => {
+  it("names the Strat B pit lap, never the engine's lap-9 candidate", () => {
+    expect(
+      lightsOutPlanStatement({ pit_laps: [29], pit_compounds: ["HARD"], name: "Strat B" }),
+    ).toBe("ARIS is pitting on lap 29 for HARD.");
+    expect(
+      lightsOutPlanStatement({ pit_laps: [21], pit_compounds: ["HARD"] }),
+    ).toMatch(/lap 21/);
+    expect(lightsOutPlanStatement({ pit_laps: [29], pit_compounds: ["HARD"] })).not.toMatch(/lap 9\b/);
+  });
+});
+
+describe("mapRecommendResponse deferred far pit", () => {
+  it("recovers pit L9 from STAY_OUT evidence (engine +8 offset at lap 1)", () => {
+    const res: RecommendApiResponse = {
+      action: "STAY_OUT",
+      compound_recommendation: "H",
+      reasoning: "pit L9->HARD | caveat: this call extends HARD to tyre life 63",
+      pace_gain_s: 40,
+      pit_cost_s: 21,
+      net_delta_s: -51.3,
+      confidence: 0.6,
+      decision_record_id: "DR-test",
+      alternatives: [{ action: "STAY_OUT", compound: "H", net_delta_s: -41, note: "Pit lap 6 for HARD" }],
+    };
+    expect(extractRecommendedPitLap(res)).toBe(9);
+    const mapped = mapRecommendResponse(res, 1);
+    expect(mapped.action.kind).toBe("pit_lap");
+    expect(mapped.action.pit_lap).toBe(9);
+    expect(mapped.action.pit_compound).toBe("HARD");
+    expect(autoDecisionStatement(mapped, { phase: "GREEN" }).text).toMatch(/pitting on lap 9 for HARD/);
+  });
+
+  it("keeps a true lights-not-out STAY_OUT as stay_out", () => {
+    const res: RecommendApiResponse = {
+      action: "STAY_OUT",
+      compound_recommendation: "M",
+      reasoning: "Lights not out yet. Stay out on the ARIS plan.",
+      pace_gain_s: 0,
+      pit_cost_s: 0,
+      net_delta_s: 0,
+      confidence: 0.45,
+      decision_record_id: "DR-stay",
+      alternatives: [],
+    };
+    const mapped = mapRecommendResponse(res, 1);
+    expect(mapped.action.kind).toBe("stay_out");
   });
 });

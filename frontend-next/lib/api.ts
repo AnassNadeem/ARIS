@@ -435,7 +435,7 @@ export async function getNextRace(): Promise<NextRaceInfo> {
       poleDriver: "Norris",
       poleTime: "1:09.673",
       year: 2026,
-      round: 12,
+      round: 15,
     },
   };
 }
@@ -922,6 +922,8 @@ export async function postRecommend(payload: {
   driver_code: string;
   current_lap: number;
   mode?: "live" | "replay" | "pre_race";
+  override_rainfall?: boolean;
+  was_raining?: boolean;
 }, opts?: { force?: boolean }): Promise<RecommendApiResponse | null> {
   const force = Boolean(opts?.force);
   const key = force
@@ -941,6 +943,12 @@ export async function postRecommend(payload: {
           current_lap: payload.current_lap,
           mode: payload.mode ?? "replay",
           force_refresh: force,
+          ...(payload.override_rainfall !== undefined
+            ? { override_rainfall: payload.override_rainfall }
+            : {}),
+          ...(payload.was_raining !== undefined
+            ? { was_raining: payload.was_raining }
+            : {}),
         }),
       },
       60000,

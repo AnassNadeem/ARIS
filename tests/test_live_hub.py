@@ -85,34 +85,38 @@ def test_classify_session_ended():
     assert mode == "session_ended"
 
 
-def test_2026_dropped_rounds_are_absent():
+def test_2026_cancelled_rounds_stay_numbered_but_marked():
     from backend.calendar import get_calendar
 
     cal = get_calendar(2026, as_of=datetime(2026, 8, 26, 12, 0, tzinfo=UTC))
-    blob = " ".join(f"{r.name} {r.circuit_name} {r.city}" for r in cal.rounds).lower()
-    assert "imola" not in blob
-    assert "jeddah" not in blob
-    assert "sakhir" not in blob
-    assert len(cal.rounds) == 23
+    by = {r.round_number: r for r in cal.rounds}
+    assert by[2].status == "CANCELLED"
+    assert "bahrain" in (by[2].name or "").lower()
+    assert by[3].status == "CANCELLED"
+    assert by[7].status == "CANCELLED"
+    assert "imola" in f"{by[7].name} {by[7].circuit_name}".lower()
+    assert by[6].name == "Miami"
+    assert by[15].circuit_key == "netherlands"
+    assert len(cal.rounds) == 24
 
 
-def test_next_race_after_australia_is_china():
-    from backend.calendar import next_race
-
-    nxt = next_race(as_of=datetime(2026, 3, 9, 16, 0, tzinfo=UTC))
-    assert nxt.round_number == 2
-    blob = f"{nxt.name} {nxt.circuit_name}".lower()
-    assert "china" in blob or "shanghai" in blob
-    assert nxt.status != "CANCELLED"
-
-
-def test_next_race_after_china_is_japan():
+def test_next_race_after_australia_skips_cancelled():
     from backend.calendar import next_race
 
     nxt = next_race(as_of=datetime(2026, 3, 16, 16, 0, tzinfo=UTC))
-    assert nxt.round_number == 3
+    assert nxt.round_number == 4
     blob = f"{nxt.name} {nxt.circuit_name}".lower()
     assert "japan" in blob or "suzuka" in blob
+    assert nxt.status != "CANCELLED"
+
+
+def test_next_race_after_japan_is_china():
+    from backend.calendar import next_race
+
+    nxt = next_race(as_of=datetime(2026, 4, 13, 16, 0, tzinfo=UTC))
+    assert nxt.round_number == 5
+    blob = f"{nxt.name} {nxt.circuit_name}".lower()
+    assert "china" in blob or "shanghai" in blob
     assert nxt.status != "CANCELLED"
 
 
@@ -120,33 +124,30 @@ def test_replayable_2026_excludes_cancelled_and_upcoming():
     as_of = datetime(2026, 8, 26, 12, 0, tzinfo=UTC)
     rows = replayable_rounds(2026, as_of=as_of)
     nums = {r.round_number for r in rows}
-    assert 2 in nums
-    assert 12 in nums
-    assert 13 not in nums
+    assert 2 not in nums
+    assert 3 not in nums
+    assert 7 not in nums
+    assert 6 in nums
+    assert 15 in nums
+    assert 16 not in nums
     assert all(r.status not in {"CANCELLED", "UPCOMING"} for r in rows)
 
 
-def test_2026_calendar_race_dates_match_jolpica():
+def test_2026_calendar_rounds_match_r2_paths():
     from backend.calendar import get_calendar
 
     cal = get_calendar(2026, as_of=datetime(2026, 9, 3, 12, 0, tzinfo=UTC))
     by = {r.round_number: r for r in cal.rounds}
-    assert by[1].date_race.date() == date(2026, 3, 8)
+    assert by[1].date_race.date() == date(2026, 3, 15)
     name1 = f"{by[1].circuit_name or ''} {by[1].city or ''}".lower()
     assert "albert" in name1 or "melbourne" in name1
-    assert by[2].date_race.date() == date(2026, 3, 15)
-    name2 = f"{by[2].circuit_name or ''} {by[2].name or ''}".lower()
-    assert "shanghai" in name2 or "china" in name2
-    assert by[3].date_race.date() == date(2026, 3, 29)
-    assert by[4].date_race.date() == date(2026, 5, 3)
-    assert by[12].date_race.date() == date(2026, 8, 23)
-    assert by[12].circuit_key == "netherlands"
-    assert by[13].date_race.date() == date(2026, 9, 6)
-    assert by[16].date_race.date() == date(2026, 10, 4)
-    name16 = f"{by[16].circuit_name or ''} {by[16].name or ''}".lower()
-    assert "sepang" in name16 or "malaysia" in name16
-    assert by[23].date_race.date() == date(2026, 12, 6)
-    assert len(cal.rounds) == 23
+    assert by[6].date_race.date() == date(2026, 5, 10)
+    assert "miami" in (by[6].name or "").lower()
+    assert by[15].date_race.date() == date(2026, 8, 23)
+    assert by[15].circuit_key == "netherlands"
+    assert by[16].date_race.date() == date(2026, 9, 6)
+    assert by[24].date_race.date() == date(2026, 12, 6)
+    assert len(cal.rounds) == 24
 
 
 def test_replay_years_include_2026():
@@ -189,13 +190,13 @@ def test_build_live_hub_waiting_zandvoort_race_morning(monkeypatch):
     as_of = datetime(2026, 8, 23, 11, 0, tzinfo=UTC)
 
     async def fake_status(*_a, **_k):
-        return LiveStatus(is_live=False, year=2026, round_number=12, session_name="Race")
+        return LiveStatus(is_live=False, year=2026, round_number=15, session_name="Race")
 
     monkeypatch.setattr("backend.live.live_status", fake_status)
     monkeypatch.setattr("backend.analytics.peek_circuit_history", lambda *_a, **_k: None)
 
     hub = asyncio.run(build_live_hub(as_of))
-    assert hub.next.round_number == 12
+    assert hub.next.round_number == 15
     assert hub.mode == "waiting_for_session"
     assert hub.waiting_reason is not None
     assert "hasn't started" in hub.waiting_reason.lower()

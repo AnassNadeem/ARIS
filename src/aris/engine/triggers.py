@@ -44,11 +44,28 @@ def check_triggers(session: RaceEngineSession, event: SectorEvent) -> DecisionKi
 
     state = session.build_state(lap)
 
+    raining = bool(getattr(state, "rainfall", False))
+    prev_rain = session.prev_rainfall
+    rain_kind: DecisionKind | None = None
+    if prev_rain is not None and raining != prev_rain:
+        rain_key = "RAIN_START" if raining else "RAIN_STOP"
+        if rain_key not in session.fired_this_lap:
+            rain_kind = DecisionKind.RAIN_START if raining else DecisionKind.RAIN_STOP
+    session.prev_rainfall = raining
+
     if lap == 1 and event.is_new_lap and 1 not in session.triggered_laps:
         if "CONFIRM_STRAT" not in session.fired_this_lap:
             session.fired_this_lap.add("CONFIRM_STRAT")
             session.triggered_laps.add(1)
             return DecisionKind.CONFIRM_STRAT
+
+    # Rain start/stop bypass the per-lap cooldown — weather is urgent.
+    if rain_kind is not None:
+        rain_tag = (
+            "RAIN_START" if rain_kind is DecisionKind.RAIN_START else "RAIN_STOP"
+        )
+        session.fired_this_lap.add(rain_tag)
+        return rain_kind
 
     if (
         state.track_status

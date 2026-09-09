@@ -433,7 +433,8 @@ export function startCompoundFromField(
 
 const WET_START = new Set(["INTERMEDIATE", "WET"]);
 
-/** Patch Strat A/B/C so the display matches the driver's real opening compound. */
+/** Patch Strat A/B/C opening compound. Setup must NOT call this with the
+ * real driver's lap-1 tyre — ARIS picks its own start via generate_strat_plans. */
 export function applyStartCompoundToPlans(plans: StratPlan[], startCompound: string | null): StratPlan[] {
   if (!startCompound || !plans.length) return plans;
   const start = normalizeCompound(startCompound);
@@ -467,6 +468,25 @@ export function ghostWithPlanStrategy(
       compounds: [...plan.pit_compounds],
       label: plan.name || ghost.strategy.label,
     },
+  };
+}
+
+/** Align ghost ticks to ARIS's Strat start compound for laps before the first pit.
+ * Stale R2 bakes may still carry the real driver's lap-1 tyre (e.g. INTER). */
+export function ghostWithPlanStart(
+  ghost: GhostData,
+  plan: Pick<StratPlan, "pit_laps" | "pit_compounds" | "name" | "start_compound">,
+): GhostData {
+  const start = normalizeCompound(plan.start_compound || "MEDIUM");
+  const firstPit = plan.pit_laps.length
+    ? Math.min(...plan.pit_laps.map((n) => Number(n)))
+    : Number.POSITIVE_INFINITY;
+  const withStrategy = ghostWithPlanStrategy(ghost, plan);
+  return {
+    ...withStrategy,
+    ticks: withStrategy.ticks.map((t) =>
+      t.lap < firstPit ? { ...t, compound: start } : t,
+    ),
   };
 }
 

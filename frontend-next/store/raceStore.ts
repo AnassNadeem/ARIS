@@ -64,6 +64,8 @@ export interface RaceStore {
   totalLaps: number;
   racePhase: RacePhase;
   rainfall: boolean;
+  /** Previous tick's rainfall — used to detect rain start/stop edges. */
+  wasRaining: boolean;
   raceFinished: boolean;
 
   // Playback (replay only)
@@ -156,6 +158,7 @@ export interface RaceStore {
   setTotalLaps: (laps: number) => void;
   setRacePhase: (phase: RacePhase) => void;
   setRainfall: (on: boolean) => void;
+  setWasRaining: (on: boolean) => void;
   setRaceFinished: (on: boolean) => void;
   setIsPlaying: (playing: boolean) => void;
   setPlaybackSpeed: (speed: 1 | 2 | 4 | 8 | 16 | 25 | 50) => void;
@@ -223,6 +226,7 @@ const initialState = {
   totalLaps: 0,
   racePhase: "GREEN" as RacePhase,
   rainfall: false,
+  wasRaining: false,
   raceFinished: false,
   isPlaying: false,
   playbackSpeed: 1 as const,
@@ -328,6 +332,7 @@ export const useRaceStore = create<RaceStore>()(
         commsLog: [],
         phaseHistory: [],
         rainfall: false,
+        wasRaining: false,
         raceFinished: false,
         arisModeLocked: false,
         pendingRecommendation: null,
@@ -462,8 +467,13 @@ export const useRaceStore = create<RaceStore>()(
       set({ racePhase });
     },
     setRainfall: (rainfall) => {
-      if (get().rainfall === rainfall) return;
-      set({ rainfall });
+      const prev = get().rainfall;
+      if (prev === rainfall) return;
+      set({ wasRaining: prev, rainfall });
+    },
+    setWasRaining: (wasRaining) => {
+      if (get().wasRaining === wasRaining) return;
+      set({ wasRaining });
     },
     setRaceFinished: (raceFinished) => {
       if (get().raceFinished === raceFinished) return;

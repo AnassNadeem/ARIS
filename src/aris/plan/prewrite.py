@@ -90,6 +90,71 @@ def _base_state(
 
 
 _WET_START = frozenset({"INTERMEDIATE", "INTER", "WET"})
+# Belgium (44) and similar short GPs historically suit a soft first stint on
+# the aggressive two-stop. One-stop Strat A/B still start MEDIUM.
+_SHORT_RACE_LAPS = 50
+
+
+def _rain_flag(value: object) -> bool:
+    if isinstance(value, dict):
+        return bool(value.get("rainfall") or value.get("rain"))
+    return bool(value)
+
+
+def opening_laps_rainfall(weather: dict | None, *, n_laps: int = 5) -> bool:
+    """True when session weather shows rain in the first ``n_laps`` race laps.
+
+    Session-level ``rainfall: true`` alone is not enough — that would copy a
+    historical wet start (Australia 2025) onto ARIS's independent dry commit.
+    """
+    if not weather or not isinstance(weather, dict):
+        return False
+    by_lap = weather.get("rainfall_by_lap")
+    if isinstance(by_lap, list) and by_lap:
+        return any(_rain_flag(x) for x in by_lap[:n_laps])
+    samples = weather.get("samples")
+    if isinstance(samples, list) and samples:
+        return any(_rain_flag(x) for x in samples[:n_laps])
+    rows = weather.get("weather")
+    if isinstance(rows, list) and rows:
+        flags: list[bool] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            lap = int(row.get("lap") or 0)
+            if 1 <= lap <= n_laps:
+                flags.append(_rain_flag(row))
+        if flags:
+            return any(flags)
+    return False
+
+
+def aris_start_compound(
+    *,
+    total_laps: int = 57,
+    high_deg: bool = False,
+    hot_track: bool = False,
+    weather: dict | None = None,
+    explicit: str | None = None,
+    strat_id: str = "B",
+) -> str:
+    """ARIS's independent opening compound for a Strat — never the real driver.
+
+    Default MEDIUM on dry circuits. SOFT only on Strat C when the circuit is
+    short, high-deg, or hot. INTER only when the plan is explicitly wet or
+    opening-lap weather samples show rain.
+    """
+    from aris.physics.tires import normalize_compound
+
+    if explicit:
+        return normalize_compound(explicit)
+    if opening_laps_rainfall(weather):
+        return "INTERMEDIATE"
+    if str(strat_id).upper() == "C" and (
+        high_deg or hot_track or int(total_laps) <= _SHORT_RACE_LAPS
+    ):
+        return "SOFT"
+    return "MEDIUM"
 
 
 def generate_strat_plans(
@@ -137,24 +202,37 @@ def generate_strat_plans(
             f"median first stop lap {hist_first_stop}."
         )
 
-    from aris.physics.tires import normalize_compound
-
-    wet_start = False
-    if start_compound:
-        actual_start = normalize_compound(start_compound)
-        wet_start = actual_start in _WET_START or actual_start.startswith("INTER")
-    else:
-        actual_start = "SOFT" if hot_track else "MEDIUM"
+    dry_a_start = aris_start_compound(
+        total_laps=total,
+        high_deg=high_deg,
+        hot_track=bool(hot_track),
+        weather=weather if isinstance(weather, dict) else None,
+        explicit=start_compound,
+        strat_id="A",
+    )
+    dry_b_start = aris_start_compound(
+        total_laps=total,
+        high_deg=high_deg,
+        hot_track=bool(hot_track),
+        weather=weather if isinstance(weather, dict) else None,
+        explicit=start_compound,
+        strat_id="B",
+    )
+    dry_c_start = aris_start_compound(
+        total_laps=total,
+        high_deg=high_deg,
+        hot_track=bool(hot_track),
+        weather=weather if isinstance(weather, dict) else None,
+        explicit=start_compound,
+        strat_id="C",
+    )
+    actual_start = dry_b_start
+    wet_start = actual_start in _WET_START or actual_start.startswith("INTER")
     wet_note = (
         f" Starting on {actual_start} — dry strategy shown for after rain stops."
         if wet_start
         else ""
     )
-    # Dry plans keep their dry pit targets; wet starts only override the
-    # opening compound so Strat A/B/C never pretend the race began on MEDIUM.
-    dry_a_start = actual_start if wet_start else "MEDIUM"
-    dry_b_start = actual_start if wet_start else "MEDIUM"
-    dry_c_start = actual_start if wet_start else ("SOFT" if hot_track else "MEDIUM")
 
     plans = [
         StratPlan(

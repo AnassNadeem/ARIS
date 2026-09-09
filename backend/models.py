@@ -845,6 +845,8 @@ class RecommendRequest(BaseModel):
     current_lap: int
     mode: Literal["live", "replay", "pre_race"] = "replay"
     override_rainfall: bool | None = None
+    # Prior-tick rainfall from the client (replay rain-edge). None = not provided.
+    was_raining: bool | None = None
     force_refresh: bool = False
     pit_laps: list[int] | None = None
     compounds: list[str] | None = None

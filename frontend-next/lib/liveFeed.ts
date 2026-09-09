@@ -29,7 +29,7 @@ import {
   deriveGhostLapTimes,
   realLapTimesByDriver,
   ghostTickAtOrBefore,
-  ghostWithPlanStrategy,
+  ghostWithPlanStart,
   r2FetchErrorMessage,
   R2_LOAD_ERROR,
 } from "@/lib/r2Replay";
@@ -727,8 +727,9 @@ export class ReplayFrameFeed {
           }
         }
         if (ghost) {
-          store.setR2Ghost(ghost);
-          store.setGhostTicks(ghostTicksMap(ghost));
+          const aligned = plan ? ghostWithPlanStart(ghost, plan) : ghost;
+          store.setR2Ghost(aligned);
+          store.setGhostTicks(ghostTicksMap(aligned));
           store.setGhostReason(null);
         }
         if (plan && ghost && !plansMatch(plan, ghost)) {
@@ -742,8 +743,12 @@ export class ReplayFrameFeed {
             label: plan.name,
           });
           if (recomputed?.ticks) {
-            store.mergeGhostTicksFrom(1, recomputed.ticks);
-            store.setR2Ghost(ghostWithPlanStrategy(ghost, plan));
+            const aligned = ghostWithPlanStart(
+              { ...ghost, ticks: recomputed.ticks },
+              plan,
+            );
+            store.mergeGhostTicksFrom(1, aligned.ticks);
+            store.setR2Ghost(aligned);
             store.setActiveStrategy(plan);
           } else {
             // Recompute failed — the loaded R2 ghost ticks stay on their
@@ -798,8 +803,14 @@ export class ReplayFrameFeed {
         sessionKey: this.sessionKey ?? undefined,
       });
       if (recomputed?.ticks) {
-        store.mergeGhostTicksFrom(1, recomputed.ticks);
-        if (store.r2Ghost) store.setR2Ghost(ghostWithPlanStrategy(store.r2Ghost, plan));
+        const aligned = ghostWithPlanStart(
+          store.r2Ghost
+            ? { ...store.r2Ghost, ticks: recomputed.ticks }
+            : { driver, strategy: { pit_laps: plan.pit_laps, compounds: plan.pit_compounds, label: plan.name }, ticks: recomputed.ticks, outcome: { aris_action: "", real_action: "STAY_OUT", verdict: null } },
+          plan,
+        );
+        store.mergeGhostTicksFrom(1, aligned.ticks);
+        store.setR2Ghost(aligned);
       } else if (store.r2Ghost) {
         store.setPackToast("Using prebuilt strategy — custom strategy unavailable");
       }

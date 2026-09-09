@@ -282,3 +282,72 @@ def test_damp_single_tick_rain_does_not_recommend_inter():
         (r.action.pit_compound or "") == "INTERMEDIATE" and r.wet_heuristic
         for r in result.recommendations
     ), [r.label for r in result.recommendations]
+
+
+def test_damp_confirmed_rain_includes_inter_without_forcing_rank():
+    """Showery DAMP + confirmed rainfall: INTER competes, but is not forced to #1."""
+    state = _brazil_state(
+        country="Australia",
+        year=2025,
+        round_no=1,
+        lap_number=45,
+        total_laps=57,
+        laps_remaining=12,
+        compound="HARD",
+        tyre_life=20,
+        lag1_pace=92.0,
+        lag2_pace=91.8,
+        rainfall=True,
+        weather_rainfall=True,
+        rainfall_mm_per_lap=None,
+        track_state="DAMP",
+        track_status="1",
+    )
+    result = recommend(state, top_k=5, mc_draws=0)
+    labels = [r.label for r in result.recommendations]
+    assert any(
+        "INTERMEDIATE" in r.label and r.wet_heuristic for r in result.recommendations
+    ), labels
+
+
+def test_damp_rain_with_was_raining_none_still_includes_inter():
+    """Replay may omit prior-tick rainfall; None must not block INTER when rain is confirmed."""
+    state = _brazil_state(
+        country="Australia",
+        year=2025,
+        round_no=1,
+        lap_number=45,
+        total_laps=57,
+        laps_remaining=12,
+        compound="HARD",
+        tyre_life=20,
+        lag1_pace=92.0,
+        lag2_pace=91.8,
+        rainfall=True,
+        weather_rainfall=True,
+        rainfall_mm_per_lap=None,
+        track_state="DAMP",
+        track_status="1",
+        was_raining=None,
+    )
+    result = recommend(state, top_k=5, mc_draws=0)
+    assert any(
+        (r.action.pit_compound or "") == "INTERMEDIATE" and r.wet_heuristic
+        for r in result.recommendations
+    ), [r.label for r in result.recommendations]
+
+
+def test_damp_rain_start_edge_includes_inter():
+    state = _brazil_state(
+        track_state="DAMP",
+        rainfall=True,
+        weather_rainfall=False,
+        rainfall_mm_per_lap=None,
+        was_raining=False,
+        tyre_life=18,
+    )
+    result = recommend(state, top_k=5, mc_draws=0)
+    assert any(
+        (r.action.pit_compound or "") == "INTERMEDIATE" and r.wet_heuristic
+        for r in result.recommendations
+    ), [r.label for r in result.recommendations]

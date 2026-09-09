@@ -797,7 +797,20 @@ def recommend(req: RecommendRequest) -> RecommendResponse:
         )
     if state is None or source == "NONE":
         return _fallback_recommend(req, ingest_status=ingest_status)
-    if req.override_rainfall is not None:
+    # Live mode rainfall is owned by _live_rainfall_override (OpenF1 overlay).
+    # Replay rain-edge fields come from the client tick (wasRaining / isRaining).
+    if req.mode == "replay" and req.override_rainfall is not None:
+        raining = bool(req.override_rainfall)
+        update: dict = {
+            "rainfall": raining,
+            # Confirm session rain when the client reports rain; clear it when dry
+            # so dry-identity races (e.g. Zandvoort) stay unaffected.
+            "weather_rainfall": raining,
+        }
+        if req.was_raining is not None:
+            update["was_raining"] = bool(req.was_raining)
+        state = state.model_copy(update=update)
+    elif req.mode != "replay" and req.override_rainfall is not None:
         raining = bool(req.override_rainfall)
         state = state.model_copy(update={"rainfall": raining, "weather_rainfall": raining})
 
@@ -1383,7 +1396,6 @@ def plans(year: int, round_number: int, driver_code: str) -> StratPlansResponse:
         if str(circuit_key).lower() in {"netherlands", "zandvoort", "dutch"}
         else "2018–present at this circuit"
     )
-    start_compound = _driver_start_compound(year, round_number, code)
     result = generate_strat_plans(
         0,
         0,
@@ -1396,7 +1408,6 @@ def plans(year: int, round_number: int, driver_code: str) -> StratPlansResponse:
         hist_scope=hist_scope,
         score=False,
         use_weekend_form=False,
-        start_compound=start_compound,
     )
     payload = _plans_payload(year, round_number, code, result, track.pit_loss_s)
     _PLANS_CACHE[cache_key] = (time.monotonic(), payload)
@@ -1421,7 +1432,6 @@ def plans(year: int, round_number: int, driver_code: str) -> StratPlansResponse:
                 hist_stop_count=hist_stops,
                 hist_scope=hist_scope,
                 use_weekend_form=False,
-                start_compound=start_compound or _driver_start_compound(year, round_number, code),
             )
             _PLANS_CACHE[cache_key] = (
                 time.monotonic(),
@@ -1435,7 +1445,12 @@ def plans(year: int, round_number: int, driver_code: str) -> StratPlansResponse:
 
 
 def _driver_start_compound(year: int, round_number: int, driver_code: str) -> str | None:
-    """Actual opening compound from stints/laps when the race pack is available."""
+    """Actual opening compound from stints/laps when the race pack is available.
+
+    Not used for Strat A/B/C — ARIS picks its own start via
+    ``generate_strat_plans`` / ``aris_start_compound``. Kept for debrief /
+    diagnostics that need the real team's opening tyre.
+    """
     code = str(driver_code or "").upper()
     if not code:
         return None

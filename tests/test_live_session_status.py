@@ -584,7 +584,7 @@ def test_history_ttl_keeps_current_season_shorter():
 def test_zandvoort_2026_notes_include_hadjar():
     from backend.calendar import get_round
 
-    rnd = get_round(2026, 12, as_of=datetime(2026, 8, 23, 10, 0, tzinfo=UTC))
+    rnd = get_round(2026, 15, as_of=datetime(2026, 8, 23, 10, 0, tzinfo=UTC))
     blob = " ".join(rnd.notes).lower()
     assert "hadjar" in blob
     assert rnd.circuit_key == "netherlands"
@@ -592,7 +592,7 @@ def test_zandvoort_2026_notes_include_hadjar():
 
 def test_sq_live_window_at_zandvoort_2026():
     as_of = datetime(2026, 8, 21, 15, 2, tzinfo=UTC)
-    weekend = get_round_sessions(2026, 12, as_of=as_of)
+    weekend = get_round_sessions(2026, 15, as_of=as_of)
     by = {s.session_type: s.status for s in weekend.sessions}
     assert by["FP1"] == "COMPLETED"
     assert by["SQ"] == "LIVE"
@@ -609,7 +609,7 @@ def test_sq_duration_covers_chequered_not_overnight():
 
 def test_after_sq_next_is_sprint():
     as_of = datetime(2026, 8, 21, 15, 40, tzinfo=UTC)
-    weekend = get_round_sessions(2026, 12, as_of=as_of)
+    weekend = get_round_sessions(2026, 15, as_of=as_of)
     by = {s.session_type: s.status for s in weekend.sessions}
     assert by["FP1"] == "COMPLETED"
     assert by["SQ"] == "COMPLETED"
@@ -622,7 +622,7 @@ def test_zandvoort_race_is_open_before_lights():
     from backend.calendar import session_is_open
 
     as_of = datetime(2026, 8, 23, 12, 20, tzinfo=UTC)
-    assert session_is_open(2026, 12, "R", as_of=as_of) is True
+    assert session_is_open(2026, 15, "R", as_of=as_of) is True
     assert session_is_open(2025, 15, "R", as_of=as_of) is False
 
 
@@ -630,7 +630,7 @@ def test_open_race_does_not_load_fastf1_laps(monkeypatch):
     monkeypatch.setattr("backend.calendar.session_is_open", lambda *_a, **_k: True)
     from backend.sessions import session_laps
 
-    out = session_laps(2026, 12, "R")
+    out = session_laps(2026, 15, "R")
     assert out.laps == []
     assert out.session_type == "R"
 
@@ -640,10 +640,10 @@ def test_after_zandvoort_race_next_is_monza():
 
     as_of = datetime(2026, 8, 23, 16, 0, tzinfo=UTC)
     cal = get_calendar(2026, as_of=as_of)
-    nl = next(r for r in cal.rounds if r.round_number == 12)
+    nl = next(r for r in cal.rounds if r.round_number == 15)
     assert nl.status == "COMPLETED"
     nxt = next_race(as_of=as_of)
-    assert nxt.round_number == 13
+    assert nxt.round_number == 16
     assert "ital" in (nxt.name or "").lower() or "monza" in (nxt.circuit_name or "").lower()
 
 
@@ -652,7 +652,7 @@ def test_monza_2026_fp1_is_live_at_official_1230_cest():
     from backend.live_hub import build_live_hub_fast
 
     as_of = datetime(2026, 9, 4, 10, 45, tzinfo=UTC)
-    weekend = get_round_sessions(2026, 13, as_of=as_of)
+    weekend = get_round_sessions(2026, 16, as_of=as_of)
     by = {s.session_type: s for s in weekend.sessions}
     assert by["FP1"].status == "LIVE"
     assert by["FP1"].datetime_utc == datetime(2026, 9, 4, 10, 30, tzinfo=UTC)
@@ -669,7 +669,7 @@ def test_monza_2026_fp1_is_live_at_official_1230_cest():
 def test_monza_2026_fp1_still_upcoming_before_1030z():
     from backend.calendar import get_round_sessions
 
-    weekend = get_round_sessions(2026, 13, as_of=datetime(2026, 9, 4, 10, 0, tzinfo=UTC))
+    weekend = get_round_sessions(2026, 16, as_of=datetime(2026, 9, 4, 10, 0, tzinfo=UTC))
     by = {s.session_type: s.status for s in weekend.sessions}
     assert by["FP1"] == "UPCOMING"
 
@@ -701,7 +701,7 @@ def test_live_status_round_matches_monza_weekend(monkeypatch):
     status = asyncio.run(live_mod.live_status(datetime(2026, 9, 4, 11, 20, tzinfo=UTC)))
     assert status.is_live is True
     assert status.session_key == 11354
-    assert status.round_number == 13
+    assert status.round_number == 16
     assert status.source == "openf1"
 
 
@@ -718,7 +718,7 @@ def test_fastf1_fallback_without_session_key_is_not_live(monkeypatch):
         return LiveStatus(
             is_live=True,
             year=2026,
-            round_number=13,
+            round_number=16,
             session_type="Q",
             session_name="Qualifying",
             gp_name="Italy",
@@ -755,18 +755,18 @@ def test_weekend_calendar_attaches_live_fp1(monkeypatch):
     sess = asyncio.run(live_mod._session_from_weekend_calendar(as_of))
     assert sess is not None
     assert sess["session_key"] == 10601
-    assert captured == {"year": 2026, "round": 13, "type": "FP1"}
+    assert captured == {"year": 2026, "round": 16, "type": "FP1"}
 
 
-def test_imola_2026_is_not_on_the_calendar():
+def test_imola_2026_is_cancelled_on_the_calendar():
     from backend.calendar import _SCHED_MEM, get_calendar
 
     _SCHED_MEM.pop(2026, None)
     cal = get_calendar(2026, as_of=datetime(2026, 9, 3, 12, 0, tzinfo=UTC))
-    blob = " ".join(f"{r.name} {r.circuit_name}" for r in cal.rounds).lower()
-    assert "imola" not in blob
-    assert "emilia" not in blob
-    assert len(cal.rounds) == 23
+    imola = next(r for r in cal.rounds if r.round_number == 7)
+    assert imola.status == "CANCELLED"
+    assert "imola" in f"{imola.name} {imola.circuit_name}".lower() or "emilia" in (imola.name or "").lower()
+    assert len(cal.rounds) == 24
 
 
 def test_calendar_2026_race_morning_uses_overlay():
@@ -775,11 +775,11 @@ def test_calendar_2026_race_morning_uses_overlay():
     _SCHED_MEM.pop(2026, None)
     as_of = datetime(2026, 8, 23, 11, 0, tzinfo=UTC)
     cal = get_calendar(2026, as_of=as_of)
-    nl = next(r for r in cal.rounds if r.round_number == 12)
+    nl = next(r for r in cal.rounds if r.round_number == 15)
     assert nl.status == "LIVE"
     assert nl.circuit_key == "netherlands"
     nxt = next_race(as_of=as_of)
-    assert nxt.round_number == 12
+    assert nxt.round_number == 15
     assert nxt.next_session_name in {"Race", "R"} or (nxt.next_session_name or "").upper().startswith("R")
 
 

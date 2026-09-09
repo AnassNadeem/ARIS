@@ -53,20 +53,20 @@ describe("topNDriverCodes", () => {
 describe("filterReplayRounds", () => {
   const rounds: RoundCard[] = [
     { round: 1, circuitName: "Australia", countryFlag: "🇦🇺", date: "2026-03-08", sessionType: "R", isSprint: false, arisEligible: true, status: "COMPLETED" },
-    { round: 2, circuitName: "China", countryFlag: "🇨🇳", date: "2026-03-15", sessionType: "R", isSprint: true, arisEligible: true, status: "COMPLETED" },
-    { round: 12, circuitName: "Netherlands", countryFlag: "🇳🇱", date: "2026-08-23", sessionType: "R", isSprint: true, arisEligible: true, status: "COMPLETED" },
-    { round: 13, circuitName: "Italy", countryFlag: "🇮🇹", date: "2026-09-06", sessionType: "R", isSprint: false, arisEligible: false, status: "UPCOMING" },
+    { round: 5, circuitName: "China", countryFlag: "🇨🇳", date: "2026-04-26", sessionType: "R", isSprint: true, arisEligible: true, status: "COMPLETED" },
+    { round: 15, circuitName: "Netherlands", countryFlag: "🇳🇱", date: "2026-08-23", sessionType: "R", isSprint: true, arisEligible: true, status: "COMPLETED" },
+    { round: 16, circuitName: "Italy", countryFlag: "🇮🇹", date: "2026-09-06", sessionType: "R", isSprint: false, arisEligible: false, status: "UPCOMING" },
   ];
 
   it("drops cancelled and upcoming 2026 rounds", () => {
     const keep = filterReplayRounds(rounds, { now: new Date("2026-09-03T12:00:00Z") }).map((r) => r.round);
-    expect(keep).toEqual([1, 2, 12]);
+    expect(keep).toEqual([1, 5, 15]);
     expect(isReplayableRound({ ...rounds[3] })).toBe(false);
   });
 
   it("hides a COMPLETED race whose date is still in the future", () => {
     const monza: RoundCard = {
-      round: 13,
+      round: 16,
       circuitName: "Italy",
       countryFlag: "🇮🇹",
       date: "2026-09-06T13:00:00Z",
@@ -76,7 +76,7 @@ describe("filterReplayRounds", () => {
       status: "COMPLETED",
     };
     expect(filterReplayRounds([monza], { now: new Date("2026-09-03T12:00:00Z") })).toEqual([]);
-    expect(filterReplayRounds([monza], { now: new Date("2026-09-06T18:00:00Z") }).map((r) => r.round)).toEqual([13]);
+    expect(filterReplayRounds([monza], { now: new Date("2026-09-06T18:00:00Z") }).map((r) => r.round)).toEqual([16]);
   });
 
   it("hides Imola 2026 even when the API marks it completed", () => {
@@ -1106,7 +1106,7 @@ describe("recommend mapping", () => {
         phase: "GREEN",
         lastPhase: null,
       }),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       shouldFetchRecommend({
         isARISOn: true,

@@ -64,7 +64,7 @@ function LivePageInner() {
   function enterDemo() {
     setSession({
       year: 2026,
-      round: 12,
+      round: 15,
       sessionType: "R",
       circuitName: "Circuit Zandvoort",
       countryFlag: "🇳🇱",

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { annotateVsActivePlan, shouldFetchRecommend } from "./arisRecommend";
 import { mapTimingAndPositions } from "./mapCars";
-import { fieldToDrivers, fieldToLapRows, interpolatedPosFrac, nearestPosSample, normalizeR2Base, plansMatch, r2Configured, replayUsesR2Pack, r2FrameAt, r2TickToGhostTick, raceDurationS, sectorSecondsForLap, speedKphFromPath, deriveGhostLapTimes, pitLossForCircuit, realLapTimesByDriver, GRID_START_LAP_FRAC, blendedPathFrac, gridPathFrac, replayDisplayFrac, ghostTickAtOrBefore, ghostDeltaChartPoints, r2FetchErrorMessage, fetchGhost, RaceFieldNotFoundError, R2_LOAD_ERROR, R2_RACE_UNAVAILABLE, driversFromRaceOrGrid, driverDidNotStart, ghostUnavailableMessage, startCompoundFromField, applyStartCompoundToPlans, ghostWithPlanStrategy } from "./r2Replay";
+import { fieldToDrivers, fieldToLapRows, interpolatedPosFrac, nearestPosSample, normalizeR2Base, plansMatch, r2Configured, replayUsesR2Pack, r2FrameAt, r2TickToGhostTick, raceDurationS, sectorSecondsForLap, speedKphFromPath, deriveGhostLapTimes, pitLossForCircuit, realLapTimesByDriver, GRID_START_LAP_FRAC, blendedPathFrac, gridPathFrac, replayDisplayFrac, ghostTickAtOrBefore, ghostDeltaChartPoints, r2FetchErrorMessage, fetchGhost, RaceFieldNotFoundError, R2_LOAD_ERROR, R2_RACE_UNAVAILABLE, driversFromRaceOrGrid, driverDidNotStart, ghostUnavailableMessage, startCompoundFromField, applyStartCompoundToPlans, ghostWithPlanStrategy, ghostWithPlanStart } from "./r2Replay";
 import type { ARISRecommendation, GhostData, RaceField, RaceFieldLap } from "./types";
 
 function rec(over: Partial<ARISRecommendation> = {}): ARISRecommendation {
@@ -40,6 +40,50 @@ describe("shouldFetchRecommend with active strategy", () => {
         phase: "GREEN",
         lastPhase: null,
         hasActiveStrategy: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("skips lap 0 and waits when the plan is not loaded yet", () => {
+    expect(
+      shouldFetchRecommend({
+        isARISOn: true,
+        playState: "racing",
+        lap: 0,
+        lastLap: null,
+        tyreLife: 0,
+        phase: "GREEN",
+        lastPhase: null,
+        hasActiveStrategy: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldFetchRecommend({
+        isARISOn: true,
+        playState: "racing",
+        lap: 1,
+        lastLap: null,
+        tyreLife: 1,
+        phase: "GREEN",
+        lastPhase: null,
+        hasActiveStrategy: false,
+        hasSelectedStrategy: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("skips lights-out when only selectedStrategy is set", () => {
+    expect(
+      shouldFetchRecommend({
+        isARISOn: true,
+        playState: "racing",
+        lap: 1,
+        lastLap: null,
+        tyreLife: 1,
+        phase: "GREEN",
+        lastPhase: null,
+        hasActiveStrategy: false,
+        hasSelectedStrategy: true,
       }),
     ).toBe(false);
   });
@@ -88,6 +132,21 @@ describe("plansMatch", () => {
     const updated = ghostWithPlanStrategy(ghost, plan);
     expect(plansMatch(plan, updated)).toBe(true);
     expect(updated.strategy.pit_laps).toEqual([27]);
+  });
+  it("ghostWithPlanStart overlays ARIS's opening compound before the first pit", () => {
+    const plan = { id: "B", name: "Strat B", pit_laps: [27], pit_compounds: ["HARD"], start_compound: "MEDIUM" };
+    const baked = {
+      ...ghost,
+      ticks: [
+        { ...ghost.ticks[0], lap: 1, compound: "INTERMEDIATE" },
+        { ...ghost.ticks[0], lap: 2, compound: "INTERMEDIATE" },
+        { ...ghost.ticks[0], lap: 27, compound: "HARD" },
+      ],
+    };
+    const aligned = ghostWithPlanStart(baked, plan);
+    expect(aligned.ticks.find((t) => t.lap === 1)?.compound).toBe("MEDIUM");
+    expect(aligned.ticks.find((t) => t.lap === 2)?.compound).toBe("MEDIUM");
+    expect(aligned.ticks.find((t) => t.lap === 27)?.compound).toBe("HARD");
   });
 });
 

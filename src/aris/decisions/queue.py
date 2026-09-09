@@ -20,6 +20,8 @@ class DecisionKind(StrEnum):
     SC = "safety_car"
     MANUAL_PIT = "manual_pit"
     APPROACHING_WINDOW = "approaching_window"
+    RAIN_START = "rain_start"
+    RAIN_STOP = "rain_stop"
 
 
 class DecisionOption(BaseModel):

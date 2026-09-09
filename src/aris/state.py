@@ -152,6 +152,8 @@ class RaceState(BaseModel):
     # session_weather.rainfall (any-sample) stays on weather_rainfall for
     # walk-forward exclusion; it is not a live rain signal.
     rainfall: bool = False
+    # Previous trigger tick's rainfall — rain-start edge for INTER shortlist.
+    was_raining: bool | None = None
     stint_number: int = 1
     # T10-A: P(SC/VSC in the next window). Defaults = historical base rates.
     p_sc_next_5_laps: float = 0.07

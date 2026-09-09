@@ -17,21 +17,19 @@ import {
   prewarmSession,
 } from "@/lib/api";
 import {
-  applyStartCompoundToPlans,
   fetchGhost,
   fetchRaceField,
   fieldToDrivers,
   fieldToLapRows,
   fieldToStintRows,
   ghostTicksMap,
-  ghostWithPlanStrategy,
+  ghostWithPlanStart,
   plansMatch,
   r2Configured,
   raceFieldExists,
   r2FetchErrorMessage,
   GhostUnavailableError,
   driverDidNotStart,
-  startCompoundFromField,
   R2_LOAD_ERROR,
 } from "@/lib/r2Replay";
 
@@ -246,8 +244,9 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
               try {
                 const ghost = await fetchGhost(year, round.round, driver);
                 if (ghost) {
-                  store.setR2Ghost(ghost);
-                  store.setGhostTicks(ghostTicksMap(ghost));
+                  const aligned = plan ? ghostWithPlanStart(ghost, plan) : ghost;
+                  store.setR2Ghost(aligned);
+                  store.setGhostTicks(ghostTicksMap(aligned));
                   store.setGhostReason(null);
                 }
                 // Seed the ghost with the Strat the user picked at setup —
@@ -263,8 +262,12 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
                     label: plan.name,
                   });
                   if (recomputed?.ticks) {
-                    store.mergeGhostTicksFrom(1, recomputed.ticks);
-                    store.setR2Ghost(ghostWithPlanStrategy(ghost, plan));
+                    const aligned = ghostWithPlanStart(
+                      { ...ghost, ticks: recomputed.ticks },
+                      plan,
+                    );
+                    store.mergeGhostTicksFrom(1, aligned.ticks);
+                    store.setR2Ghost(aligned);
                     store.setActiveStrategy(plan);
                   } else {
                     store.setPackToast(PREBUILT_STRATEGY_TOAST);
@@ -414,18 +417,9 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
     setAnalysisPending(true);
     setStep("strategies");
     const payload = await getQuickAnalysis(year, round.round, driver);
-    let plans = payload?.plans ?? [];
-    // Prefer the real lap-1 compound from race_field (e.g. INTER at Australia
-    // 2025) over the dry MEDIUM default from generate_strat_plans().
-    if (r2Configured()) {
-      try {
-        const field = await fetchRaceField(year, round.round);
-        const start = startCompoundFromField(field, driver);
-        plans = applyStartCompoundToPlans(plans, start);
-      } catch {
-        /* keep API plans when race_field is unavailable */
-      }
-    }
+    // Keep ARIS's Strat A/B/C start compounds. Do not copy the real driver's
+    // lap-1 tyre (e.g. INTER at Australia 2025) over the independent plan.
+    const plans = payload?.plans ?? [];
     setStrategies(plans);
     setSelectedStrategy(null);
     setAnalysisPending(false);

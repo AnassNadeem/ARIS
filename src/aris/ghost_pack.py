@@ -269,9 +269,58 @@ def compute_ghost(
 
     code = str(driver).upper()
     focus_laps = assert_driver_raced(field, code)
-    start_compound = normalize_compound(str(focus_laps[0].get("compound") or "MEDIUM"))
     total = int((field.get("meta") or {}).get("total_laps") or len(focus_laps) or 1)
     country = _country_for(year, round_number, field)
+
+    # ARIS commits to its own pre-race Strat — never copy the real driver's
+    # lap-1 tyre (Australia 2025 INTER, a SOFT start, etc.).
+    start_compound = "MEDIUM"
+    plan = None
+    label = ""
+    pit_loss_s = 21.0
+    try:
+        from aris.plan.prewrite import aris_start_compound, derive_pit_windows, generate_strat_plans
+        from aris.tracks import load_track_config
+
+        track = load_track_config(country, year=int(year), round_no=int(round_number))
+        pit_loss_s = float(track.pit_loss_s)
+        strat_set = generate_strat_plans(
+            0,
+            0,
+            year=int(year),
+            round_no=int(round_number),
+            country=country or track.country,
+            driver_code=code,
+            score=False,
+            use_weekend_form=False,
+        )
+        chosen = next((p for p in strat_set.plans if p.id == "B"), None)
+        if chosen is not None:
+            start_compound = normalize_compound(chosen.start_compound or "MEDIUM")
+        else:
+            start_compound = aris_start_compound(total_laps=total, strat_id="B")
+        windows = derive_pit_windows(total, pit_loss_s)
+        strat_b = [int(p) for p in (windows.get("B") or [])]
+        if strat_b and all(1 < p <= total for p in strat_b):
+            compounds = ["HARD"] * len(strat_b)
+            plan = plan_from_pits(
+                strat_b,
+                compounds,
+                start_compound,
+                label=f"PIT_L{strat_b[0]}_HARD",
+                total_laps=total,
+            )
+            label = plan.aris_action
+            _log.info(
+                "ghost seed Strat B for %s: pit_laps=%s start=%s (derive_pit_windows)",
+                code,
+                strat_b,
+                start_compound,
+            )
+    except Exception as extra:
+        _log.info("derive_pit_windows failed for %s: %s", code, extra)
+        plan = None
+        start_compound = "MEDIUM"
 
     template = RaceState(
         session_id=int((field.get("meta") or {}).get("session_key") or 0),
@@ -290,40 +339,6 @@ def compute_ghost(
         position=int(focus_laps[0].get("position") or 1),
         track_status=str(focus_laps[0].get("track_status") or "1"),
     )
-
-    # Prefer Strat B from derive_pit_windows (same windows as the pre-race
-    # Strat A/B/C screen). Lap-1 recommend() only sees {now,+1,+2,+3,+5,+8}
-    # and seeds an unrealistically early first stop (e.g. pit lap 9 on a
-    # 72-lap race) that disagrees with the UI.
-    plan = None
-    label = ""
-    pit_loss_s = 21.0
-    try:
-        from aris.plan.prewrite import derive_pit_windows
-        from aris.tracks import load_track_config
-
-        track = load_track_config(country, year=int(year), round_no=int(round_number))
-        pit_loss_s = float(track.pit_loss_s)
-        windows = derive_pit_windows(total, pit_loss_s)
-        strat_b = [int(p) for p in (windows.get("B") or [])]
-        if strat_b and all(1 < p <= total for p in strat_b):
-            compounds = ["HARD"] * len(strat_b)
-            plan = plan_from_pits(
-                strat_b,
-                compounds,
-                start_compound,
-                label=f"PIT_L{strat_b[0]}_HARD",
-                total_laps=total,
-            )
-            label = plan.aris_action
-            _log.info(
-                "ghost seed Strat B for %s: pit_laps=%s (derive_pit_windows)",
-                code,
-                strat_b,
-            )
-    except Exception as extra:
-        _log.info("derive_pit_windows failed for %s: %s", code, extra)
-        plan = None
 
     if plan is None:
         rec_fn = recommend_fn
@@ -426,6 +441,7 @@ def compute_ghost(
         "strategy": {
             "pit_laps": list(plan.pit_laps),
             "compounds": list(plan.pit_compounds),
+            "start_compound": normalize_compound(plan.start_compound or start_compound),
             "label": label,
         },
         "ticks": ticks,
