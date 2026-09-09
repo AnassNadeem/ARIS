@@ -70,9 +70,13 @@ export function useArisRecommendLoop() {
     const car = useRaceStore.getState().cars[driver];
     const tyreLife = car?.tyre_life ?? 0;
     const storeSnap = useRaceStore.getState();
+    // Lights-out / plan statement must match the Strat B (or A/C) card the
+    // user picked in setup. Prefer selectedStrategy over activeStrategy:
+    // ghost-recompute failure used to overwrite activeStrategy with the
+    // baked R2 pit lap (e.g. Strat B L22 card vs ghost L24 comms).
     const plan =
-      storeSnap.activeStrategy ??
       storeSnap.selectedStrategy ??
+      storeSnap.activeStrategy ??
       (storeSnap.r2Ghost?.strategy?.pit_laps?.length
         ? {
             pit_laps: storeSnap.r2Ghost.strategy.pit_laps,

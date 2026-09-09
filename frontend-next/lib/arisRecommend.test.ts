@@ -146,6 +146,16 @@ describe("lights-out plan statement", () => {
     ).toMatch(/lap 21/);
     expect(lightsOutPlanStatement({ pit_laps: [29], pit_compounds: ["HARD"] })).not.toMatch(/lap 9\b/);
   });
+
+  it("matches the Strat B card when ghost bake differs (Bahrain 22 vs ghost 24)", () => {
+    // Card / selectedStrategy is the source of truth — not r2Ghost.strategy.
+    expect(
+      lightsOutPlanStatement({ pit_laps: [22], pit_compounds: ["HARD"], name: "Strat B — One-stop late" }),
+    ).toBe("ARIS is pitting on lap 22 for HARD.");
+    expect(
+      lightsOutPlanStatement({ pit_laps: [22], pit_compounds: ["HARD"] }),
+    ).not.toMatch(/lap 24\b/);
+  });
 });
 
 describe("mapRecommendResponse deferred far pit", () => {

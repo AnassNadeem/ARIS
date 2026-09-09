@@ -270,14 +270,12 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
                     store.setR2Ghost(aligned);
                     store.setActiveStrategy(plan);
                   } else {
+                    // Keep the Strat the user picked on the card / panel /
+                    // lights-out comms. Do not replace pit_laps with the
+                    // baked R2 ghost plan (that caused Strat B L22 vs
+                    // comms L24). Toast warns ticks may still be prebuilt.
                     store.setPackToast(PREBUILT_STRATEGY_TOAST);
-                    store.setActiveStrategy({
-                      id: `r2-ghost-${driver}`,
-                      name: ghost.strategy.label || plan.name,
-                      pit_laps: ghost.strategy.pit_laps,
-                      pit_compounds: ghost.strategy.compounds,
-                      start_compound: plan.start_compound,
-                    });
+                    store.setActiveStrategy(plan);
                   }
                 }
               } catch (ghostErr) {

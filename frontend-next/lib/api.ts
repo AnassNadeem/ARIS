@@ -131,7 +131,7 @@ export async function getStatus(): Promise<StatusResponse> {
 export async function getCalendar(year: number, opts?: { replay?: boolean }): Promise<RoundCard[]> {
   const suffix = opts?.replay ? "?replay=1" : "";
   const mapped = await withCache(
-    `GET:/api/calendar/${year}${suffix}:v2026-23b`,
+    `GET:/api/calendar/${year}${suffix}:v2026-r2rounds24`,
     TTL_MS.calendar,
     async () => {
       const live = await tryFetch<{ rounds?: BackendRound[] }>(`/api/calendar/${year}${suffix}`, undefined, 20000);
