@@ -136,7 +136,7 @@ const R2_BASE = normalizeR2Base(
     (process.env.NODE_ENV === "development" ? "/r2replay" : ""),
 );
 /** Bump when race_field.json shape changes so CDN/browser caches cannot serve stale packs. */
-const R2_ASSET_V = "4";
+const R2_ASSET_V = "5";
 const DEFAULT_TRACK_M = 5000;
 const SPEED_DT_LAP = 0.04;
 

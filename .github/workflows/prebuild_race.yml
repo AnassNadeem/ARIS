@@ -44,8 +44,11 @@ jobs:
       - name: Install script dependencies
         run: |
           python -m pip install --upgrade pip
+          # xgboost is required by aris.ghost_pack / residual models when baking
+          # ghost_*.json. Without it, OpenF1 race_field rebuilds fail after the
+          # field is written (Monza 2026 R16) and ghosts never upload.
           pip install fastf1 boto3 pandas numpy pydantic sqlalchemy \
-            "psycopg[binary]" python-dotenv scikit-learn pyyaml httpx diskcache requests
+            "psycopg[binary]" python-dotenv scikit-learn xgboost pyyaml httpx diskcache requests
 
       - name: Prebuild completed races
         env:

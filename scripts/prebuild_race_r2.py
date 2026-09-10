@@ -1523,13 +1523,29 @@ def build_one(
             f"{year} R{round_number} race_field.json still {len(raw)} bytes after downsample"
         )
     field_bytes = _write_json(field_path, field)
+    # Always publish race_field first so /replay can open even if ghost bake fails
+    # (missing xgboost, model gap, etc.). Ghosts are optional for the picker.
+    if not no_upload:
+        _upload(field_path, f"replay/{year}/{round_number}/race_field.json")
     code = _default_driver(sess, driver) if sess is not None else None
     if not code:
         codes = driver_codes_from_field(field)
         code = (driver or (codes[0] if codes else "") or "VER").upper()
-    ghost = build_ghost(year, round_number, code, sess, field)
-    ghost_path = _local_key(year, round_number, f"ghost_{code}.json")
-    ghost_bytes = _write_json(ghost_path, ghost)
+    ghost_bytes = 0
+    try:
+        ghost = build_ghost(year, round_number, code, sess, field)
+        ghost_path = _local_key(year, round_number, f"ghost_{code}.json")
+        ghost_bytes = _write_json(ghost_path, ghost)
+        if not no_upload:
+            _upload(ghost_path, f"replay/{year}/{round_number}/ghost_{code}.json")
+    except Exception as extra:
+        _log.exception(
+            "ghost bake failed %s R%s driver=%s (race_field already saved): %s",
+            year,
+            round_number,
+            code,
+            extra,
+        )
     _log.info(
         "built %s R%s driver=%s source=%s field=%.1fKB ghost=%.1fKB in %.1fs",
         year,
@@ -1540,9 +1556,6 @@ def build_one(
         ghost_bytes / 1024,
         time.monotonic() - t0,
     )
-    if not no_upload:
-        _upload(field_path, f"replay/{year}/{round_number}/race_field.json")
-        _upload(ghost_path, f"replay/{year}/{round_number}/ghost_{code}.json")
     return {
         "year": year,
         "round": round_number,
