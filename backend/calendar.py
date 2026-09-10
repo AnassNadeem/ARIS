@@ -78,27 +78,28 @@ def assert_replay_year(year: int, *, session_load: bool = False) -> int:
     print(f"[ARIS] {msg}", flush=True)
     raise ReplayYearBlocked("Replay not allowed for this year" if session_load else REPLAY_YEAR_LIMIT_MSG)
 
-# 2026 round numbers match baked R2 packs under replay/2026/{round}/.
-# Bahrain (R2), Saudi Arabia (R3), and Imola (R7) stay in the overlay as
-# CANCELLED so championship numbers align with R2 (Miami=6, Netherlands=15).
-# Do not renumber to the post-cancellation 23-round FIA index — that breaks
-# replay pack paths.
+# 2026 round numbers for R1–16 match baked R2 packs under replay/2026/{round}/.
+# Bahrain Sakhir (R2), Saudi Arabia Jeddah (R3), and Imola (R7) stay CANCELLED
+# so championship pack paths stay Miami=6 and Netherlands=15.
+# Madrid (Spanish GP) and Sepang (Bahrain GP in Malaysia) were missing after the
+# R2 restore — they are R17+ only (no baked packs yet). Do not renumber R1–16.
 NOTES_OVERLAY: dict[int, list[dict[str, Any]]] = {
     2026: [
-        {"round_number": 1, "name": "Australia", "circuit_name": "Albert Park", "country": "Australia", "city": "Melbourne", "date_race": "2026-03-15T05:00:00Z", "is_sprint_weekend": False},
-        {"round_number": 2, "name": "Bahrain", "circuit_name": "Bahrain International Circuit", "country": "Bahrain", "city": "Sakhir", "date_race": "2026-03-22T15:00:00Z", "is_sprint_weekend": False},
-        {"round_number": 3, "name": "Saudi Arabia", "circuit_name": "Jeddah Corniche Circuit", "country": "Saudi Arabia", "city": "Jeddah", "date_race": "2026-03-29T17:00:00Z", "is_sprint_weekend": False},
-        {"round_number": 4, "name": "Japan", "circuit_name": "Suzuka", "country": "Japan", "city": "Suzuka", "date_race": "2026-04-12T05:00:00Z", "is_sprint_weekend": False},
-        {"round_number": 5, "name": "China", "circuit_name": "Shanghai International Circuit", "country": "China", "city": "Shanghai", "date_race": "2026-04-26T07:00:00Z", "is_sprint_weekend": True},
-        {"round_number": 6, "name": "Miami", "circuit_name": "Miami International Autodrome", "country": "United States", "city": "Miami", "date_race": "2026-05-10T20:00:00Z", "is_sprint_weekend": True},
+        {"round_number": 1, "name": "Australia", "circuit_name": "Albert Park", "country": "Australia", "city": "Melbourne", "date_race": "2026-03-08T04:00:00Z", "is_sprint_weekend": False},
+        {"round_number": 2, "name": "Bahrain", "circuit_name": "Bahrain International Circuit", "country": "Bahrain", "city": "Sakhir", "date_race": "2026-04-12T15:00:00Z", "is_sprint_weekend": False},
+        {"round_number": 3, "name": "Saudi Arabia", "circuit_name": "Jeddah Corniche Circuit", "country": "Saudi Arabia", "city": "Jeddah", "date_race": "2026-04-19T17:00:00Z", "is_sprint_weekend": False},
+        {"round_number": 4, "name": "Japan", "circuit_name": "Suzuka", "country": "Japan", "city": "Suzuka", "date_race": "2026-03-29T05:00:00Z", "is_sprint_weekend": False},
+        {"round_number": 5, "name": "China", "circuit_name": "Shanghai International Circuit", "country": "China", "city": "Shanghai", "date_race": "2026-03-15T07:00:00Z", "is_sprint_weekend": True},
+        {"round_number": 6, "name": "Miami", "circuit_name": "Miami International Autodrome", "country": "United States", "city": "Miami", "date_race": "2026-05-03T20:00:00Z", "is_sprint_weekend": True},
         {"round_number": 7, "name": "Emilia Romagna", "circuit_name": "Imola", "country": "Italy", "city": "Imola", "date_race": "2026-05-24T13:00:00Z", "is_sprint_weekend": False},
-        {"round_number": 8, "name": "Monaco", "circuit_name": "Circuit de Monaco", "country": "Monaco", "city": "Monaco", "date_race": "2026-05-31T13:00:00Z", "is_sprint_weekend": False},
-        {"round_number": 9, "name": "Spain", "circuit_name": "Circuit de Barcelona-Catalunya", "country": "Spain", "city": "Barcelona", "date_race": "2026-06-14T13:00:00Z", "is_sprint_weekend": False},
-        {"round_number": 10, "name": "Canada", "circuit_name": "Circuit Gilles-Villeneuve", "country": "Canada", "city": "Montreal", "date_race": "2026-06-21T18:00:00Z", "is_sprint_weekend": False},
-        {"round_number": 11, "name": "Austria", "circuit_name": "Red Bull Ring", "country": "Austria", "city": "Spielberg", "date_race": "2026-07-05T13:00:00Z", "is_sprint_weekend": True},
-        {"round_number": 12, "name": "Britain", "circuit_name": "Silverstone", "country": "United Kingdom", "city": "Silverstone", "date_race": "2026-07-12T14:00:00Z", "is_sprint_weekend": False},
-        {"round_number": 13, "name": "Belgium", "circuit_name": "Circuit de Spa-Francorchamps", "country": "Belgium", "city": "Spa", "date_race": "2026-07-26T13:00:00Z", "is_sprint_weekend": True},
-        {"round_number": 14, "name": "Hungary", "circuit_name": "Hungaroring", "country": "Hungary", "city": "Budapest", "date_race": "2026-08-02T13:00:00Z", "is_sprint_weekend": False},
+        {"round_number": 8, "name": "Monaco", "circuit_name": "Circuit de Monaco", "country": "Monaco", "city": "Monaco", "date_race": "2026-06-07T13:00:00Z", "is_sprint_weekend": False},
+        # Official title moved to Madrid; Barcelona is Barcelona-Catalunya GP.
+        {"round_number": 9, "name": "Barcelona-Catalunya", "circuit_name": "Circuit de Barcelona-Catalunya", "circuit_key": "spain", "country": "Spain", "city": "Barcelona", "date_race": "2026-06-14T13:00:00Z", "is_sprint_weekend": False},
+        {"round_number": 10, "name": "Canada", "circuit_name": "Circuit Gilles-Villeneuve", "country": "Canada", "city": "Montreal", "date_race": "2026-05-24T20:00:00Z", "is_sprint_weekend": False},
+        {"round_number": 11, "name": "Austria", "circuit_name": "Red Bull Ring", "country": "Austria", "city": "Spielberg", "date_race": "2026-06-28T13:00:00Z", "is_sprint_weekend": True},
+        {"round_number": 12, "name": "Britain", "circuit_name": "Silverstone", "country": "United Kingdom", "city": "Silverstone", "date_race": "2026-07-05T14:00:00Z", "is_sprint_weekend": False},
+        {"round_number": 13, "name": "Belgium", "circuit_name": "Circuit de Spa-Francorchamps", "country": "Belgium", "city": "Spa", "date_race": "2026-07-19T13:00:00Z", "is_sprint_weekend": True},
+        {"round_number": 14, "name": "Hungary", "circuit_name": "Hungaroring", "country": "Hungary", "city": "Budapest", "date_race": "2026-07-26T13:00:00Z", "is_sprint_weekend": False},
         {
             "round_number": 15,
             "name": "Netherlands",
@@ -128,18 +129,45 @@ NOTES_OVERLAY: dict[int, list[dict[str, Any]]] = {
             "date_fp3": "2026-09-05T10:30:00Z",
             "date_quali": "2026-09-05T14:00:00Z",
         },
-        {"round_number": 17, "name": "Azerbaijan", "circuit_name": "Baku City Circuit", "country": "Azerbaijan", "city": "Baku", "date_race": "2026-09-20T11:00:00Z", "is_sprint_weekend": False},
-        {"round_number": 18, "name": "Singapore", "circuit_name": "Marina Bay Street Circuit", "country": "Singapore", "city": "Singapore", "date_race": "2026-10-04T12:00:00Z", "is_sprint_weekend": False},
-        {"round_number": 19, "name": "United States", "circuit_name": "Circuit of the Americas", "country": "United States", "city": "Austin", "date_race": "2026-10-18T19:00:00Z", "is_sprint_weekend": True},
-        {"round_number": 20, "name": "Mexico City", "circuit_name": "Autodromo Hermanos Rodriguez", "country": "Mexico", "city": "Mexico City", "date_race": "2026-10-25T20:00:00Z", "is_sprint_weekend": False},
-        {"round_number": 21, "name": "Sao Paulo", "circuit_name": "Autodromo Jose Carlos Pace", "country": "Brazil", "city": "Sao Paulo", "date_race": "2026-11-08T17:00:00Z", "is_sprint_weekend": True},
-        {"round_number": 22, "name": "Las Vegas", "circuit_name": "Las Vegas Strip Circuit", "country": "United States", "city": "Las Vegas", "date_race": "2026-11-21T06:00:00Z", "is_sprint_weekend": False},
-        {"round_number": 23, "name": "Qatar", "circuit_name": "Lusail International Circuit", "country": "Qatar", "city": "Lusail", "date_race": "2026-11-29T16:00:00Z", "is_sprint_weekend": True},
-        {"round_number": 24, "name": "Abu Dhabi", "circuit_name": "Yas Marina Circuit", "country": "UAE", "city": "Abu Dhabi", "date_race": "2026-12-06T13:00:00Z", "is_sprint_weekend": False},
+        # Official Spanish GP title (Gran Premio de España) — Madring debut.
+        {
+            "round_number": 17,
+            "name": "Spain (Madrid)",
+            "circuit_name": "Madring",
+            "circuit_key": "madrid",
+            "country": "Spain",
+            "city": "Madrid",
+            "date_race": "2026-09-13T13:00:00Z",
+            "is_sprint_weekend": False,
+            "date_fp1": "2026-09-11T09:30:00Z",
+            "date_fp2": "2026-09-11T13:00:00Z",
+            "date_fp3": "2026-09-12T08:30:00Z",
+            "date_quali": "2026-09-12T12:00:00Z",
+        },
+        {"round_number": 18, "name": "Azerbaijan", "circuit_name": "Baku City Circuit", "country": "Azerbaijan", "city": "Baku", "date_race": "2026-09-26T11:00:00Z", "is_sprint_weekend": False},
+        # April Sakhir round cancelled; Bahrain GP relocated to Sepang (Oct).
+        {
+            "round_number": 19,
+            "name": "Bahrain (Malaysia)",
+            "circuit_name": "Sepang International Circuit",
+            "circuit_key": "sepang",
+            "country": "Malaysia",
+            "city": "Sepang",
+            "date_race": "2026-10-04T07:00:00Z",
+            "is_sprint_weekend": False,
+        },
+        {"round_number": 20, "name": "Singapore", "circuit_name": "Marina Bay Street Circuit", "country": "Singapore", "city": "Singapore", "date_race": "2026-10-11T12:00:00Z", "is_sprint_weekend": False},
+        {"round_number": 21, "name": "United States", "circuit_name": "Circuit of the Americas", "country": "United States", "city": "Austin", "date_race": "2026-10-25T19:00:00Z", "is_sprint_weekend": True},
+        {"round_number": 22, "name": "Mexico City", "circuit_name": "Autodromo Hermanos Rodriguez", "country": "Mexico", "city": "Mexico City", "date_race": "2026-11-01T20:00:00Z", "is_sprint_weekend": False},
+        {"round_number": 23, "name": "Sao Paulo", "circuit_name": "Autodromo Jose Carlos Pace", "country": "Brazil", "city": "Sao Paulo", "date_race": "2026-11-08T17:00:00Z", "is_sprint_weekend": True},
+        {"round_number": 24, "name": "Las Vegas", "circuit_name": "Las Vegas Strip Circuit", "country": "United States", "city": "Las Vegas", "date_race": "2026-11-22T06:00:00Z", "is_sprint_weekend": False},
+        {"round_number": 25, "name": "Qatar", "circuit_name": "Lusail International Circuit", "country": "Qatar", "city": "Lusail", "date_race": "2026-11-29T16:00:00Z", "is_sprint_weekend": True},
+        {"round_number": 26, "name": "Abu Dhabi", "circuit_name": "Yas Marina Circuit", "country": "UAE", "city": "Abu Dhabi", "date_race": "2026-12-06T13:00:00Z", "is_sprint_weekend": False},
     ]
 }
 
-FIA_2026_SPRINT_ROUNDS = {5, 6, 11, 13, 15, 19, 21, 23}
+# Same sprint events as the R2-aligned calendar; US/Sao Paulo/Qatar shifted after Madrid+Sepang.
+FIA_2026_SPRINT_ROUNDS = {5, 6, 11, 13, 15, 21, 23, 25}
 
 _SESSION_DURATION_H = {
     "FP1": 1.5,
@@ -347,7 +375,10 @@ def _short_name(event_name: str, country: str) -> str:
         "Abu Dhabi": "Abu Dhabi",
         "Great Britain": "Britain",
         "British": "Britain",
+        "Barcelona-Catalunya": "Barcelona-Catalunya",
+        "Barcelona": "Barcelona-Catalunya",
         "Spanish": "Spain",
+        "Madrid": "Spain",
         "Monégasque": "Monaco",
         "Monegasque": "Monaco",
         "Dutch": "Netherlands",
@@ -734,9 +765,13 @@ def _find_round_by_event(name: str, circuit: str, rounds: list[CalendarRound]) -
         "abudhabi": {"yasmarina"},
         "lasvegas": {"vegas"},
         "mexicocity": {"mexico"},
+        "barcelonacatalunya": {"barcelona", "catalunya"},
         "barcelona": {"catalunya", "barcelonacatalunya"},
-        "madrid": {"madring"},
+        "madrid": {"madring", "spanish"},
+        "spain": {"madrid", "madring", "spanish"},
+        "bahrainmalaysia": {"sepang", "malaysia"},
         "malaysia": {"sepang", "kualalumpur"},
+        "sepang": {"malaysia", "bahrainmalaysia"},
     }
     expanded: set[str] = set(needles)
     for n in list(needles):
@@ -839,8 +874,8 @@ def get_calendar(year: int, as_of: datetime | None = None, *, for_replay: bool =
     wall = datetime.now(timezone.utc)
     as_of = now_utc(as_of)
     near_now = abs((as_of - wall).total_seconds()) < 180
-    # Bust key when 2026 R2-aligned round numbers change (Miami=6, NL=15).
-    cache_key = f"calbuild_r2rounds24_{year}" if near_now else f"calbuild_r2rounds24_{year}_{as_of.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+    # Bust key when 2026 overlay changes (Miami=6, NL=15, Madrid=17, Sepang=19).
+    cache_key = f"calbuild_r2madrid26_{year}" if near_now else f"calbuild_r2madrid26_{year}_{as_of.strftime('%Y-%m-%dT%H:%M:%SZ')}"
     hit = mem_cache.get(cache_key, TTL_CALENDAR)
     if hit is not None:
         return hit

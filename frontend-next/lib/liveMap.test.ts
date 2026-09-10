@@ -98,7 +98,7 @@ describe("keepRoundsWithPack", () => {
   it("drops only confirmed missing race_field.json packs", () => {
     const rounds: RoundCard[] = [
       { round: 6, circuitName: "Miami", countryFlag: "🇺🇸", date: "2026-05-10", sessionType: "R", isSprint: true, arisEligible: true, status: "COMPLETED" },
-      { round: 9, circuitName: "Spain", countryFlag: "🇪🇸", date: "2026-06-14", sessionType: "R", isSprint: false, arisEligible: true, status: "COMPLETED" },
+      { round: 9, circuitName: "Barcelona-Catalunya", countryFlag: "🇪🇸", date: "2026-06-14", sessionType: "R", isSprint: false, arisEligible: true, status: "COMPLETED" },
     ];
     const exists = new Map<number, boolean | null>([
       [6, true],

@@ -766,7 +766,7 @@ def test_imola_2026_is_cancelled_on_the_calendar():
     imola = next(r for r in cal.rounds if r.round_number == 7)
     assert imola.status == "CANCELLED"
     assert "imola" in f"{imola.name} {imola.circuit_name}".lower() or "emilia" in (imola.name or "").lower()
-    assert len(cal.rounds) == 24
+    assert len(cal.rounds) == 26
 
 
 def test_calendar_2026_race_morning_uses_overlay():

@@ -97,7 +97,12 @@ def test_2026_cancelled_rounds_stay_numbered_but_marked():
     assert "imola" in f"{by[7].name} {by[7].circuit_name}".lower()
     assert by[6].name == "Miami"
     assert by[15].circuit_key == "netherlands"
-    assert len(cal.rounds) == 24
+    assert "barcelona" in (by[9].name or "").lower()
+    assert by[17].city == "Madrid"
+    assert "spain" in (by[17].name or "").lower()
+    assert "madring" in (by[17].circuit_name or "").lower()
+    assert "sepang" in f"{by[19].circuit_name} {by[19].city}".lower()
+    assert len(cal.rounds) == 26
 
 
 def test_next_race_after_australia_skips_cancelled():
@@ -114,10 +119,22 @@ def test_next_race_after_japan_is_china():
     from backend.calendar import next_race
 
     nxt = next_race(as_of=datetime(2026, 4, 13, 16, 0, tzinfo=UTC))
-    assert nxt.round_number == 5
+    # After early flyaways, Miami (R6) is the next non-cancelled upcoming.
+    assert nxt.round_number == 6
     blob = f"{nxt.name} {nxt.circuit_name}".lower()
-    assert "china" in blob or "shanghai" in blob
+    assert "miami" in blob
     assert nxt.status != "CANCELLED"
+
+
+def test_next_race_sep10_is_madrid():
+    from backend.calendar import next_race
+
+    nxt = next_race(as_of=datetime(2026, 9, 10, 12, 0, tzinfo=UTC))
+    assert nxt.round_number == 17
+    blob = f"{nxt.name} {nxt.circuit_name} {nxt.city}".lower()
+    assert "madrid" in blob or "madring" in blob
+    assert nxt.date_race is not None
+    assert nxt.date_race.date() == date(2026, 9, 13)
 
 
 def test_replayable_2026_excludes_cancelled_and_upcoming():
@@ -130,6 +147,7 @@ def test_replayable_2026_excludes_cancelled_and_upcoming():
     assert 6 in nums
     assert 15 in nums
     assert 16 not in nums
+    assert 17 not in nums
     assert all(r.status not in {"CANCELLED", "UPCOMING"} for r in rows)
 
 
@@ -138,16 +156,31 @@ def test_2026_calendar_rounds_match_r2_paths():
 
     cal = get_calendar(2026, as_of=datetime(2026, 9, 3, 12, 0, tzinfo=UTC))
     by = {r.round_number: r for r in cal.rounds}
-    assert by[1].date_race.date() == date(2026, 3, 15)
+    assert by[1].date_race.date() == date(2026, 3, 8)
     name1 = f"{by[1].circuit_name or ''} {by[1].city or ''}".lower()
     assert "albert" in name1 or "melbourne" in name1
-    assert by[6].date_race.date() == date(2026, 5, 10)
+    assert by[6].date_race.date() == date(2026, 5, 3)
     assert "miami" in (by[6].name or "").lower()
     assert by[15].date_race.date() == date(2026, 8, 23)
     assert by[15].circuit_key == "netherlands"
     assert by[16].date_race.date() == date(2026, 9, 6)
-    assert by[24].date_race.date() == date(2026, 12, 6)
-    assert len(cal.rounds) == 24
+    assert by[17].date_race.date() == date(2026, 9, 13)
+    assert by[26].date_race.date() == date(2026, 12, 6)
+    assert len(cal.rounds) == 26
+
+
+def test_spain_rounds_are_disambiguated():
+    from backend.calendar import get_calendar
+
+    cal = get_calendar(2026, as_of=datetime(2026, 9, 10, 12, 0, tzinfo=UTC))
+    by = {r.round_number: r for r in cal.rounds}
+    assert "barcelona" in (by[9].name or "").lower()
+    assert by[9].city == "Barcelona"
+    assert by[17].name == "Spain (Madrid)"
+    assert by[17].city == "Madrid"
+    assert by[9].name != by[17].name
+    assert "barcelona" in (by[9].name or "").lower()
+    assert "madrid" in (by[17].name or "").lower()
 
 
 def test_replay_years_include_2026():

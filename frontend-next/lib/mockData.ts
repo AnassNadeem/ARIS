@@ -76,14 +76,16 @@ export function mockRoundsForYear(year: number): RoundCard[] {
     { name: "Emilia Romagna", flag: "🇮🇹" },
     { name: "Monaco", flag: "🇲🇨" },
     { name: "Canada", flag: "🇨🇦" },
-    { name: "Spain", flag: "🇪🇸" },
+    { name: "Barcelona-Catalunya", flag: "🇪🇸" },
     { name: "Austria", flag: "🇦🇹", sprint: true },
     { name: "Great Britain", flag: "🇬🇧" },
     { name: "Belgium", flag: "🇧🇪" },
     { name: "Hungary", flag: "🇭🇺" },
     { name: "Netherlands", flag: "🇳🇱" },
     { name: "Italy", flag: "🇮🇹" },
+    { name: "Spain (Madrid)", flag: "🇪🇸" },
     { name: "Azerbaijan", flag: "🇦🇿" },
+    { name: "Bahrain (Malaysia)", flag: "🇲🇾" },
     { name: "Singapore", flag: "🇸🇬" },
     { name: "United States", flag: "🇺🇸", sprint: true },
     { name: "Mexico City", flag: "🇲🇽" },
@@ -103,7 +105,12 @@ export function mockRoundsForYear(year: number): RoundCard[] {
     status: "COMPLETED" as const,
   }));
   if (year >= 2026) {
-    return rounds.filter((r) => r.circuitName !== "Bahrain" && r.circuitName !== "Saudi Arabia");
+    return rounds.filter(
+      (r) =>
+        r.circuitName !== "Bahrain" &&
+        r.circuitName !== "Saudi Arabia" &&
+        r.circuitName !== "Emilia Romagna",
+    );
   }
   return rounds;
 }
