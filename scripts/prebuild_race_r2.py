@@ -477,7 +477,7 @@ def build_race_field_openf1(year: int, round_number: int) -> dict[str, Any]:
 
 def _hours_since_race_end(year: int, round_number: int) -> float | None:
     """Hours since calendar race window ended (race start + 2h15)."""
-    from datetime import datetime, timedelta, timezone
+    from datetime import UTC, datetime, timedelta
 
     from backend.calendar import get_round
 
@@ -489,9 +489,9 @@ def _hours_since_race_end(year: int, round_number: int) -> float | None:
     if date_race is None:
         return None
     if getattr(date_race, "tzinfo", None) is None:
-        date_race = date_race.replace(tzinfo=timezone.utc)
+        date_race = date_race.replace(tzinfo=UTC)
     ended = date_race + timedelta(hours=2, minutes=15)
-    return (datetime.now(timezone.utc) - ended).total_seconds() / 3600.0
+    return (datetime.now(UTC) - ended).total_seconds() / 3600.0
 
 
 def _pack_source(field: dict[str, Any] | None) -> str | None:
