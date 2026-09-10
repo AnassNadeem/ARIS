@@ -179,6 +179,272 @@ def _load_session(year: int, round_number: int):
     return sess
 
 
+def _openf1_get(path: str, params: dict[str, Any]) -> list[Any]:
+    import time as _time
+
+    import requests
+
+    url = f"https://api.openf1.org/v1/{path.lstrip('/')}"
+    last_err: Exception | None = None
+    for attempt in range(4):
+        try:
+            resp = requests.get(url, params=params, timeout=60)
+            if resp.status_code == 429:
+                _time.sleep(0.6 * (attempt + 1))
+                continue
+            resp.raise_for_status()
+            payload = resp.json()
+            return payload if isinstance(payload, list) else []
+        except Exception as extra:
+            last_err = extra
+            _time.sleep(0.4 * (attempt + 1))
+    raise RuntimeError(f"OpenF1 {path} failed: {last_err}")
+
+
+def _openf1_race_session_key(year: int, round_number: int) -> tuple[int, dict[str, Any]]:
+    from backend.calendar import get_round
+
+    rnd = get_round(int(year), int(round_number))
+    city = str(rnd.city or "").strip()
+    circuit = str(rnd.circuit_name or "").strip()
+    country = str(rnd.country or "").strip()
+    sessions = _openf1_get("sessions", {"year": int(year), "session_name": "Race"})
+    needles = [n.lower() for n in (city, circuit, country) if n]
+    for row in sessions:
+        if not isinstance(row, dict):
+            continue
+        blob = " ".join(
+            str(row.get(k) or "")
+            for k in ("circuit_short_name", "location", "country_name", "country_code")
+        ).lower()
+        if needles and any(n in blob for n in needles):
+            key = int(row["session_key"])
+            return key, row
+    raise RuntimeError(
+        f"OpenF1 has no Race session for {year} R{round_number} ({city or circuit or country})"
+    )
+
+
+def _outline_from_prior_r2(year: int, round_number: int) -> dict[str, list[float]]:
+    """Reuse a prior-year Monza/etc outline when FastF1 GPS is unavailable."""
+    from backend.calendar import get_round
+
+    try:
+        rnd = get_round(int(year), int(round_number))
+    except Exception:
+        return {"x": [], "y": []}
+    key = str(rnd.circuit_key or rnd.city or rnd.name or "").lower()
+    if not key:
+        return {"x": [], "y": []}
+    for prior in range(int(year) - 1, 2023, -1):
+        try:
+            from backend.calendar import get_calendar
+
+            cal = get_calendar(prior, for_replay=True)
+        except Exception:
+            continue
+        for other in cal.rounds:
+            other_key = str(other.circuit_key or other.city or other.name or "").lower()
+            if key not in other_key and other_key not in key:
+                continue
+            field = _fetch_remote_field(prior, int(other.round_number))
+            outline = (field or {}).get("outline") if field else None
+            if isinstance(outline, dict) and outline.get("x") and outline.get("y"):
+                _log.info(
+                    "outline for %s R%s reused from %s R%s",
+                    year,
+                    round_number,
+                    prior,
+                    other.round_number,
+                )
+                return {"x": list(outline["x"]), "y": list(outline["y"])}
+    return {"x": [], "y": []}
+
+
+def build_race_field_openf1(year: int, round_number: int) -> dict[str, Any]:
+    """Build race_field.json from OpenF1 when FastF1 livetiming is incomplete."""
+    import time as _time
+
+    from backend.calendar import get_round
+
+    rnd = get_round(int(year), int(round_number))
+    session_key, session = _openf1_race_session_key(year, round_number)
+    _time.sleep(0.35)
+    drivers_raw = _openf1_get("drivers", {"session_key": session_key})
+    _time.sleep(0.35)
+    laps_raw = _openf1_get("laps", {"session_key": session_key})
+    _time.sleep(0.35)
+    stints_raw = _openf1_get("stints", {"session_key": session_key})
+    _time.sleep(0.35)
+    try:
+        weather_raw = _openf1_get("weather", {"session_key": session_key})
+    except Exception:
+        weather_raw = []
+
+    code_by_num: dict[int, str] = {}
+    drivers: list[dict[str, Any]] = []
+    for row in drivers_raw:
+        if not isinstance(row, dict):
+            continue
+        try:
+            num = int(row.get("driver_number"))
+        except (TypeError, ValueError):
+            continue
+        code = str(row.get("name_acronym") or row.get("broadcast_name") or "").strip().upper()
+        if not code:
+            continue
+        code = code[:3]
+        code_by_num[num] = code
+        colour = str(row.get("team_colour") or "").lstrip("#")
+        drivers.append(
+            {
+                "code": code,
+                "number": num,
+                "full_name": str(row.get("full_name") or code),
+                "team": str(row.get("team_name") or ""),
+                "team_colour": f"#{colour}" if colour else "#888888",
+                "grid_position": None,
+                "is_dns": False,
+            }
+        )
+
+    laps_out: list[dict[str, Any]] = []
+    for row in laps_raw:
+        if not isinstance(row, dict):
+            continue
+        try:
+            num = int(row.get("driver_number"))
+            lap_n = int(row.get("lap_number"))
+        except (TypeError, ValueError):
+            continue
+        code = code_by_num.get(num)
+        if not code or lap_n < 1:
+            continue
+        dur = row.get("lap_duration")
+        try:
+            lap_s = float(dur) if dur is not None else None
+        except (TypeError, ValueError):
+            lap_s = None
+        compound = None
+        tyre_life = None
+        for st in stints_raw:
+            if not isinstance(st, dict):
+                continue
+            try:
+                if int(st.get("driver_number")) != num:
+                    continue
+                lo = int(st.get("lap_start") or 0)
+                hi = int(st.get("lap_end") or 0)
+            except (TypeError, ValueError):
+                continue
+            if lo <= lap_n <= hi:
+                compound = str(st.get("compound") or "") or None
+                age0 = st.get("tyre_age_at_start")
+                try:
+                    tyre_life = int(age0 or 0) + (lap_n - lo)
+                except (TypeError, ValueError):
+                    tyre_life = None
+                break
+        laps_out.append(
+            {
+                "driver": code,
+                "lap": lap_n,
+                "lap_time_s": lap_s,
+                "position": None,
+                "compound": compound,
+                "tyre_life": tyre_life,
+                "pit": bool(row.get("is_pit_out_lap")),
+                "track_status": None,
+            }
+        )
+
+    stints_out: list[dict[str, Any]] = []
+    for st in stints_raw:
+        if not isinstance(st, dict):
+            continue
+        try:
+            num = int(st.get("driver_number"))
+            lo = int(st.get("lap_start") or 0)
+            hi = int(st.get("lap_end") or 0)
+        except (TypeError, ValueError):
+            continue
+        code = code_by_num.get(num)
+        if not code or lo < 1:
+            continue
+        stints_out.append(
+            {
+                "driver": code,
+                "stint": int(st.get("stint_number") or 1),
+                "compound": str(st.get("compound") or "UNKNOWN"),
+                "lap_start": lo,
+                "lap_end": hi,
+                "tyre_age_at_start": int(st.get("tyre_age_at_start") or 0),
+            }
+        )
+
+    weather_out: list[dict[str, Any]] = []
+    if weather_raw:
+        # Collapse to one sample per lap index using elapsed order.
+        for i, row in enumerate(weather_raw[:80]):
+            if not isinstance(row, dict):
+                continue
+            weather_out.append(
+                {
+                    "lap": i + 1,
+                    "rainfall": bool(row.get("rainfall")),
+                    "track_temp_c": row.get("track_temperature"),
+                    "air_temp_c": row.get("air_temperature"),
+                }
+            )
+
+    date_race = getattr(rnd, "date_race", None)
+    outline = _outline_from_prior_r2(year, round_number)
+    return {
+        "meta": {
+            "year": int(year),
+            "round": int(round_number),
+            "session_type": "R",
+            "circuit_name": str(rnd.circuit_name or rnd.name or ""),
+            "total_laps": int(
+                max((int(r["lap"]) for r in laps_out), default=rnd.total_laps or 0)
+            ),
+            "date_race": (
+                date_race.isoformat()
+                if hasattr(date_race, "isoformat")
+                else str(date_race or session.get("date_start") or "")
+            ),
+            "green_flag_s": 0,
+            "session_key": int(session_key),
+            "outline_source": "prior_r2" if outline.get("x") else "none",
+            "source": "openf1",
+        },
+        "outline": outline,
+        "drivers": drivers,
+        "laps": laps_out,
+        "stints": stints_out,
+        "weather": weather_out,
+        "race_control": [],
+        "pos_samples": {},
+    }
+
+
+def _build_field_any_source(year: int, round_number: int) -> tuple[dict[str, Any], Any, str]:
+    """FastF1 first; OpenF1 fallback when livetiming laps are incomplete."""
+    try:
+        sess = _load_session(year, round_number)
+        field = build_race_field(year, round_number, sess)
+        return field, sess, "fastf1"
+    except Exception as extra:
+        _log.warning(
+            "FastF1 race_field failed for %s R%s (%s); trying OpenF1",
+            year,
+            round_number,
+            extra,
+        )
+        field = build_race_field_openf1(year, round_number)
+        return field, None, "openf1"
+
+
 def _code_by_num(sess: Any) -> dict[int, str]:
     out: dict[int, str] = {}
     laps = getattr(sess, "laps", None)
@@ -1071,8 +1337,7 @@ def load_or_build_race_field(
         year,
         round_number,
     )
-    sess = _load_session(year, round_number)
-    field = build_race_field(year, round_number, sess)
+    field, _sess, source = _build_field_any_source(year, round_number)
     raw = _fit_pos_under_budget(field, MAX_FIELD_BYTES)
     if len(raw) > MAX_FIELD_BYTES:
         raise RuntimeError(
@@ -1082,7 +1347,7 @@ def load_or_build_race_field(
     _write_json(field_path, field)
     if not no_upload:
         _upload(field_path, f"replay/{year}/{round_number}/race_field.json")
-    return field, "fastf1"
+    return field, source
 
 
 def build_all_drivers(
@@ -1189,23 +1454,26 @@ def build_one(
         return {"year": year, "round": round_number, "skipped": True}
 
     t0 = time.monotonic()
-    sess = _load_session(year, round_number)
-    field = build_race_field(year, round_number, sess)
+    field, sess, source = _build_field_any_source(year, round_number)
     raw = _fit_pos_under_budget(field, MAX_FIELD_BYTES)
     if len(raw) > MAX_FIELD_BYTES:
         raise RuntimeError(
             f"{year} R{round_number} race_field.json still {len(raw)} bytes after downsample"
         )
     field_bytes = _write_json(field_path, field)
-    code = _default_driver(sess, driver)
+    code = _default_driver(sess, driver) if sess is not None else None
+    if not code:
+        codes = driver_codes_from_field(field)
+        code = (driver or (codes[0] if codes else "") or "VER").upper()
     ghost = build_ghost(year, round_number, code, sess, field)
     ghost_path = _local_key(year, round_number, f"ghost_{code}.json")
     ghost_bytes = _write_json(ghost_path, ghost)
     _log.info(
-        "built %s R%s driver=%s field=%.1fKB ghost=%.1fKB in %.1fs",
+        "built %s R%s driver=%s source=%s field=%.1fKB ghost=%.1fKB in %.1fs",
         year,
         round_number,
         code,
+        source,
         field_bytes / 1024,
         ghost_bytes / 1024,
         time.monotonic() - t0,
