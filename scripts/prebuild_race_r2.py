@@ -299,14 +299,25 @@ def build_race_field_openf1(year: int, round_number: int) -> dict[str, Any]:
         drivers.append(
             {
                 "code": code,
-                "number": num,
-                "full_name": str(row.get("full_name") or code),
+                "name": str(row.get("full_name") or code),
                 "team": str(row.get("team_name") or ""),
-                "team_colour": f"#{colour}" if colour else "#888888",
+                "colour": f"#{colour}" if colour else "#888888",
                 "grid_position": None,
+                "number": num,
                 "is_dns": False,
             }
         )
+
+    # Stint lookup by driver number for tyre compound / life on each lap.
+    stints_by_num: dict[int, list[dict[str, Any]]] = {}
+    for st in stints_raw:
+        if not isinstance(st, dict):
+            continue
+        try:
+            num = int(st.get("driver_number"))
+        except (TypeError, ValueError):
+            continue
+        stints_by_num.setdefault(num, []).append(st)
 
     laps_out: list[dict[str, Any]] = []
     for row in laps_raw:
@@ -327,12 +338,9 @@ def build_race_field_openf1(year: int, round_number: int) -> dict[str, Any]:
             lap_s = None
         compound = None
         tyre_life = None
-        for st in stints_raw:
-            if not isinstance(st, dict):
-                continue
+        stint_i = 1
+        for st in stints_by_num.get(num, []):
             try:
-                if int(st.get("driver_number")) != num:
-                    continue
                 lo = int(st.get("lap_start") or 0)
                 hi = int(st.get("lap_end") or 0)
             except (TypeError, ValueError):
@@ -341,20 +349,47 @@ def build_race_field_openf1(year: int, round_number: int) -> dict[str, Any]:
                 compound = str(st.get("compound") or "") or None
                 age0 = st.get("tyre_age_at_start")
                 try:
-                    tyre_life = int(age0 or 0) + (lap_n - lo)
+                    tyre_life = int(age0 or 0) + (lap_n - lo) + 1
                 except (TypeError, ValueError):
                     tyre_life = None
+                try:
+                    stint_i = int(st.get("stint_number") or 1)
+                except (TypeError, ValueError):
+                    stint_i = 1
                 break
+        s1 = row.get("duration_sector_1")
+        s2 = row.get("duration_sector_2")
+        s3 = row.get("duration_sector_3")
+        try:
+            s1_s = float(s1) if s1 is not None else None
+        except (TypeError, ValueError):
+            s1_s = None
+        try:
+            s2_s = float(s2) if s2 is not None else None
+        except (TypeError, ValueError):
+            s2_s = None
+        try:
+            s3_s = float(s3) if s3 is not None else None
+        except (TypeError, ValueError):
+            s3_s = None
         laps_out.append(
             {
-                "driver": code,
                 "lap": lap_n,
-                "lap_time_s": lap_s,
+                "driver": code,
                 "position": None,
+                "gap_to_leader_s": None,
+                "gap_ahead_s": None,
                 "compound": compound,
                 "tyre_life": tyre_life,
-                "pit": bool(row.get("is_pit_out_lap")),
-                "track_status": None,
+                "stint_number": stint_i,
+                "pit_this_lap": bool(row.get("is_pit_out_lap")),
+                "is_dnf": False,
+                "is_dsq": False,
+                "track_status": "1",
+                "lap_time_s": lap_s,
+                "sector_1_s": s1_s,
+                "sector_2_s": s2_s,
+                "sector_3_s": s3_s,
             }
         )
 
@@ -1440,6 +1475,26 @@ def _default_driver(sess: Any, requested: str | None) -> str:
     return "VER"
 
 
+def _race_field_schema_ok(field: dict[str, Any] | None) -> bool:
+    """Reject OpenF1 packs that used the wrong driver/lap keys (broke /replay)."""
+    if not isinstance(field, dict):
+        return False
+    drivers = field.get("drivers")
+    if not isinstance(drivers, list) or not drivers:
+        return False
+    first = drivers[0]
+    if not isinstance(first, dict):
+        return False
+    if "name" not in first or "colour" not in first:
+        return False
+    laps = field.get("laps")
+    if isinstance(laps, list) and laps:
+        lap0 = laps[0]
+        if isinstance(lap0, dict) and "pit_this_lap" not in lap0:
+            return False
+    return True
+
+
 def build_one(
     year: int,
     round_number: int,
@@ -1450,8 +1505,15 @@ def build_one(
 ) -> dict[str, Any]:
     field_path = _local_key(year, round_number, "race_field.json")
     if skip_existing and _r2_exists(year, round_number, "race_field.json"):
-        _log.info("skip existing %s R%s", year, round_number)
-        return {"year": year, "round": round_number, "skipped": True}
+        existing = _fetch_remote_field(year, round_number) or _read_local_field(year, round_number)
+        if _race_field_schema_ok(existing):
+            _log.info("skip existing %s R%s", year, round_number)
+            return {"year": year, "round": round_number, "skipped": True}
+        _log.warning(
+            "rebuilding %s R%s — race_field.json failed schema check (missing name/colour)",
+            year,
+            round_number,
+        )
 
     t0 = time.monotonic()
     field, sess, source = _build_field_any_source(year, round_number)

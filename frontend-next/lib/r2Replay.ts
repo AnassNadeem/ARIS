@@ -22,6 +22,7 @@ import type {
   LivePosition,
   LiveTimingRow,
   RaceField,
+  RaceFieldDriver,
   RaceFieldPosSample,
   StratPlan,
 } from "@/lib/types";
@@ -804,14 +805,19 @@ export function fieldToStintRows(field: RaceField): ApiStintRow[] {
 export function fieldToDrivers(field: RaceField): DriverListing[] {
   const raced = new Set(field.laps.map((row) => row.driver.toUpperCase()));
   const raceHasLaps = field.laps.length > 0;
-  return field.drivers.map((d, i) => ({
-    driver_number: d.number ?? i + 1,
-    driver_code: d.code,
-    full_name: d.name,
-    team: d.team,
-    team_colour: d.colour,
-    is_dns: d.is_dns === true || (raceHasLaps && !raced.has(d.code.toUpperCase())),
-  }));
+  return field.drivers.map((d, i) => {
+    const raw = d as RaceFieldDriver & { full_name?: string; team_colour?: string };
+    const name = raw.name || raw.full_name || d.code;
+    const colour = raw.colour || raw.team_colour || "#888888";
+    return {
+      driver_number: d.number ?? i + 1,
+      driver_code: d.code,
+      full_name: name,
+      team: d.team,
+      team_colour: colour.startsWith("#") ? colour : `#${colour}`,
+      is_dns: d.is_dns === true || (raceHasLaps && !raced.has(d.code.toUpperCase())),
+    };
+  });
 }
 
 function leaderCum(field: RaceField): number[] {
@@ -1110,7 +1116,13 @@ export function r2FrameAt(
   for (const row of field.laps) {
     if (row.lap <= lap) byDriver.set(row.driver, row);
   }
-  const colour = new Map(field.drivers.map((d) => [d.code, d.colour]));
+  const colour = new Map(
+    field.drivers.map((d) => {
+      const raw = d as RaceFieldDriver & { team_colour?: string };
+      const c = raw.colour || raw.team_colour || "#888888";
+      return [d.code, c.startsWith("#") ? c : `#${c}`] as const;
+    }),
+  );
   const gridByDriver = new Map(field.drivers.map((d) => [d.code, d.grid_position]));
   const useGrid = lapFrac < GRID_START_LAP_FRAC;
   const pitCount = new Map<string, number>();
