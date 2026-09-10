@@ -5,7 +5,7 @@ function backendOrigin(): string | null {
   const explicit = (process.env.ARIS_BACKEND_ORIGIN ?? "").trim().replace(/\/$/, "");
   if (explicit) return explicit;
   // Local `next dev` proxies to the laptop broker. Production (Cloudflare Pages)
-  // must set NEXT_PUBLIC_API_BASE / ARIS_BACKEND_ORIGIN — never ship localhost.
+  // must set NEXT_PUBLIC_API_BASE / ARIS_BACKEND_ORIGIN - never ship localhost.
   if (process.env.NODE_ENV !== "production") {
     return "http://127.0.0.1:8765";
   }

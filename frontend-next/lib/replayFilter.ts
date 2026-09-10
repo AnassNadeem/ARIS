@@ -1,6 +1,6 @@
 import type { CircuitMarker, RoundCard } from "@/lib/types";
 
-/** Replay FastF1 window — keep in sync with backend.calendar.ALLOWED_REPLAY_YEARS. */
+/** Replay FastF1 window - keep in sync with backend.calendar.ALLOWED_REPLAY_YEARS. */
 export const ALLOWED_REPLAY_YEARS = [2024, 2025, 2026] as const;
 export const REPLAY_FROM_YEAR = 2024;
 export const REPLAY_YEAR_TOOLTIP = "Replay covers 2024-2026.";

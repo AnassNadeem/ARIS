@@ -37,7 +37,9 @@ export function pickArisHubSession(sessions: HubSession[]): HubSession | null {
 export function hubSessionCta(session: HubSession, now = Date.now()): "live" | "replay" | "wait" {
   if (sessionIsLiveNow(session, now)) return "live";
   if (session.status === "COMPLETED" || session.replayable) return "replay";
-  return isRaceSession(session.session_type) ? "live" : "wait";
+  // Join Live only when the session window is live (feed is up). Upcoming
+  // Race used to unlock early; keep it disabled until then.
+  return "wait";
 }
 
 export function hubSessionCtaCopy(session: HubSession, now = Date.now()): { label: string; disabled: boolean } {
@@ -50,7 +52,7 @@ export function hubSessionCtaCopy(session: HubSession, now = Date.now()): { labe
     }
     return { label: `Replay ${name}`, disabled: false };
   }
-  return { label: "Waiting for Session to Start", disabled: true };
+  return { label: "Waiting for Live Feed", disabled: true };
 }
 
 export function liveHubSession(hub: LiveHub, now = Date.now()): HubSession | null {
@@ -70,7 +72,7 @@ export function shouldAutoStartLiveSession(
   return Boolean(live && asSessionType(live.session_type) === "R");
 }
 
-/** Live ARIS is deferred — always false until live strategy architecture ships. */
+/** Live ARIS is deferred - always false until live strategy architecture ships. */
 export function autoArisForHubSession(_session: HubSession | null | undefined): boolean {
   return false;
 }
@@ -104,7 +106,7 @@ export function liveHubEnterHref(
   const qs = new URLSearchParams({ session: session.session_type });
   if (isRaceSession(session.session_type)) {
     qs.set("watch", "1");
-    // Live ARIS is deferred — never auto-enable strategy via query params.
+    // Live ARIS is deferred - never auto-enable strategy via query params.
   }
   return `/live?${qs.toString()}`;
 }

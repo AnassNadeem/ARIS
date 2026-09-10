@@ -124,7 +124,7 @@ describe("hubSessionCta", () => {
     expect(hubSessionCta(sess({ session_type: "FP2", live: true, status: "LIVE", datetime_utc: start }))).toBe("live");
     expect(hubSessionCta(sess({ session_type: "FP1", status: "COMPLETED", replayable: true }))).toBe("replay");
     expect(hubSessionCta(sess({ session_type: "R", status: "UPCOMING", datetime_utc: "2099-01-01T12:00:00Z" }))).toBe(
-      "live",
+      "wait",
     );
   });
 
@@ -145,8 +145,8 @@ describe("hubSessionCta", () => {
     expect(
       hubSessionCtaCopy(sess({ session_type: "R", status: "UPCOMING", datetime_utc: "2099-01-01T12:00:00Z" })),
     ).toEqual({
-      label: "Join Live · Race",
-      disabled: false,
+      label: "Waiting for Live Feed",
+      disabled: true,
     });
   });
 

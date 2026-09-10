@@ -28,7 +28,7 @@ export function RecommendationCard() {
 
   async function handleAdopt() {
     if (!rec) return;
-    // Assisted mode: user explicitly chose to adopt — not an auto decision,
+    // Assisted mode: user explicitly chose to adopt - not an auto decision,
     // but still a material strategy change, so it still raises the big box.
     await adopt(rec, { auto: false });
   }

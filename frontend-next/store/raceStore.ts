@@ -52,19 +52,19 @@ export interface RaceStore {
   focusDriver: string | null;
   copilotDocked: boolean;
 
-  // Live data — high frequency. Panels should subscribe with a selector so
+  // Live data - high frequency. Panels should subscribe with a selector so
   // only the slice that changed triggers a re-render.
   cars: Record<string, CarState>;
   ghostCar: CarState | null;
-  /** Full ghost state from the backend tick — includes delta history and outcome. */
+  /** Full ghost state from the backend tick - includes delta history and outcome. */
   ghostData: GhostTickData | null;
-  /** Why `ghostData` is empty right now — lets the UI explain instead of going silent. */
+  /** Why `ghostData` is empty right now - lets the UI explain instead of going silent. */
   ghostReason: string | null;
   currentLap: number;
   totalLaps: number;
   racePhase: RacePhase;
   rainfall: boolean;
-  /** Previous tick's rainfall — used to detect rain start/stop edges. */
+  /** Previous tick's rainfall - used to detect rain start/stop edges. */
   wasRaining: boolean;
   raceFinished: boolean;
 
@@ -72,7 +72,7 @@ export interface RaceStore {
   isPlaying: boolean;
   playbackSpeed: 1 | 2 | 4 | 8 | 16 | 25 | 50;
   scZones: { startLap: number; endLap: number; kind: "SC" | "VSC" | "RED_FLAG" }[];
-  /** Full FSM phase history — used to render coloured bands on LapTimesChart. */
+  /** Full FSM phase history - used to render coloured bands on LapTimesChart. */
   phaseHistory: PhaseHistoryEntry[];
 
   // Connection
@@ -97,11 +97,11 @@ export interface RaceStore {
   /**
    * A material strategy decision that was just made (Auto mode auto-adopts;
    * Assisted mode surfaces after user approval). The UI renders this as a
-   * visibly bigger box — strategy changes and pit calls are never quiet.
+   * visibly bigger box - strategy changes and pit calls are never quiet.
    */
   bigDecision: CommsEntry | null;
   /** Set the moment the mid-race active strategy changes from the original
-   * pre-race pick — drives the "REVISED LAP N — reason" strategy panel marker. */
+   * pre-race pick - drives the "REVISED LAP N - reason" strategy panel marker. */
   strategyRevisedAt: { lap: number; reason: string } | null;
   copilotEnabled: boolean;
   strategyLoading: boolean;
@@ -396,7 +396,7 @@ export const useRaceStore = create<RaceStore>()(
         arisDriver,
         selectedDriver: arisDriver,
         focusDriver: arisDriver ?? s.focusDriver,
-        // Re-derive ghostLapS/ghostCumulativeS for the new driver — without
+        // Re-derive ghostLapS/ghostCumulativeS for the new driver - without
         // this, switching drivers mid-session left the ghost's playback
         // math aligned to the *previous* driver's real lap times.
         ...deriveGhostSlice({ ...s, arisDriver, selectedDriver: arisDriver }),
@@ -655,7 +655,7 @@ export const useRaceStore = create<RaceStore>()(
       });
       if (!out?.ticks) {
         // The ghost's simulated ticks could not be regenerated for this
-        // plan (e.g. ghost-recompute unavailable) — committing
+        // plan (e.g. ghost-recompute unavailable) - committing
         // activeStrategy anyway would show a strategy in the panel that
         // the Timing Tower/map never actually simulate: the "Main Comms
         // says MEDIUM, tower says HARD" sync bug. Keep the plan the ghost

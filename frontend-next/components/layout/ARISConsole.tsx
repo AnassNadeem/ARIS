@@ -337,7 +337,7 @@ export function ARISConsole({
   const waitingForLiveData = mode === "live" && carCount === 0;
 
   // Dynamically add the Comms tab if ARIS is on at mount or Copilot is added.
-  // Do not re-run on every model mutation — that was resizing the dock after Reset view.
+  // Do not re-run on every model mutation - that was resizing the dock after Reset view.
   useEffect(() => {
     if (!layoutReady) return;
     const wantComms = mode !== "live" && (isARISOn || copilotDocked);
@@ -540,7 +540,7 @@ export function ARISConsole({
                 className="hidden max-w-xs font-sans text-[11px] leading-snug text-muted md:inline"
                 data-testid="live-aris-coming-soon"
               >
-                ARIS live strategy — coming soon. Full pit-wall strategy available now in{" "}
+                ARIS live strategy coming soon. Full pit-wall strategy available now in{" "}
                 <Link href="/replay" className="text-red underline-offset-2 hover:underline">
                   Replay
                 </Link>{" "}
@@ -638,7 +638,7 @@ export function ARISConsole({
         </div>
         {mode === "live" ? (
           <span className="justify-self-end text-right font-sans text-[10px] leading-tight text-muted">
-            ARIS live strategy — coming soon.{" "}
+            ARIS live strategy coming soon.{" "}
             <Link href="/replay" className="text-red underline-offset-2 hover:underline">
               Replay
             </Link>

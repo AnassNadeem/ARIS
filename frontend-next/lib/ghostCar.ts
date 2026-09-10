@@ -13,7 +13,7 @@ export function ghostCodeFor(driver: string): string {
 
 /**
  * Lap whose ghost tick supplies cumulative_delta / tower rank.
- * Live has no replay clock (`replayElapsedS` stays 0) — use the race lap.
+ * Live has no replay clock (`replayElapsedS` stays 0) - use the race lap.
  * Replay follows the ghost's own playback lap.
  */
 export function ghostTickLapForDelta(opts: {
@@ -180,7 +180,7 @@ export function ghostPlaybackAt(input: GhostPlaybackInput): GhostPlayback {
   }
 
   // Circuit progress within the current lap. Lights-out sits on the S/F line
-  // (path_frac 0) — GPS samples often wrap to ~0.97 and must not place the
+  // (path_frac 0) - GPS samples often wrap to ~0.97 and must not place the
   // ghost off the grid before Start Race.
   const pathFrac = wrapFrac(progress);
 
@@ -273,7 +273,7 @@ function carFromGhost(
   };
 }
 
-/** Place the ghost from its own simulated lap times (playback) — never from the real car. */
+/** Place the ghost from its own simulated lap times (playback) - never from the real car. */
 export function ghostCarFromTick(
   ghost: GhostTickData,
   real: CarState | null,
@@ -366,8 +366,8 @@ export function syntheticGhostCar(
  * Minimal GhostDelta-panel data derived from a live recommendation, so the
  * chart agrees with the synthetic map-dot from `syntheticGhostCar` instead of
  * showing "No active ghost driver" while a ghost car is visible on the map
- * (fix-pass item 8). Real delta history isn't available yet — only the
- * current point — so the chart will just show a single point until the DB
+ * (fix-pass item 8). Real delta history isn't available yet - only the
+ * current point - so the chart will just show a single point until the DB
  * precompute lands and replaces this with the real `GhostTickData`.
  */
 export function syntheticGhostTick(
@@ -404,7 +404,7 @@ const DIAG_LAPS = [1, 3, 5, 10, 15] as const;
 let ghostDiagKey = "";
 
 /** One-shot console dump of ghost_lap_s / cumulative / path_frac vs the real car.
- * Off unless NEXT_PUBLIC_ARIS_DEBUG=1 — not for production recruiter visits. */
+ * Off unless NEXT_PUBLIC_ARIS_DEBUG=1 - not for production recruiter visits. */
 export function maybeLogGhostDiagnostics(opts: {
   key: string;
   ghostLapS: number[];

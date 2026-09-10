@@ -49,7 +49,7 @@ function fmtGap(s: number | null | undefined): string {
 
 /**
  * Diff two race snapshots into short Main Comms lines.
- * Pure: no store, no I/O — unit-tested in commsEvents.test.ts.
+ * Pure: no store, no I/O - unit-tested in commsEvents.test.ts.
  */
 export function detectCommsEvents(prev: CommsSnapshot | null, next: CommsSnapshot, now = Date.now()): CommsEntry[] {
   const out: CommsEntry[] = [];

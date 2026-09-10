@@ -158,7 +158,7 @@ export function GhostVsRealChart({
               <Tooltip
                 contentStyle={{ background: "#1a1a1a", border: "1px solid #2a2a2a", fontFamily: "var(--font-jbmono)", fontSize: 11 }}
               />
-              {/* Ghost is always dashed, real is always solid — the same convention as the
+              {/* Ghost is always dashed, real is always solid - the same convention as the
                   track map dot and the timing tower row, so a viewer never has to relearn it. */}
               <Line yAxisId="pos" type="stepAfter" dataKey="realPos" name={`${code} P`} stroke="#ffffff" dot={false} strokeWidth={2} isAnimationActive={false} />
               <Line yAxisId="pos" type="stepAfter" dataKey="ghostPos" name="ARIS P" stroke="#e8002d" dot={false} strokeWidth={1.5} strokeDasharray="5 4" isAnimationActive={false} />

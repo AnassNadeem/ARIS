@@ -66,7 +66,7 @@ export function savePersistedLayout(model: Model): void {
   try {
     window.localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(model.toJson()));
   } catch {
-    // quota / private mode — layout still works in-memory
+    // quota / private mode - layout still works in-memory
   }
 }
 

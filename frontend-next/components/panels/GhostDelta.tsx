@@ -161,7 +161,7 @@ export function GhostDelta() {
               />
               <Tooltip content={<GhostTooltip />} cursor={{ strokeDasharray: "3 3" }} />
 
-              {/* Zero reference line — ghost is running exactly the real driver's pace */}
+              {/* Zero reference line - ghost is running exactly the real driver's pace */}
               <ReferenceLine
                 y={0}
                 stroke="rgba(255,255,255,0.4)"
@@ -222,7 +222,7 @@ export function GhostDelta() {
                 />
               )}
 
-              {/* Area fill — red above zero, dark below */}
+              {/* Area fill - red above zero, dark below */}
               <Area
                 type="monotone"
                 dataKey="delta"

@@ -71,7 +71,7 @@ async function startReplay(page: Page, year: number, round: number, driver = "VE
   await page.waitForURL(/\/replay\/console/, { timeout: 60_000 });
   // The console has its own lights-out "Start Race" gate (consolePlayState
   // "ready"/"starting" -> "racing"). Wait until the R2 pack is ready enough
-  // for replayStartReady (packStage minimal/full, cars present) before clicking —
+  // for replayStartReady (packStage minimal/full, cars present) before clicking -
   // a premature click or skip leaves the tower empty / clock frozen.
   const consoleStart = page.getByRole("button", { name: /Start Race/i });
   await expect(consoleStart).toBeVisible({ timeout: 30_000 });
@@ -107,7 +107,7 @@ async function seekToLap(page: Page, lap: number) {
     // tracker to decide whether to fire its synthetic onChange. Setting
     // `.value` directly (as any programmatic seek must) leaves the tracker
     // already pointing at the new value, so a plain dispatchEvent("input")
-    // is silently swallowed and the app never actually seeks — the DOM
+    // is silently swallowed and the app never actually seeks - the DOM
     // shows the new value but the store's currentLap never moves. Reset the
     // tracker to the old value first so React detects the change for real.
     const previousValue = input.value;
@@ -124,7 +124,7 @@ async function seekToLap(page: Page, lap: number) {
 test.describe("ghost regression", () => {
   // Hidden by default (NEXT_PUBLIC_ARIS_GHOST_MAP is unset). The map ghost
   // dot is gated until the backend GPS-projection / path_frac wrap bug is
-  // fixed — a misplaced ghost on the circuit undermines the demo. Re-enable
+  // fixed - a misplaced ghost on the circuit undermines the demo. Re-enable
   // this alignment check when ghostMapFeatureEnabled() ships on.
   test.skip("Ghost starts with real car", async ({ page }) => {
     await startReplay(page, 2024, 1, "VER");
@@ -161,7 +161,7 @@ test.describe("ghost regression", () => {
       await seekToLap(page, lap);
       const row = page.getByTestId("ghost-tower-row");
       await expect(row).toBeVisible({ timeout: 15_000 });
-      // Seek can land before the tower re-reads ghost ticks — wait until the
+      // Seek can land before the tower re-reads ghost ticks - wait until the
       // scrubber is on the target lap and the ghost row exposes a position.
       await expect
         .poll(

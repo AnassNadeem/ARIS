@@ -133,7 +133,7 @@ function appendGhost(text: string, snap: FactualRaceSnapshot): string {
 
 /**
  * Resolve a driver mentioned in the question. `missingNamed` is true when the
- * user named someone who is not in the current timing frame — callers should
+ * user named someone who is not in the current timing frame - callers should
  * fall through to the API instead of answering from the focus car.
  */
 function resolveMentionedDriver(

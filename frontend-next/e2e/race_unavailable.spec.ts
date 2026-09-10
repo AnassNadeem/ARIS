@@ -41,7 +41,7 @@ test("race_field.json 404 shows unavailable, not a spinner", async ({ page }) =>
   await raceCard.click();
 
   // Wait until the R2 preload has settled and the continue control is the
-  // enabled Start Race button — not the disabled "Waiting for race data…" label.
+  // enabled Start Race button - not the disabled "Waiting for race data…" label.
   const startBtn = page.getByRole("button", { name: /Start Race/i });
   await expect(startBtn).toBeVisible({ timeout: 30_000 });
   await expect(startBtn).toBeEnabled({ timeout: 30_000 });

@@ -40,7 +40,7 @@ export function LiveRacePreview() {
     return () => clearInterval(id);
   }, []);
 
-  // Live ARIS is deferred — never leave strategy enabled from the homepage live card.
+  // Live ARIS is deferred - never leave strategy enabled from the homepage live card.
   useEffect(() => {
     setARISOn(false);
   }, [setARISOn]);
@@ -101,7 +101,7 @@ export function LiveRacePreview() {
         </h3>
         <p className="mt-0.5 font-mono-data text-[11px] text-muted">{info.circuit.circuit_name}</p>
         <div className="mt-3 rounded-[8px] border border-border bg-carbon px-3 py-2" data-testid="live-aris-coming-soon">
-          <p className="font-sans text-xs text-white">ARIS live strategy — coming soon.</p>
+          <p className="font-sans text-xs text-white">ARIS live strategy coming soon.</p>
           <p className="mt-1 font-sans text-[11px] text-muted">
             Full pit-wall strategy available now in{" "}
             <Link href="/replay" className="text-red underline-offset-2 hover:underline">

@@ -82,7 +82,7 @@ export interface CarState {
   laps_remaining: number;
   total_laps: number;
   is_aris_driver?: boolean;
-  /** Virtual ARIS strategy car — never a classified/grid result. */
+  /** Virtual ARIS strategy car - never a classified/grid result. */
   is_ghost?: boolean;
   // Ghost-specific fields (only present when is_ghost or driver_code starts with "A_")
   ghost_cumulative_delta?: number;
@@ -237,7 +237,7 @@ export interface CommsEntry {
   timestamp: number;
   wetHeuristic?: boolean;
   /** Answer came from the local keyword-mock fallback, not the live backend
-   * (ARIS_BACKEND_ORIGIN unreachable) — shown as a visible badge instead of
+   * (ARIS_BACKEND_ORIGIN unreachable) - shown as a visible badge instead of
    * silently passing off a canned answer as a real one. */
   offlineAnswer?: boolean;
   recommendationId?: string;
@@ -616,7 +616,7 @@ export interface DebriefDecision {
   aris_action?: string | null;
   explanation: string;
   /** Named driving factor (undercut / overcut / SC risk / tyre degradation)
-   * behind this decision — distinct from `explanation`'s generic delta text. */
+   * behind this decision - distinct from `explanation`'s generic delta text. */
   why?: string;
 }
 

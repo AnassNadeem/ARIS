@@ -9,7 +9,7 @@ export const LIVE_PATH_FRAC_JITTER = 0.002;
 /** Skip a live path_frac retarget when the GPS sample is this old. */
 export const LIVE_GPS_STALE_MS = 3000;
 
-/** OpenF1 (0,0) placeholders / missing GPS — not a real map coordinate. */
+/** OpenF1 (0,0) placeholders / missing GPS - not a real map coordinate. */
 const GPS_ORIGIN_EPS = 1;
 
 /** True when live X/Y are usable map coordinates, not an origin placeholder. */
@@ -32,7 +32,7 @@ function alongTrackJitter(from: number | undefined, to: number): number {
 }
 
 /**
- * Live along-track fraction. A new backend path_frac always wins — that is
+ * Live along-track fraction. A new backend path_frac always wins - that is
  * what OpenF1 updates every second. GPS is only a fallback when the tick is
  * a 0/missing placeholder. Stale X/Y must not pin the car after first paint.
  *
@@ -278,7 +278,7 @@ export function mergeCars(
   return changed ? out : prev;
 }
 
-/** Timing-tower equality — ignore GPS so map ticks do not rebuild rows. */
+/** Timing-tower equality - ignore GPS so map ticks do not rebuild rows. */
 export function timingEqual(a: CarState, b: CarState): boolean {
   return (
     a.position === b.position &&
@@ -315,7 +315,7 @@ export function isGhostRow(car: Pick<CarState, "driver_code" | "is_ghost">): boo
   return car.is_ghost === true || car.driver_code.startsWith("A_");
 }
 
-/** Classified real cars only — ghost never counts toward grid/results. */
+/** Classified real cars only - ghost never counts toward grid/results. */
 export function realClassifiedCars(cars: CarState[]): CarState[] {
   return cars.filter((c) => !isGhostRow(c) && !c.is_dnf && c.status !== "DNS");
 }

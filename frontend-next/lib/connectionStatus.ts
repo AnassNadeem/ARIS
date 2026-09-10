@@ -6,7 +6,7 @@ export type ConnectionStatusView = {
   tone: "ok" | "warn" | "lost";
 };
 
-/** Copy for the console feed badge. No lagMs — that value is hardcoded 0. */
+/** Copy for the console feed badge. No lagMs - that value is hardcoded 0. */
 export function connectionStatusView(
   status: FeedConnectionStatus,
   consoleMode: "live" | "replay",

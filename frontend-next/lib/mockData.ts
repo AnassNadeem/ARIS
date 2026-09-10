@@ -14,7 +14,7 @@ function prand(seed: number): number {
 }
 
 // Demo-only 2025/26-shaped grid (HAM at Ferrari). Replay must never use this
-// for team/colour — those come from race_field.json for the selected race.
+// for team/colour - those come from race_field.json for the selected race.
 export const MOCK_DRIVERS_2025: DriverListing[] = [
   { driver_number: 1, driver_code: "VER", full_name: "Max Verstappen", team: "Red Bull Racing", team_colour: "#3671C6" },
   { driver_number: 4, driver_code: "NOR", full_name: "Lando Norris", team: "McLaren", team_colour: "#FF8000" },
@@ -46,7 +46,7 @@ export const COMPOUND_COLOUR: Record<Compound, string> = {
   WET: "#1E90FF",
 };
 
-// Rough oval approximation of Zandvoort's layout — placeholder until
+// Rough oval approximation of Zandvoort's layout - placeholder until
 // /api/circuit-coords is wired to real fastf1.get_circuit_info() data.
 export function zandvoortOvalCoords(points = 120): { x: number[]; y: number[] } {
   const x: number[] = [];
@@ -115,7 +115,7 @@ export function mockRoundsForYear(year: number): RoundCard[] {
   return rounds;
 }
 
-// The last N completed rounds, most recent first — used for the home page
+// The last N completed rounds, most recent first - used for the home page
 // "Replay a race" preview cards. Dates are backdated from today so the cards
 // always read as "already happened".
 export function mockRecentRaces(limit = 3): RecentRaceCard[] {

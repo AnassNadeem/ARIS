@@ -14,7 +14,7 @@ const KIND_LABEL: Record<string, string> = {
 };
 
 /**
- * A big, unmissable box for material ARIS decisions — strategy changes and
+ * A big, unmissable box for material ARIS decisions - strategy changes and
  * pit calls. Auto mode never asks the user before acting on these; this
  * banner is how it "tells" instead: large, high-contrast, briefly pinned
  * above the console rather than buried in the scrolling comms feed.

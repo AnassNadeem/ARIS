@@ -18,7 +18,7 @@ export interface Point {
 /**
  * Dead-reckon a car's position forward by deltaT milliseconds given its
  * last known position, speed (px/s, already scaled to map units), and
- * heading in radians. Kept for tests / off-track overlays — map dots use
+ * heading in radians. Kept for tests / off-track overlays - map dots use
  * PathCarAnimator instead.
  */
 export function interpolate(
@@ -108,7 +108,7 @@ export interface PathTickKinematics {
   headingRad?: number | null;
   /** Skip SEEK_JUMP snap (ghost grace after lights-out or a pit). */
   skipSeekJump?: boolean;
-  /** User scrub / session change — only then may we teleport. */
+  /** User scrub / session change - only then may we teleport. */
   seek?: boolean;
   /** Force visFrac onto the target (playback speed change). */
   snap?: boolean;
@@ -123,7 +123,7 @@ export const SEEK_JUMP = 0.22;
 export const SEEK_JUMP_LIVE = 0.45;
 /** 1×: allow a GPS-sized bump per frame, not a hole-teleport. */
 export const BUMP_MAX_FRAC = 0.012;
-/** Live SSE / OpenF1 poll slot — interpolate across the full second. */
+/** Live SSE / OpenF1 poll slot - interpolate across the full second. */
 export const LIVE_TICK_INTERVAL_MS = 1000;
 /** Replay frame poll cadence. */
 export const REPLAY_TICK_INTERVAL_MS = 250;
@@ -181,7 +181,7 @@ export class PathCarAnimator {
    * Live mode: keep coast alive when GPS polls arrive but position hasn't
    * changed (car crawling, same-integer GPS coordinates, SC/VSC bunching).
    * Re-anchors lastTickAt so sinceTick stays just inside the coast-start
-   * threshold — the car keeps rolling at the last measured speed instead of
+   * threshold - the car keeps rolling at the last measured speed instead of
    * freezing after LIVE_COAST_MS.  No-op in replay mode or before first tick.
    */
   renewCoast(now: number): void {

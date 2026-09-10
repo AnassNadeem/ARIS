@@ -755,7 +755,7 @@ describe("deriveGhostLapTimes", () => {
     expect(derived.implausible_laps).toEqual([]);
   });
 
-  it("does not add pit loss again — it is already in the delta step", () => {
+  it("does not add pit loss again - it is already in the delta step", () => {
     const ticks = [
       { lap: 8, position: 3, gap_to_leader_s: 0, compound: "SOFT", tyre_life: 9, stint: 1, cumulative_delta_s: 0.848, aris_action: "STAY_OUT", aris_confidence: 1 },
       { lap: 9, position: 3, gap_to_leader_s: 0, compound: "HARD", tyre_life: 1, stint: 2, cumulative_delta_s: -20.633, aris_action: "PIT", aris_confidence: 1 },

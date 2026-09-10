@@ -21,7 +21,7 @@ function fmtGhostDelta(v: number): string {
   return "±0.0s";
 }
 
-/** Car speed and last sectors for the chosen / focus driver — snaps to sides and corners. */
+/** Car speed and last sectors for the chosen / focus driver - snaps to sides and corners. */
 export function SpeedWidget() {
   const consoleMode = useRaceStore((s) => s.consoleMode);
   const racing = useRaceStore((s) => s.consolePlayState === "racing");

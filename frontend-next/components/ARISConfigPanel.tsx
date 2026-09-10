@@ -46,7 +46,7 @@ function PlanCard({
     kind === "recommended" ? "Recommended" : kind === "aggressive" ? "Aggressive" : "Alternative";
   const wetBanner =
     wet && !/Starting on /i.test(plan.description || "")
-      ? `Starting on ${start} — dry strategy shown for after rain stops.`
+      ? `Starting on ${start}. Dry strategy shown for after rain stops.`
       : null;
   return (
     <button

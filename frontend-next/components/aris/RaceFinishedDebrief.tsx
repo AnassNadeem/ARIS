@@ -24,7 +24,7 @@ import {
 
 /**
  * Post-race overlay. Stays up until the user leaves the console.
- * Close collapses to a bar with "another race" — it does not dismiss the brief.
+ * Close collapses to a bar with "another race" - it does not dismiss the brief.
  */
 export function RaceFinishedDebrief() {
   const session = useRaceStore((s) => s.session);

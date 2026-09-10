@@ -271,7 +271,7 @@ export function ARISComms() {
   // Canonical chat panel: Copilot (tool-calling, cites retrieved chunks,
   // supports approve/deny/alter) is preferred over the plain Ask ARIS panel.
   // `copilotFeatureEnabled()` is on by default outside production and off in
-  // production unless NEXT_PUBLIC_ARIS_COPILOT=1 is set at build time — so a
+  // production unless NEXT_PUBLIC_ARIS_COPILOT=1 is set at build time - so a
   // production build shows Ask ARIS unless that flag is set. See
   // docs/ASK_ARIS.md for the full wiring.
   const showCopilot = copilotFeatureEnabled();

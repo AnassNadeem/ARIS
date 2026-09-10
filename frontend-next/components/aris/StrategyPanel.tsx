@@ -7,14 +7,14 @@ import { normalizeCompound } from "@/lib/compounds";
 
 /**
  * ARIS's recommended stint plan for the chosen driver. Always reflects the
- * ghost's actual pit laps — if this says the ghost pits on lap 28, the ghost
+ * ghost's actual pit laps - if this says the ghost pits on lap 28, the ghost
  * disappears from the track map on lap 28. Never a second source of truth.
  */
 export function StrategyPanel() {
   const isARISOn = useRaceStore((s) => s.isARISOn);
   const activeStrategy = useRaceStore((s) => s.activeStrategy);
   const currentLap = useRaceStore((s) => s.currentLap);
-  // The ghost's own simulated lap, not the real/leader lap — the ghost can
+  // The ghost's own simulated lap, not the real/leader lap - the ghost can
   // run ahead or behind the field's pace, so highlighting "current stint"
   // off the global currentLap can show a different tyre than the Timing
   // Tower's ghost row (which reads the compound straight off the tick at

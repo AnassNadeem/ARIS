@@ -100,7 +100,7 @@ export function LiveSetupFlow({
     setFocusDriver(driver);
   }, [driver, setFocusDriver]);
 
-  // Live ARIS is deferred — always keep strategy off on the live hub.
+  // Live ARIS is deferred - always keep strategy off on the live hub.
   // Strat A/B/C start compounds are ARIS-chosen (generate_strat_plans), never
   // copied from the real driver's lap-1 tyre. Do not add a grid-compound
   // overlay here if live ARIS is re-enabled.

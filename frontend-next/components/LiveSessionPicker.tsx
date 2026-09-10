@@ -90,7 +90,7 @@ export function LiveSessionPicker({
           className="mt-3 max-w-md rounded-[8px] border border-border bg-obsidian px-4 py-3"
           data-testid="live-aris-coming-soon"
         >
-          <p className="font-sans text-sm text-white">ARIS live strategy — coming soon.</p>
+          <p className="font-sans text-sm text-white">ARIS live strategy coming soon.</p>
           <p className="mt-1 font-sans text-xs text-muted">
             Full pit-wall strategy available now in{" "}
             <Link href="/replay" className="text-red underline-offset-2 hover:underline">

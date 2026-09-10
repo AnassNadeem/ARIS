@@ -42,7 +42,7 @@ export {
 export const R2_LOAD_ERROR = "Failed to load race data. Check your connection.";
 export const R2_RACE_UNAVAILABLE = "Race data unavailable. Check back soon.";
 const FETCH_TIMEOUT_MS = 30_000;
-/** recommend() + per-lap simulate is seconds, not minutes — wait on the request. */
+/** recommend() + per-lap simulate is seconds, not minutes - wait on the request. */
 const GHOST_PACK_TIMEOUT_MS = 60_000;
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
 
@@ -401,7 +401,7 @@ export async function fetchGhost(
       const res = await fetchWithProgress(r2Url(year, round, `ghost_${code}.json`), onProgress);
       if (res.ok) return (await res.json()) as GhostData;
     } catch {
-      // Baked file miss or R2 error — fall through to on-demand compute.
+      // Baked file miss or R2 error - fall through to on-demand compute.
     }
   }
   return fetchGhostFromApi(year, round, code);
@@ -434,15 +434,21 @@ export function startCompoundFromField(
 const WET_START = new Set(["INTERMEDIATE", "WET"]);
 
 /** Patch Strat A/B/C opening compound. Setup must NOT call this with the
- * real driver's lap-1 tyre — ARIS picks its own start via generate_strat_plans. */
+ * real driver's lap-1 tyre - ARIS picks its own start via generate_strat_plans. */
 export function applyStartCompoundToPlans(plans: StratPlan[], startCompound: string | null): StratPlan[] {
   if (!startCompound || !plans.length) return plans;
   const start = normalizeCompound(startCompound);
   const wet = WET_START.has(start);
-  const wetNote = wet ? `Starting on ${start} — dry strategy shown for after rain stops.` : "";
+  const wetNote = wet ? `Starting on ${start}. Dry strategy shown for after rain stops.` : "";
   return plans.map((plan) => {
     const description = wet
-      ? [plan.description?.replace(/\s*Starting on \w[\w ]* — dry strategy shown for after rain stops\.?/gi, "").trim(), wetNote]
+      ? [
+          plan.description
+            ?.replace(/\s*Starting on \w[\w ]*\.?\s*Dry strategy shown for after rain stops\.?/gi, "")
+            .replace(/\s*Starting on \w[\w ]* [\u2014\-] dry strategy shown for after rain stops\.?/gi, "")
+            .trim(),
+          wetNote,
+        ]
           .filter(Boolean)
           .join(" ")
       : plan.description;
@@ -548,7 +554,7 @@ export const DEFAULT_PIT_LOSS_S = 22;
 
 /**
  * pit_loss_s copied from data/tracks/*.yaml (name + round_aliases).
- * Used for the ghost pit-hide window — not re-added into ghost_lap_s
+ * Used for the ghost pit-hide window - not re-added into ghost_lap_s
  * (pit loss is already inside the cumulative_delta_s step on pit laps).
  */
 const PIT_LOSS_BY_CIRCUIT: Record<string, number> = {
@@ -677,7 +683,7 @@ export function medianFinite(values: number[]): number {
 
 /**
  * Derive per-lap ghost times from R2 ticks + race_field real lap times.
- * Pit loss is already inside delta steps on pit laps — do not add it again.
+ * Pit loss is already inside delta steps on pit laps - do not add it again.
  * Values above GHOST_LAP_CLAMP_S are clamped (red flag / formation) before path_frac
  * and cumulative use. Negatives are stored as-is and listed in implausible_laps.
  * NaN laps (null real lap_time_s) are filled with the median of finite ghost_lap_s
@@ -875,7 +881,7 @@ export function nearestPosSample<T extends { lap_frac: number; path_frac: number
  * Linear interpolation of path_frac between the two pos_samples that
  * bracket `lapFrac`. Clamps to first/last sample outside the range.
  * S/F wrap (negative jump > 0.5) stays forward; the old ">0.5 = reverse"
- * heuristic is gone — direction comes from the monotonic timing term.
+ * heuristic is gone - direction comes from the monotonic timing term.
  */
 export function interpolatedPosFrac(
   samples: { lap_frac: number; path_frac: number }[],
@@ -952,7 +958,7 @@ export function speedKphFromPath(
     if (Number.isFinite(kph) && kph >= 1) return Math.min(360, kph);
   }
   // GPS path can sit still (projection holes). After lights-out, fall back to
-  // lap-average so the HUD is not stuck on "—".
+  // lap-average so the HUD is not stuck on "-".
   if (lapFrac < GRID_START_LAP_FRAC) return 0;
   return Math.min(360, (trackLengthM / lapDurS) * 3.6);
 }

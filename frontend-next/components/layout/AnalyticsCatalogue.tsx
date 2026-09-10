@@ -9,7 +9,7 @@ export function AnalyticsCatalogue({
   categories = ["core", "analytics"],
 }: {
   onAdd: (componentId: string) => void;
-  /** Restrict which catalogue sections are shown — e.g. the console header
+  /** Restrict which catalogue sections are shown - e.g. the console header
    * only needs "core" once analytics panels live in the extension grid. */
   categories?: PanelCategory[];
 }) {

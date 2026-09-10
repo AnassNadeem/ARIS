@@ -33,7 +33,6 @@ import {
   R2_LOAD_ERROR,
 } from "@/lib/r2Replay";
 
-const PREBUILT_STRATEGY_TOAST = "Using prebuilt strategy — custom strategy unavailable";
 import { isFullCircuitOutline, shouldApplyFallbackOutline } from "@/lib/circuitCache";
 import {
   defaultReplayYear,
@@ -249,7 +248,7 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
                   store.setGhostTicks(ghostTicksMap(aligned));
                   store.setGhostReason(null);
                 }
-                // Seed the ghost with the Strat the user picked at setup —
+                // Seed the ghost with the Strat the user picked at setup -
                 // otherwise the R2 prebuilt plan (often Strat B bake) stays.
                 if (plan && ghost && !plansMatch(plan, ghost)) {
                   const recomputed = await postGhostRecompute({
@@ -273,8 +272,7 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
                     // Keep the Strat the user picked on the card / panel /
                     // lights-out comms. Do not replace pit_laps with the
                     // baked R2 ghost plan (that caused Strat B L22 vs
-                    // comms L24). Toast warns ticks may still be prebuilt.
-                    store.setPackToast(PREBUILT_STRATEGY_TOAST);
+                    // comms L24). Ghost ticks may still be prebuilt.
                     store.setActiveStrategy(plan);
                   }
                 }

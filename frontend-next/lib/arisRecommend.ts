@@ -58,7 +58,7 @@ export function mapRecommendResponse(res: RecommendApiResponse, lap: number): AR
   // +3-lap window, but evidence still has `pit L{n}` (and often a large
   // negative net delta). Surface those as pit_lap so Auto/comms compare
   // against Strat B. At lap 1 the engine's top card is often L9 (+8 offset)
-  // — useArisRecommendLoop must not call recommend() at lights-out.
+  // - useArisRecommendLoop must not call recommend() at lights-out.
   const isDeferredPit =
     res.action === "STAY_OUT" &&
     extractedPit != null &&
@@ -133,14 +133,14 @@ export function recommendFetchWanted(decision: RecommendFetchDecision): boolean 
   return typeof decision === "object" ? decision.fetch : decision;
 }
 
-/** Lap 0 (pre-grid clock) through lap 2 — lights-out / opening stint. */
+/** Lap 0 (pre-grid clock) through lap 2 - lights-out / opening stint. */
 export function isLightsOutLap(lap: number): boolean {
   return lap <= 2;
 }
 
 /**
  * Comms line for the locked pre-race plan at lights-out.
- * Uses Strat B (active/selected) pit lap — never the engine's lap-1+8=9 candidate.
+ * Uses Strat B (active/selected) pit lap - never the engine's lap-1+8=9 candidate.
  */
 export function lightsOutPlanStatement(plan: {
   pit_laps?: number[] | null;
@@ -174,7 +174,7 @@ export function shouldFetchRecommend(opts: {
   if (opts.lap < 1) return false;
   const planReady = Boolean(opts.hasActiveStrategy || opts.hasSelectedStrategy);
   if (planReady && isLightsOutLap(opts.lap) && opts.lastLap == null) {
-    // Ghost already follows the selected setup plan — skip the independent
+    // Ghost already follows the selected setup plan - skip the independent
     // lights-out recommend(). At lap 1 the engine's top card is often
     // "Pit lap 9 for HARD" (candidate offset +8), which is not Strat B.
     return false;
@@ -188,7 +188,7 @@ export function shouldFetchRecommend(opts: {
   if (wasRaining && !isRaining) {
     return { fetch: true, bypassCooldown: true, reason: "rain_stopped" };
   }
-  // Opening laps with no plan yet: wait — do not call recommend() / mock pit.
+  // Opening laps with no plan yet: wait - do not call recommend() / mock pit.
   if (opts.lastLap == null && isLightsOutLap(opts.lap) && !planReady) return false;
   if (opts.lastLap == null && opts.lap <= 2) return true;
   if (opts.lastLap != null && opts.lap === opts.lastLap) {
@@ -207,7 +207,7 @@ export function shouldFetchRecommend(opts: {
 }
 
 /**
- * Auto mode never asks — it tells. This composes a declarative statement of
+ * Auto mode never asks - it tells. This composes a declarative statement of
  * what ARIS is doing (not "should I…"/"consider…") for the given race
  * context, used for the big strategy-change box and its comms line.
  */
@@ -274,7 +274,7 @@ function stayOutFallback(lap: number): ARISRecommendation {
     confidence_std_s: 0,
     p10_delta_s: 0,
     p90_delta_s: 0,
-    evidence: "No live recommend payload — holding the current plan.",
+    evidence: "No live recommend payload. Holding the current plan.",
     narration_context: {},
     tactical: null,
     extrapolation_beyond_laps: 0,
@@ -293,9 +293,9 @@ export async function fetchRecommendation(opts: {
   lap: number;
   mode: "live" | "replay";
   force?: boolean;
-  /** Current tick rainfall — forwarded as override_rainfall for replay rain edge. */
+  /** Current tick rainfall - forwarded as override_rainfall for replay rain edge. */
   isRaining?: boolean;
-  /** Prior tick rainfall — dry→wet edge for INTER debounce. */
+  /** Prior tick rainfall - dry→wet edge for INTER debounce. */
   wasRaining?: boolean;
 }): Promise<ARISRecommendation> {
   if (opts.lap < 1) return stayOutFallback(Math.max(0, opts.lap));

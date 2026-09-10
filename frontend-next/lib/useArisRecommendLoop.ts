@@ -15,7 +15,7 @@ import { useRaceStore } from "@/store/raceStore";
 
 /**
  * A resolved recommendation dispatched more than this many laps ago is
- * stale — the replay clock moved on while the request was in flight, so
+ * stale - the replay clock moved on while the request was in flight, so
  * showing/adopting it now would surface a decision (e.g. "pit now") for a
  * lap that has already passed.
  */
@@ -24,7 +24,7 @@ const STALE_RECOMMEND_LAP_TOLERANCE = 2;
 /**
  * When ARIS strategy is on and the console is racing, call POST /api/aris/recommend
  * around pit windows, on driver change, and when the user clicks Get strategy.
- * At lights-out the ghost already follows Strat B — we only confirm that plan
+ * At lights-out the ghost already follows Strat B - we only confirm that plan
  * in comms (never an independent recommend() that ranks lap-1+8=9).
  */
 export function useArisRecommendLoop() {
@@ -84,7 +84,7 @@ export function useArisRecommendLoop() {
             name: storeSnap.r2Ghost.strategy.label,
           }
         : null);
-    // The ghost already follows the plan the user picked pre-race — never
+    // The ghost already follows the plan the user picked pre-race - never
     // fire an independent lights-out recommend() that could immediately
     // contradict it (engine top card at lap 1 is often pit lap 9 = +8 offset).
     // `force` (driver change / "Get strategy") must NOT bypass this guard.
@@ -98,7 +98,7 @@ export function useArisRecommendLoop() {
 
     if (atLightsOut) {
       if (!plan) {
-        // Plan still loading into the store — wait; do not mock-pit.
+        // Plan still loading into the store - wait; do not mock-pit.
         lastPhase.current = racePhase;
         forceRef.current = false;
         consumeRainTick();
@@ -169,7 +169,7 @@ export function useArisRecommendLoop() {
         const staleLaps = store.currentLap - lap;
         if (staleLaps > STALE_RECOMMEND_LAP_TOLERANCE) {
           // Dispatched at `lap`, but the replay clock has moved on well
-          // past it by the time this resolved — discard rather than show
+          // past it by the time this resolved - discard rather than show
           // a "pit now" banner/comms line for a lap that already passed.
           console.warn(
             `[ARIS] discarding stale recommendation dispatched at lap ${lap}, now at lap ${store.currentLap}`,
@@ -201,7 +201,7 @@ export function useArisRecommendLoop() {
           if (samePlan) {
             store.approveRecommendation();
           } else {
-            // Auto mode never asks — it tells. A pit/strategy change is a big
+            // Auto mode never asks - it tells. A pit/strategy change is a big
             // decision, so it is applied immediately and surfaced in a
             // visibly bigger box rather than waiting on a click.
             const { text: reason, kind } = autoDecisionStatement(rec, { phase: racePhase, rainfall: store.rainfall });

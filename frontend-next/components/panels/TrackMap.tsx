@@ -186,7 +186,7 @@ export function TrackMap() {
   const carCodes = useMemo(() => (carCodesKey ? carCodesKey.split(",") : []), [carCodesKey]);
   codesRef.current = carCodes;
 
-  // 2A — how positions used to update (before this interpolation pass):
+  // 2A - how positions used to update (before this interpolation pass):
   // 1. A replay-frame poll writes cars into Zustand. TrackMap does not React-snap the SVG;
   //    rAF reads path_frac via getState() and called PathCarAnimator.onTick every frame, which
   //    restarted a 900ms ease so dots lagged then lurched toward each new GPS sample.
@@ -209,7 +209,7 @@ export function TrackMap() {
       const store = useRaceStore.getState();
       const racing = store.consoleMode === "live" || store.consolePlayState === "racing";
       // Live must follow incoming GPS/path_frac even if the replay clock is
-      // paused or a red flag is showing — otherwise dots sit on S/F.
+      // paused or a red flag is showing - otherwise dots sit on S/F.
       const playing =
         store.consoleMode === "live"
           ? true

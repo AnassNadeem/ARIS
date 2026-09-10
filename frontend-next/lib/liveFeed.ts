@@ -117,7 +117,7 @@ function wantRefresh(): boolean {
   }
 }
 
-// Red flag freezes every car including the ghost — cached snapshot keyed to
+// Red flag freezes every car including the ghost - cached snapshot keyed to
 // the session/driver so a fresh session or driver swap doesn't inherit a
 // stale freeze. `null` key means "not currently frozen".
 let redFlagFreezeKey: string | null = null;
@@ -125,7 +125,7 @@ let redFlagFrozenCar: CarState | null = null;
 
 // Tracks the ghost's own in-pits state per session/driver so a routine pit
 // stop (already part of the adopted plan, not a new decision) still gets a
-// big, unmissable "boxing now" call — not just genuine strategy changes.
+// big, unmissable "boxing now" call - not just genuine strategy changes.
 let ghostPitsKey: string | null = null;
 let ghostWasInPits = false;
 
@@ -199,7 +199,7 @@ export function finalizeGhostCar(
 
 function applyGhost(payload: SsePayload) {
   const store = useRaceStore.getState();
-  // Live ARIS is deferred — never accumulate ghost / poll strategy in live mode.
+  // Live ARIS is deferred - never accumulate ghost / poll strategy in live mode.
   if (store.consoleMode === "live") {
     if (store.ghostCar || store.ghostData || store.ghostReason !== "aris_disabled") {
       store.setGhostCar(null);
@@ -637,7 +637,7 @@ export class ReplayFrameFeed {
     this.r2DurationS = 0;
     this.closed = false;
     this.refreshOnce = wantRefresh();
-    if (this.refreshOnce) console.info("[ARIS] replay force refresh=1 — bypassing FastF1 caches");
+    if (this.refreshOnce) console.info("[ARIS] replay force refresh=1 - bypassing FastF1 caches");
     try {
       if (await this.tryR2(year, round, sessionType)) return;
       if (replayUsesR2Pack(sessionType) && r2Configured()) {
@@ -751,13 +751,11 @@ export class ReplayFrameFeed {
             store.setR2Ghost(aligned);
             store.setActiveStrategy(plan);
           } else {
-            // Recompute failed — the loaded R2 ghost ticks stay on their
+            // Recompute failed: the loaded R2 ghost ticks stay on their
             // own baked-in plan regardless of what the user picked
             // pre-race. Fall activeStrategy back to that baked-in plan so
             // the Strategy Panel shows what the ghost is actually
-            // simulating (matches the Timing Tower/map), and tell the user
-            // instead of silently swapping Strat B for the prebuilt plan.
-            store.setPackToast("Using prebuilt strategy — custom strategy unavailable");
+            // simulating (matches the Timing Tower/map).
             store.setActiveStrategy({
               id: `r2-ghost-${driver}`,
               name: ghost.strategy.label || plan.name,
@@ -812,7 +810,7 @@ export class ReplayFrameFeed {
         store.mergeGhostTicksFrom(1, aligned.ticks);
         store.setR2Ghost(aligned);
       } else if (store.r2Ghost) {
-        store.setPackToast("Using prebuilt strategy — custom strategy unavailable");
+        /* keep baked R2 ghost ticks when recompute returns nothing */
       }
     } catch {
       /* pack-status ghost (recommend at lap 1) remains as last resort */

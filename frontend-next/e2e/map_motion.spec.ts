@@ -50,7 +50,7 @@ async function startReplay(page: Page, opts: { startRace?: boolean } = {}) {
     await expect.poll(async () => page.locator('[data-testid^="tower-row-"]').count(), { timeout: 30_000 }).toBeGreaterThanOrEqual(10);
     return;
   }
-  // Wait for pack-ready Start Race (replayStartReady) — do not skip if the
+  // Wait for pack-ready Start Race (replayStartReady) - do not skip if the
   // button is briefly hidden while the R2 pack is still loading.
   const consoleStart = page.getByRole("button", { name: /Start Race/i });
   await expect(consoleStart).toBeVisible({ timeout: 30_000 });

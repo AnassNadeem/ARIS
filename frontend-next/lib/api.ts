@@ -57,7 +57,7 @@ export function explainFeatureEnabled(): boolean {
   return process.env.NODE_ENV !== "production";
 }
 
-/** Ghost dot on the track map — hidden by default (backend GPS-projection
+/** Ghost dot on the track map - hidden by default (backend GPS-projection
  * bug can misplace the dot; see docs/GHOST_CAR_REMEDIATION_PLAN.md).
  * Force on with NEXT_PUBLIC_ARIS_GHOST_MAP=1 once the backend fix lands. */
 export function ghostMapFeatureEnabled(): boolean {
@@ -768,7 +768,7 @@ export async function downloadDebriefExport(session_id: string, focus_driver: st
     a.click();
     URL.revokeObjectURL(url);
   } catch {
-    /* ignore — export is optional */
+    /* ignore - export is optional */
   }
 }
 
@@ -876,7 +876,7 @@ export async function chatCopilot(payload: {
     30000,
   );
   if (live) return { ...live, offline: false };
-  // Backend unreachable — flag it so the UI never passes a canned answer off
+  // Backend unreachable - flag it so the UI never passes a canned answer off
   // as a real tool-calling response.
   return mockCopilotAnswer(payload.message);
 }

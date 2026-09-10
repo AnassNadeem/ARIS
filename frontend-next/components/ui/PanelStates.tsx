@@ -58,7 +58,7 @@ export function ReplayOnlyPlaceholder({ panelName }: { panelName: string }) {
   return (
     <PanelEmpty
       title={panelName}
-      detail={`${panelName} available in Replay mode — arisf1.tech/replay`}
+      detail={`${panelName} available in Replay mode at arisf1.tech/replay`}
     />
   );
 }

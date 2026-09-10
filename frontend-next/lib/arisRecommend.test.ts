@@ -148,9 +148,9 @@ describe("lights-out plan statement", () => {
   });
 
   it("matches the Strat B card when ghost bake differs (Bahrain 22 vs ghost 24)", () => {
-    // Card / selectedStrategy is the source of truth — not r2Ghost.strategy.
+    // Card / selectedStrategy is the source of truth - not r2Ghost.strategy.
     expect(
-      lightsOutPlanStatement({ pit_laps: [22], pit_compounds: ["HARD"], name: "Strat B — One-stop late" }),
+      lightsOutPlanStatement({ pit_laps: [22], pit_compounds: ["HARD"], name: "Strat B - One-stop late" }),
     ).toBe("ARIS is pitting on lap 22 for HARD.");
     expect(
       lightsOutPlanStatement({ pit_laps: [22], pit_compounds: ["HARD"] }),
