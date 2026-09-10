@@ -10,6 +10,9 @@ on:
   schedule:
     # Monday 18:00 UTC — every race Sunday has ended by Monday morning.
     - cron: "0 18 * * 1"
+    # Tuesday 18:00 UTC — FastF1 timing often lands a day late; catch misses
+    # from Monday (e.g. Monza 2026 R16 skipped when calendar round numbers moved).
+    - cron: "0 18 * * 2"
   push:
     branches: [main]
     paths:

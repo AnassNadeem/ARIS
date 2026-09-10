@@ -39,6 +39,7 @@ import {
   filterReplayRounds,
   isAllowedReplayYear,
   keepRoundsWithPack,
+  pickLatestReplayRound,
 } from "@/lib/replayFilter";
 import { canStartRace, nextSelectorStep, sessionLabel, type ReplayMode, type SelectorStep } from "@/lib/sessionFlow";
 import { useRaceStore } from "@/store/raceStore";
@@ -121,8 +122,7 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
         Number.isFinite(urlRound) && urlRound > 0
           ? playable.find((x) => x.round === urlRound)
           : undefined;
-      const preferred =
-        fromUrl ?? playable[0] ?? null;
+      const preferred = fromUrl ?? pickLatestReplayRound(playable);
       setRound(preferred);
       setStep("circuit");
       setStrategies(null);

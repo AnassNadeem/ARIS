@@ -14,11 +14,26 @@ export function replayYears(_now: Date = new Date()): number[] {
   return [...ALLOWED_REPLAY_YEARS].sort((a, b) => b - a);
 }
 
+/** Prefer the current championship year once it is inside the replay window. */
 export function defaultReplayYear(now: Date = new Date()): number {
   const y = now.getUTCFullYear();
-  const latestCompleted = now.getUTCMonth() >= 11 ? y : y - 1;
   const allowed = replayYears(now);
-  return allowed.find((x) => x <= latestCompleted) ?? allowed[allowed.length - 1] ?? 2025;
+  return allowed.find((x) => x <= y) ?? allowed[allowed.length - 1] ?? 2025;
+}
+
+/** Most recent race in the playable list (by date, then round number). */
+export function pickLatestReplayRound<T extends { round: number; date: string }>(
+  rounds: readonly T[],
+): T | null {
+  if (!rounds.length) return null;
+  return rounds
+    .slice()
+    .sort((a, b) => {
+      const da = Date.parse(a.date) || 0;
+      const db = Date.parse(b.date) || 0;
+      if (db !== da) return db - da;
+      return b.round - a.round;
+    })[0] ?? null;
 }
 
 /**

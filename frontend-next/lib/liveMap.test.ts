@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterReplayRounds, replayYears, defaultReplayYear, startFinishMarker, isReplayableRound, chequeredSfFlag, keepRoundsWithPack, formatRaceDate } from "./replayFilter";
+import { filterReplayRounds, replayYears, defaultReplayYear, pickLatestReplayRound, startFinishMarker, isReplayableRound, chequeredSfFlag, keepRoundsWithPack, formatRaceDate } from "./replayFilter";
 import { annotateGhostTower, hasLiveGps, LIVE_GPS_STALE_MS, LIVE_PATH_FRAC_JITTER, mapTimingAndPositions, mergeByDriverCode, mergeCars, mergeLivePositions, onTrackCarCodes, orderTimingTower, rankGhostByGap, realClassifiedCars, resolveLivePathFrac, sessionFlagToPhase, timingEqual, timingFingerprint } from "./mapCars";
 import { normalizeCompound, msToSeconds } from "./compounds";
 import { countryFlag } from "./flags";
@@ -22,10 +22,23 @@ describe("replayYears", () => {
 });
 
 describe("defaultReplayYear", () => {
-  it("picks the most recent completed season inside the window", () => {
-    expect(defaultReplayYear(new Date("2026-08-27T12:00:00Z"))).toBe(2025);
+  it("defaults to the current championship year inside the replay window", () => {
+    expect(defaultReplayYear(new Date("2026-08-27T12:00:00Z"))).toBe(2026);
     expect(defaultReplayYear(new Date("2026-12-15T12:00:00Z"))).toBe(2026);
     expect(defaultReplayYear(new Date("2024-03-01T12:00:00Z"))).toBe(2024);
+    expect(defaultReplayYear(new Date("2025-06-01T12:00:00Z"))).toBe(2025);
+  });
+});
+
+describe("pickLatestReplayRound", () => {
+  it("selects the most recent race by date, then round number", () => {
+    const rounds = [
+      { round: 1, date: "2026-03-08T04:00:00Z", circuitName: "Australia" },
+      { round: 15, date: "2026-08-23T13:00:00Z", circuitName: "Netherlands" },
+      { round: 16, date: "2026-09-06T13:00:00Z", circuitName: "Italy" },
+    ];
+    expect(pickLatestReplayRound(rounds)?.round).toBe(16);
+    expect(pickLatestReplayRound([])).toBeNull();
   });
 });
 
