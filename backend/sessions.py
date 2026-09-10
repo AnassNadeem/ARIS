@@ -427,7 +427,14 @@ def load_session(
             refresh,
         )
         t0 = time.monotonic()
-        sess = hit if hit is not None else _get_fastf1_session(year, round_number, stype)
+        # Never call Session.load() again on a cached instance when upgrading
+        # flags (e.g. laps-only → telemetry). FastF1 can clear already-loaded
+        # frames in-place, which poisoned Monza 2026 R16 race_field builds when
+        # circuit_map_quick upgraded the shared session under prebuild.
+        if hit is not None and (tel, wx, msg) == prev:
+            sess = hit
+        else:
+            sess = _get_fastf1_session(year, round_number, stype)
         try:
             sess.load(laps=True, telemetry=tel, weather=wx, messages=msg)
         except Exception as extra:

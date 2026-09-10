@@ -143,11 +143,39 @@ def _load_session(year: int, round_number: int):
     from backend.sessions import load_session
 
     enable_fastf1_cache()
+
+    def _laps_ready(sess: Any) -> bool:
+        try:
+            laps = sess.laps
+        except Exception:
+            return False
+        return laps is not None and not getattr(laps, "empty", True)
+
     sess = load_session(
         int(year), int(round_number), "R", telemetry=False, weather=True, messages=True
     )
     if sess is None:
         raise RuntimeError(f"FastF1 session missing for {year} R{round_number}")
+    if not _laps_ready(sess):
+        _log.warning(
+            "FastF1 laps missing after load for %s R%s; refreshing session",
+            year,
+            round_number,
+        )
+        sess = load_session(
+            int(year),
+            int(round_number),
+            "R",
+            telemetry=False,
+            weather=True,
+            messages=True,
+            refresh=True,
+        )
+    if sess is None or not _laps_ready(sess):
+        raise RuntimeError(
+            f"FastF1 laps not loaded for {year} R{round_number} "
+            "(session finished recently or livetiming mirror incomplete)"
+        )
     return sess
 
 
@@ -400,7 +428,10 @@ def _laps_stints(sess: Any) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]
 
     laps_out: list[dict[str, Any]] = []
     stints: dict[tuple[str, int], dict[str, Any]] = {}
-    laps = getattr(sess, "laps", None)
+    try:
+        laps = sess.laps
+    except Exception as extra:
+        raise RuntimeError(f"FastF1 laps not loaded: {extra}") from extra
     if laps is None or laps.empty:
         raise RuntimeError("FastF1 laps empty")
     for rec in laps.itertuples(index=False):
