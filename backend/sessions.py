@@ -300,12 +300,10 @@ def _get_fastf1_session(year: int, round_number: int, session_type: str):
         needles = [n for n in needles if n and n != "spain"]
         if any(n and (n in loc or n in ename or n in country) for n in needles):
             return True
-        if "italy" in {
+        return "italy" in {
             str(getattr(rnd, "name", "") or "").lower(),
             str(getattr(rnd, "circuit_key", "") or "").lower(),
-        } and "monza" in loc:
-            return True
-        return False
+        } and "monza" in loc
 
     candidates: list[object] = []
     if rnd is not None:
