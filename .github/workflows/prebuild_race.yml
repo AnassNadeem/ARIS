@@ -25,6 +25,7 @@ on:
       - "src/aris/ghost.py"
       - "src/aris/explain/ghost.py"
       - "src/aris/simulate.py"
+      - "backend/sessions.py"
       - ".github/workflows/prebuild_race.yml"
 
 jobs:

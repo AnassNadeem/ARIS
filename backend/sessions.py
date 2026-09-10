@@ -257,32 +257,92 @@ def _bool(value: Any) -> bool:
 
 
 def _get_fastf1_session(year: int, round_number: int, session_type: str):
-    """Load by FastF1 round number; fall back to event name if numbering drifts."""
+    """Resolve a FastF1 session for an ARIS calendar round.
+
+    2026 ARIS round numbers (cancelled Sakhir/Jeddah/Imola) do not match FastF1's
+    schedule (Monza is FastF1 R13, ARIS R16). Prefer city/name identity and reject
+    mismatches so we never bake Sepang into ``replay/2026/16/``.
+    """
     enable_fastf1_cache()
     import fastf1
 
     stype = session_type.upper()
-    if year == 2026:
-        try:
-            from backend.calendar import get_round
-
-            rnd = get_round(year, round_number)
-            ident = rnd.name or rnd.official_event_name
-            if ident:
-                return fastf1.get_session(year, ident, stype)
-        except Exception:
-            pass
+    rnd = None
     try:
-        return fastf1.get_session(year, round_number, stype)
-    except Exception as first:
-        try:
-            from backend.calendar import get_round
+        from backend.calendar import get_round
 
-            rnd = get_round(year, round_number)
-            ident = rnd.official_event_name or rnd.name
-            return fastf1.get_session(year, ident, stype)
-        except Exception:
-            raise first from None
+        rnd = get_round(year, round_number)
+    except Exception:
+        rnd = None
+
+    def _usable_ident(ident: object) -> str | None:
+        raw = str(ident or "").strip()
+        if not raw:
+            return None
+        # Full circuit names fuzzy-match badly (Monza → Australian GP).
+        low = raw.lower()
+        if len(raw) > 24 or "autodromo" in low or low.startswith("circuit "):
+            return None
+        return raw
+
+    def _matches_round(sess: Any) -> bool:
+        if rnd is None or year != 2026:
+            return True
+        loc = str(getattr(sess.event, "Location", "") or "").lower()
+        country = str(getattr(sess.event, "Country", "") or "").lower()
+        ename = str(getattr(sess.event, "EventName", "") or "").lower()
+        needles = [
+            str(getattr(rnd, "city", "") or "").lower(),
+            str(getattr(rnd, "circuit_key", "") or "").lower(),
+            str(getattr(rnd, "name", "") or "").lower(),
+        ]
+        # "spain" matches both Barcelona and Madrid; require city/circuit_key.
+        needles = [n for n in needles if n and n != "spain"]
+        if any(n and (n in loc or n in ename or n in country) for n in needles):
+            return True
+        if "italy" in {
+            str(getattr(rnd, "name", "") or "").lower(),
+            str(getattr(rnd, "circuit_key", "") or "").lower(),
+        } and "monza" in loc:
+            return True
+        return False
+
+    candidates: list[object] = []
+    if rnd is not None:
+        for ident in (
+            getattr(rnd, "city", None),
+            getattr(rnd, "name", None),
+            getattr(rnd, "official_event_name", None),
+            getattr(rnd, "circuit_key", None),
+        ):
+            usable = _usable_ident(ident)
+            if usable and usable not in candidates:
+                candidates.append(usable)
+    candidates.append(int(round_number))
+
+    errors: list[BaseException] = []
+    for ident in candidates:
+        try:
+            sess = fastf1.get_session(year, ident, stype)
+        except Exception as extra:
+            errors.append(extra)
+            continue
+        if _matches_round(sess):
+            return sess
+        _log.warning(
+            "FastF1 ident %r for %s R%s resolved to %s (%s); trying next",
+            ident,
+            year,
+            round_number,
+            getattr(sess.event, "EventName", "?"),
+            getattr(sess.event, "Location", "?"),
+        )
+
+    detail = f"{errors[-1]}" if errors else "no candidates matched"
+    raise RuntimeError(
+        f"FastF1 could not resolve {year} R{round_number} "
+        f"({getattr(rnd, 'name', None) or getattr(rnd, 'circuit_name', None) or '?'}: {detail})"
+    )
 
 
 def _blocked_open_session(year: int, round_number: int, session_type: str) -> bool:
