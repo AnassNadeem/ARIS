@@ -945,9 +945,9 @@ def get_round(year: int, round_number: int, as_of: datetime | None = None) -> Ca
 def peek_round_meta(year: int, round_number: int) -> tuple[str, str]:
     """Country + circuit_key from memory/overlay only — never loads FastF1."""
     wall = datetime.now(timezone.utc)
-    hit = mem_cache.get(f"calbuild_jolpica23st_{year}", TTL_CALENDAR)
+    hit = mem_cache.get(f"calbuild_r2madrid26_{year}", TTL_CALENDAR)
     if hit is None:
-        hit = mem_cache.get(f"calbuild_jolpica23st_{year}_{wall.strftime('%Y-%m-%dT%H:%M:%SZ')}", TTL_CALENDAR)
+        hit = mem_cache.get(f"calbuild_r2madrid26_{year}_{wall.strftime('%Y-%m-%dT%H:%M:%SZ')}", TTL_CALENDAR)
     if hit is not None:
         for rnd in getattr(hit, "rounds", []):
             if int(getattr(rnd, "round_number", 0) or 0) == int(round_number):
