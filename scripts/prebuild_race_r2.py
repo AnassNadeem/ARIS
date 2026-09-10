@@ -35,6 +35,14 @@ sys.path.insert(0, str(ROOT / "src"))
 
 LOCAL_ROOT = ROOT / "data" / "replay_r2"
 MAX_FIELD_BYTES = 3 * 1024 * 1024
+# Prefer FastF1. OpenF1 only after the race has been over this long (timing
+# mirrors often lag). Re-try FastF1 on OpenF1 packs after this delay.
+OPENF1_FALLBACK_HOURS = 3.0
+FASTF1_RETRY_HOURS = 24.0
+
+
+class RaceDataPending(Exception):
+    """FastF1 not ready yet and it is too early to publish an OpenF1 pack."""
 DEFAULT_HZ = 2.0
 
 _log = logging.getLogger("aris.prebuild_r2")
@@ -393,6 +401,10 @@ def build_race_field_openf1(year: int, round_number: int) -> dict[str, Any]:
             }
         )
 
+    # OpenF1 lap rows often omit classified place / gaps; derive both from
+    # cumulative lap times so the replay timing tower can rank correctly.
+    _fill_gaps(laps_out)
+
     stints_out: list[dict[str, Any]] = []
     for st in stints_raw:
         if not isinstance(st, dict):
@@ -463,18 +475,56 @@ def build_race_field_openf1(year: int, round_number: int) -> dict[str, Any]:
     }
 
 
+def _hours_since_race_end(year: int, round_number: int) -> float | None:
+    """Hours since calendar race window ended (race start + 2h15)."""
+    from datetime import datetime, timedelta, timezone
+
+    from backend.calendar import get_round
+
+    try:
+        rnd = get_round(int(year), int(round_number))
+    except Exception:
+        return None
+    date_race = getattr(rnd, "date_race", None)
+    if date_race is None:
+        return None
+    if getattr(date_race, "tzinfo", None) is None:
+        date_race = date_race.replace(tzinfo=timezone.utc)
+    ended = date_race + timedelta(hours=2, minutes=15)
+    return (datetime.now(timezone.utc) - ended).total_seconds() / 3600.0
+
+
+def _pack_source(field: dict[str, Any] | None) -> str | None:
+    if not isinstance(field, dict):
+        return None
+    meta = field.get("meta")
+    if not isinstance(meta, dict):
+        return None
+    src = meta.get("source")
+    return str(src).strip().lower() if src else None
+
+
 def _build_field_any_source(year: int, round_number: int) -> tuple[dict[str, Any], Any, str]:
-    """FastF1 first; OpenF1 fallback when livetiming laps are incomplete."""
+    """FastF1 first; OpenF1 only after OPENF1_FALLBACK_HOURS if FastF1 is down."""
     try:
         sess = _load_session(year, round_number)
         field = build_race_field(year, round_number, sess)
         return field, sess, "fastf1"
     except Exception as extra:
+        hours = _hours_since_race_end(year, round_number)
+        if hours is not None and hours < OPENF1_FALLBACK_HOURS:
+            raise RaceDataPending(
+                f"FastF1 not ready for {year} R{round_number} "
+                f"({extra}); {hours:.1f}h since race end "
+                f"(OpenF1 after {OPENF1_FALLBACK_HOURS:g}h)"
+            ) from extra
         _log.warning(
-            "FastF1 race_field failed for %s R%s (%s); trying OpenF1",
+            "FastF1 race_field failed for %s R%s (%s); trying OpenF1 "
+            "(%.1fh since race end)",
             year,
             round_number,
             extra,
+            hours if hours is not None else -1.0,
         )
         field = build_race_field_openf1(year, round_number)
         return field, None, "openf1"
@@ -827,6 +877,9 @@ def _fill_gaps(laps: list[dict[str, Any]]) -> None:
             cum = float(row["_cum"])
             row["gap_to_leader_s"] = round(cum - leader, 3)
             row["gap_ahead_s"] = round(cum - prev, 3) if i else 0.0
+            # OpenF1 (and sparse FastF1) rows may lack Position; rank by race time.
+            if row.get("position") is None:
+                row["position"] = i + 1
             prev = cum
     for row in laps:
         row.pop("_cum", None)
@@ -1259,6 +1312,7 @@ def build_race_field(year: int, round_number: int, sess: Any) -> dict[str, Any]:
             "green_flag_s": _green_flag_s(sess, rc),
             "session_key": _session_key(sess),
             "outline_source": outline_source,
+            "source": "fastf1",
         },
         "outline": outline,
         "drivers": drivers,
@@ -1492,31 +1546,25 @@ def _race_field_schema_ok(field: dict[str, Any] | None) -> bool:
         lap0 = laps[0]
         if isinstance(lap0, dict) and "pit_this_lap" not in lap0:
             return False
+        # Null positions on every early lap → timing tower collapses to P0.
+        sample = [r for r in laps[:50] if isinstance(r, dict)]
+        if sample and all(r.get("position") is None for r in sample):
+            return False
     return True
 
 
-def build_one(
+def _finish_build(
     year: int,
     round_number: int,
     driver: str | None,
     *,
-    skip_existing: bool,
+    field: dict[str, Any],
+    sess: Any,
+    source: str,
     no_upload: bool,
+    t0: float,
 ) -> dict[str, Any]:
     field_path = _local_key(year, round_number, "race_field.json")
-    if skip_existing and _r2_exists(year, round_number, "race_field.json"):
-        existing = _fetch_remote_field(year, round_number) or _read_local_field(year, round_number)
-        if _race_field_schema_ok(existing):
-            _log.info("skip existing %s R%s", year, round_number)
-            return {"year": year, "round": round_number, "skipped": True}
-        _log.warning(
-            "rebuilding %s R%s — race_field.json failed schema check (missing name/colour)",
-            year,
-            round_number,
-        )
-
-    t0 = time.monotonic()
-    field, sess, source = _build_field_any_source(year, round_number)
     raw = _fit_pos_under_budget(field, MAX_FIELD_BYTES)
     if len(raw) > MAX_FIELD_BYTES:
         raise RuntimeError(
@@ -1563,7 +1611,72 @@ def build_one(
         "field_bytes": field_bytes,
         "ghost_bytes": ghost_bytes,
         "skipped": False,
+        "source": source,
     }
+
+
+def build_one(
+    year: int,
+    round_number: int,
+    driver: str | None,
+    *,
+    skip_existing: bool,
+    no_upload: bool,
+) -> dict[str, Any]:
+    if skip_existing and _r2_exists(year, round_number, "race_field.json"):
+        existing = _fetch_remote_field(year, round_number) or _read_local_field(year, round_number)
+        if _race_field_schema_ok(existing):
+            src = _pack_source(existing)
+            hours = _hours_since_race_end(year, round_number)
+            # OpenF1 is provisional: keep trying FastF1 once the 24h window opens.
+            if src == "openf1" and hours is not None and hours >= FASTF1_RETRY_HOURS:
+                _log.info(
+                    "retrying FastF1 upgrade for %s R%s (OpenF1 pack, %.1fh since race end)",
+                    year,
+                    round_number,
+                    hours,
+                )
+                try:
+                    sess = _load_session(year, round_number)
+                    field = build_race_field(year, round_number, sess)
+                    return _finish_build(
+                        year,
+                        round_number,
+                        driver,
+                        field=field,
+                        sess=sess,
+                        source="fastf1",
+                        no_upload=no_upload,
+                        t0=time.monotonic(),
+                    )
+                except Exception as extra:
+                    _log.warning(
+                        "FastF1 still unavailable for %s R%s (%s); keeping OpenF1 pack",
+                        year,
+                        round_number,
+                        extra,
+                    )
+                    return {"year": year, "round": round_number, "skipped": True}
+            _log.info("skip existing %s R%s source=%s", year, round_number, src or "unknown")
+            return {"year": year, "round": round_number, "skipped": True}
+        _log.warning(
+            "rebuilding %s R%s — race_field.json failed schema check",
+            year,
+            round_number,
+        )
+
+    t0 = time.monotonic()
+    field, sess, source = _build_field_any_source(year, round_number)
+    return _finish_build(
+        year,
+        round_number,
+        driver,
+        field=field,
+        sess=sess,
+        source=source,
+        no_upload=no_upload,
+        t0=t0,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1619,6 +1732,8 @@ def main(argv: list[str] | None = None) -> int:
                     skip_existing=args.skip_existing,
                     no_upload=args.no_upload,
                 )
+        except RaceDataPending as extra:
+            _log.info("pending %s R%s: %s", year, rnd, extra)
         except Exception as extra:
             _log.exception("FAILED %s R%s: %s", year, rnd, extra)
             failures.append(f"{year} R{rnd}: {extra}")

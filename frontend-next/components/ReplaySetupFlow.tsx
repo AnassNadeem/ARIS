@@ -38,6 +38,7 @@ import {
   defaultReplayYear,
   filterReplayRounds,
   isAllowedReplayYear,
+  isReplayProcessing,
   keepRoundsWithPack,
   pickLatestReplayRound,
 } from "@/lib/replayFilter";
@@ -184,10 +185,17 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
     void prewarmSession({ year, round_number: round.round, session_type: RACE_SESSION });
   }, [year, round]);
 
-  // R2: enable continue once the race_field preload has settled. Empty drivers
-  // (404) still unlocks Start Race so commitSession can surface R2_RACE_UNAVAILABLE.
+  // R2: require a loaded driver grid to continue. Missing pack during the
+  // post-race window shows "Processing…"; later it surfaces unavailable.
+  const packReady = drivers.length > 0;
+  const processing =
+    Boolean(round) &&
+    r2Configured() &&
+    driversSettled &&
+    !packReady &&
+    isReplayProcessing(round!.date);
   const dataReady = r2Configured()
-    ? Boolean(round) && !driversLoading && (drivers.length > 0 || driversSettled)
+    ? Boolean(round) && !driversLoading && packReady
     : !roundsLoading && Boolean(round);
 
   const commitSession = useCallback(
@@ -541,7 +549,13 @@ export function ReplaySetupFlow({ onLoaded }: { onLoaded: () => void }) {
             yearBlocked={yearBlocked}
             arisEnabled={arisEnabled}
             continueDisabled={!dataReady}
-            continueHint="Waiting for race data…"
+            continueHint={
+              processing
+                ? "Processing race data…"
+                : driversSettled && !packReady
+                  ? "Race data unavailable…"
+                  : "Waiting for race data…"
+            }
             onYearChange={(y) => {
               setYear(y);
               setRoundsLoading(true);

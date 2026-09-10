@@ -162,12 +162,33 @@ export function filterReplayRounds(rounds: RoundCard[], opts?: ReplayRoundFilter
   return rounds.filter((r) => isReplayableRound(r, opts));
 }
 
-/** Drop rounds whose race_field.json is confirmed missing. `null` (unknown) keeps the row. */
+/** Drop rounds whose race_field.json is confirmed missing — unless the race
+ * just finished and we are still waiting for FastF1 / OpenF1 prebuild
+ * ("processing"). `null` (unknown HEAD) keeps the row. */
+export function hoursSinceRaceEnd(dateIso: string, now: Date = new Date()): number | null {
+  const start = Date.parse(dateIso);
+  if (!Number.isFinite(start)) return null;
+  // Match backend.calendar race COMPLETED gate (race start + 2h15).
+  const ended = start + (2 * 3600 + 15 * 60) * 1000;
+  return (now.getTime() - ended) / 3_600_000;
+}
+
+/** Race is over but R2 pack may not be ready yet (FastF1 lag / OpenF1 fallback). */
+export function isReplayProcessing(dateIso: string, now: Date = new Date()): boolean {
+  const hours = hoursSinceRaceEnd(dateIso, now);
+  if (hours == null) return false;
+  return hours >= 0 && hours < 48;
+}
+
 export function keepRoundsWithPack(
   rounds: RoundCard[],
   existsByRound: ReadonlyMap<number, boolean | null>,
+  now: Date = new Date(),
 ): RoundCard[] {
-  return rounds.filter((r) => existsByRound.get(r.round) !== false);
+  return rounds.filter((r) => {
+    if (existsByRound.get(r.round) !== false) return true;
+    return isReplayProcessing(r.date, now);
+  });
 }
 
 export function startFinishMarker(markers: CircuitMarker[] | undefined, xs: number[], ys: number[]): CircuitMarker {

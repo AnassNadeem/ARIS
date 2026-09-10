@@ -8,10 +8,13 @@ on:
         type: boolean
         default: false
   schedule:
+    # Every 3 hours: pick up FastF1 as it lands; OpenF1 only after 3h post-race
+    # (see scripts/prebuild_race_r2.py OPENF1_FALLBACK_HOURS / FASTF1_RETRY_HOURS).
+    - cron: "0 */3 * * *"
     # Monday 18:00 UTC — every race Sunday has ended by Monday morning.
     - cron: "0 18 * * 1"
-    # Tuesday 18:00 UTC — FastF1 timing often lands a day late; catch misses
-    # from Monday (e.g. Monza 2026 R16 skipped when calendar round numbers moved).
+    # Tuesday 18:00 UTC — FastF1 timing often lands a day late; catch OpenF1
+    # provisional packs and upgrade them (skip-existing retries FastF1 at 24h).
     - cron: "0 18 * * 2"
   push:
     branches: [main]
