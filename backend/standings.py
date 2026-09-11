@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from typing import Any
 
 from backend.cache import TTL_METADATA, TTL_STANDINGS, cached
@@ -64,11 +65,11 @@ def _session_start(row: dict[str, Any]):
     if not raw:
         return None
     try:
-        from datetime import datetime, timezone
+        from datetime import UTC, datetime
 
         dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.replace(tzinfo=UTC)
         return dt
     except ValueError:
         return None
@@ -90,9 +91,9 @@ def _openf1_session_key(year: int) -> int | None:
     sessions = _openf1_year_sessions(year)
     if not sessions:
         return None
-    from datetime import datetime, timezone
+    from datetime import UTC, datetime
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     started = [
         s
         for s in sessions
@@ -143,9 +144,9 @@ def _openf1_session_key_for(
     dated.sort(key=lambda row: str(row.get("date_start") or ""))
     if not dated:
         return _openf1_session_key(year)
-    from datetime import datetime, timezone
+    from datetime import UTC, datetime
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     started = [sess for sess in dated if (_session_start(sess) or now) <= now]
     pick = (started or dated)[-1]
     return int(pick["session_key"])
@@ -345,10 +346,8 @@ def get_drivers(
             filled.append(drv)
             continue
         filled.append(drv.model_copy(update={"team_colour": team_colour(drv.team_name)}))
-    try:
+    with contextlib.suppress(Exception):
         filled = _apply_weekend_lineup(filled, year, rnd)
-    except Exception:
-        pass
     return DriversResponse(
         year=year,
         drivers=filled,
