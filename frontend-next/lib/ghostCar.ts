@@ -5,6 +5,16 @@ import type { ARISRecommendation, CarState, Compound, GhostDeltaPoint, GhostTick
 const GHOST_PREFIX = "A_";
 export const PIT_ENTRY_FRAC = 0.84;
 export const SEEK_JUMP_GRACE_S = 3;
+/** Fraction of racing speed under each flag. SC/VSC also forbid overtaking. */
+export const CAUTION_SPEED_MULT: Record<string, number> = {
+  GREEN: 1,
+  YELLOW: 0.62,
+  VSC: 0.42,
+  SC: 0.32,
+  RED_FLAG: 0,
+  STANDING_START: 0,
+  FORMATION_LAP: 0.38,
+};
 
 export function ghostCodeFor(driver: string): string {
   const code = driver.replace(/^A_/, "").toUpperCase();
@@ -81,6 +91,65 @@ export function asGhostTick(raw: unknown): GhostTickData | null {
 function wrapFrac(frac: number): number {
   if (!Number.isFinite(frac)) return 0;
   return ((frac % 1) + 1) % 1;
+}
+
+export function cautionSpeedMult(phase: string | null | undefined): number {
+  const m = CAUTION_SPEED_MULT[phase ?? "GREEN"];
+  return Number.isFinite(m) ? m : 1;
+}
+
+export function noOvertakePhase(phase: string | null | undefined): boolean {
+  return phase === "SC" || phase === "VSC";
+}
+
+export function freezeGhostPhase(phase: string | null | undefined): boolean {
+  return phase === "RED_FLAG" || phase === "STANDING_START";
+}
+
+/** Keep the ghost behind the car classified ahead of it (SC/VSC). */
+export function clampGhostNoOvertake(
+  ghostFrac: number,
+  cars: CarState[],
+  ghostPosition: number | null | undefined,
+): number {
+  if (ghostPosition == null || ghostPosition <= 1) return wrapFrac(ghostFrac);
+  const ahead = cars
+    .filter((c) => !c.is_ghost && !c.is_pitted && !c.is_dnf && (c.position ?? 99) < ghostPosition)
+    .sort((a, b) => (b.position ?? 99) - (a.position ?? 99))[0];
+  if (!ahead || ahead.path_frac == null || !Number.isFinite(ahead.path_frac)) {
+    return wrapFrac(ghostFrac);
+  }
+  const g = wrapFrac(ghostFrac);
+  const a = wrapFrac(ahead.path_frac);
+  let d = g - a;
+  if (d > 0.5) d -= 1;
+  if (d < -0.5) d += 1;
+  if (d > 0.002) return wrapFrac(a - 0.008);
+  return g;
+}
+
+export function applyGhostCaution(input: {
+  pathFrac: number;
+  speedKph: number;
+  phase: string | null | undefined;
+  cars: CarState[];
+  ghostPosition: number | null | undefined;
+  prevPathFrac?: number | null;
+}): { pathFrac: number; speedKph: number } {
+  const phase = input.phase ?? "GREEN";
+  const mult = cautionSpeedMult(phase);
+  let frac = wrapFrac(input.pathFrac);
+  let speed = Number.isFinite(input.speedKph) ? input.speedKph * mult : 0;
+  if (freezeGhostPhase(phase)) {
+    frac =
+      input.prevPathFrac != null && Number.isFinite(input.prevPathFrac)
+        ? wrapFrac(input.prevPathFrac)
+        : frac;
+    speed = 0;
+  } else if (noOvertakePhase(phase)) {
+    frac = clampGhostNoOvertake(frac, input.cars, input.ghostPosition);
+  }
+  return { pathFrac: frac, speedKph: speed };
 }
 
 /** Grid slot from the chosen driver's first pos_sample (Bahrain 2024 VER = 0.97487). */

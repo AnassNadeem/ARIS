@@ -136,7 +136,7 @@ const R2_BASE = normalizeR2Base(
     (process.env.NODE_ENV === "development" ? "/r2replay" : ""),
 );
 /** Bump when race_field.json shape changes so CDN/browser caches cannot serve stale packs. */
-const R2_ASSET_V = "9";
+const R2_ASSET_V = "10";
 const DEFAULT_TRACK_M = 5000;
 const SPEED_DT_LAP = 0.04;
 
@@ -714,10 +714,15 @@ export function medianFinite(values: number[]): number {
  * Pit loss is already inside delta steps on pit laps - do not add it again.
  * Values above GHOST_LAP_CLAMP_S are clamped (red flag / formation) before path_frac
  * and cumulative use. Negatives are stored as-is and listed in implausible_laps.
- * NaN laps (null real lap_time_s) are filled with the median of finite ghost_lap_s
- * so cumulative time stays monotonic and playback never freezes.
+ * NaN laps (null real lap_time_s) use `playbackLapS[L]` when provided so the
+ * ghost clock stays aligned with compressed red/standing playback, else the
+ * median of finite ghost_lap_s.
  */
-export function deriveGhostLapTimes(ticks: GhostR2Tick[], realLapS: number[]): GhostLapDerived {
+export function deriveGhostLapTimes(
+  ticks: GhostR2Tick[],
+  realLapS: number[],
+  playbackLapS?: number[],
+): GhostLapDerived {
   const byLap = new Map<number, GhostR2Tick>();
   let maxTickLap = 0;
   for (const t of ticks) {
@@ -757,6 +762,13 @@ export function deriveGhostLapTimes(ticks: GhostR2Tick[], realLapS: number[]): G
   }
   if (!(fill > 0)) fill = 90;
   for (let L = 1; L <= maxLap; L++) {
+    const pb = playbackLapS?.[L];
+    const real = realLapS[L];
+    const neutralized = !Number.isFinite(real) || real > 120;
+    if (neutralized && pb != null && Number.isFinite(pb) && pb > 0) {
+      ghost_lap_s[L] = pb;
+      continue;
+    }
     if (!Number.isFinite(ghost_lap_s[L])) {
       ghost_lap_s[L] = fill;
     }
@@ -901,6 +913,16 @@ function leaderCum(field: RaceField): number[] {
   return cum;
 }
 
+/** Per-lap replay clock length (red/standing compressed). Index 0 unused. */
+export function playbackLapDurations(field: RaceField): number[] {
+  const cum = leaderCum(field);
+  const out = new Array(cum.length).fill(NaN);
+  for (let lap = 1; lap < cum.length; lap++) {
+    out[lap] = Math.max(0, (cum[lap] ?? 0) - (cum[lap - 1] ?? 0));
+  }
+  return out;
+}
+
 /**
  * Session flag for the replay clock. Standing start is only live on its lap
  * for a few seconds, then clears to GREEN so banners do not stick forever.
@@ -941,6 +963,15 @@ export function resolveSessionFlag(field: RaceField, lap: number, elapsedS: numb
     if (blob.includes("SAFETY CAR") && !blob.includes("VIRTUAL") && !blob.includes("LIGHTS")) {
       if (flag !== "RED" && flag !== "STANDING_START") flag = "SC";
       continue;
+    }
+  }
+  if (flag === "GREEN") {
+    for (const msg of field.race_control) {
+      if (msg.lap !== lap) continue;
+      const blob = raceControlBlob(msg);
+      if (blob.includes("DOUBLE YELLOW") || (blob.includes("YELLOW") && !blob.includes("CLEAR"))) {
+        return "YELLOW";
+      }
     }
   }
   return flag;
@@ -1179,7 +1210,14 @@ export function driverReplaySpeedKph(field: RaceField, code: string, elapsedS: n
   const { lap, lapFrac } = elapsedToLap(field, elapsedS);
   const cum = leaderCum(field);
   const lapDurS = Math.max(1, (cum[lap] ?? 90) - (cum[lap - 1] ?? 0));
-  return speedKphFromPath(posSamplesFor(field, code), lapFrac, lapDurS, field.meta.total_laps);
+  const samples = posSamplesFor(field, code);
+  let kph = speedKphFromPath(samples, lapFrac, lapDurS, field.meta.total_laps);
+  const hit = nearestPosSample(samples, lapFrac);
+  const fromTelemetry = Boolean(hit && hit.speed_kph != null && hit.speed_kph > 1);
+  if (!fromTelemetry && kph > 1) {
+    kph *= derivedSpeedCautionMult(resolveFrameFlag(field, lap, elapsedS));
+  }
+  return kph;
 }
 
 export function ghostTickAtOrBefore(
@@ -1202,8 +1240,32 @@ function flagFromTrackStatus(status: string | null | undefined): string | null {
   if (s.includes("5")) return "RED";
   if (s.includes("4")) return "SC";
   if (s.includes("6") || s.includes("7")) return "VSC";
-  if (s.includes("1") || s.includes("2")) return "GREEN";
+  if (s.includes("2")) return "YELLOW";
+  if (s.includes("1")) return "GREEN";
   return null;
+}
+
+function derivedSpeedCautionMult(flag: string): number {
+  if (flag === "SC") return 0.32;
+  if (flag === "VSC") return 0.42;
+  if (flag === "YELLOW") return 0.62;
+  if (flag === "RED" || flag === "STANDING_START") return 0;
+  return 1;
+}
+
+function resolveFrameFlag(field: RaceField, lap: number, elapsedS: number): string {
+  let flag = resolveSessionFlag(field, lap, elapsedS);
+  if (flag === "GREEN") {
+    for (const row of field.laps) {
+      if (row.lap !== lap) continue;
+      const fromTrack = flagFromTrackStatus(row.track_status);
+      if (fromTrack && fromTrack !== "GREEN") {
+        flag = fromTrack;
+        break;
+      }
+    }
+  }
+  return flag;
 }
 
 export function r2FrameAt(
@@ -1245,6 +1307,8 @@ export function r2FrameAt(
   );
   const gridByDriver = new Map(field.drivers.map((d) => [d.code, d.grid_position]));
   const useGrid = lapFrac < GRID_START_LAP_FRAC;
+  const flag = resolveFrameFlag(field, lap, elapsedS);
+  const cautionMult = derivedSpeedCautionMult(flag);
   const pitCount = new Map<string, number>();
   const prevByDriver = new Map<string, (typeof field.laps)[0]>();
   const prevLap = lap - 1;
@@ -1261,7 +1325,10 @@ export function r2FrameAt(
     const frac = replayDisplayFrac(field, code, elapsedS, lapFrac);
     const xy = pointAtFraction(path, frac);
     const prev = prevByDriver.get(code);
-    const kph = useGrid || retired ? 0 : speedKphFromPath(samples, lapFrac, lapDurS, field.meta.total_laps);
+    let kph = useGrid || retired ? 0 : speedKphFromPath(samples, lapFrac, lapDurS, field.meta.total_laps);
+    const hit = nearestPosSample(samples, lapFrac);
+    const fromTelemetry = Boolean(hit && hit.speed_kph != null && hit.speed_kph > 1);
+    if (!fromTelemetry && kph > 1) kph *= cautionMult;
     let sectors = sectorMsFromLap(prev, samples, prevLap, field.meta.total_laps);
     if (sectors.sector1_ms == null && sectors.sector2_ms == null && sectors.sector3_ms == null) {
       sectors = sectorMsFromLap(row, samples, row.lap, field.meta.total_laps);
@@ -1325,19 +1392,6 @@ export function r2FrameAt(
     if (!dns) continue;
   }
   timing.sort((a, b) => (a.position || 99) - (b.position || 99));
-  // Prefer race_control (with standing-start expiry). Track status is a fallback
-  // when RC is empty — never let a sticky GREEN track code wipe a live RED.
-  let flag = resolveSessionFlag(field, lap, elapsedS);
-  if (flag === "GREEN") {
-    for (const row of field.laps) {
-      if (row.lap !== lap) continue;
-      const fromTrack = flagFromTrackStatus(row.track_status);
-      if (fromTrack && fromTrack !== "GREEN") {
-        flag = fromTrack;
-        break;
-      }
-    }
-  }
   return { lap, rainfall: Boolean(wx?.rainfall), sessionFlag: flag, timing, positions };
 }
 

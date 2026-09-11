@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { asGhostTick, ghostCarFromTick, ghostPlaybackAt, ghostTickLapForDelta, PIT_ENTRY_FRAC, probeGhostCar, SEEK_JUMP_GRACE_S } from "./ghostCar";
+import { asGhostTick, applyGhostCaution, clampGhostNoOvertake, ghostCarFromTick, ghostPlaybackAt, ghostTickLapForDelta, PIT_ENTRY_FRAC, probeGhostCar, SEEK_JUMP_GRACE_S } from "./ghostCar";
 import { PathCarAnimator } from "./deadReckoning";
 import { buildPath } from "./trackGeometry";
 import type { GhostTickData } from "./types";
@@ -343,5 +343,51 @@ describe("PathCarAnimator SEEK_JUMP grace", () => {
     const frac = anim.currentFrac(32);
     expect(frac).toBeGreaterThan(0);
     expect(frac).toBeLessThan(0.05);
+  });
+});
+
+describe("ghost caution", () => {
+  const cars = [
+    { driver_code: "VER", position: 1, path_frac: 0.4, is_pitted: false, is_dnf: false, is_ghost: false },
+    { driver_code: "NOR", position: 2, path_frac: 0.35, is_pitted: false, is_dnf: false, is_ghost: false },
+  ] as unknown as import("./types").CarState[];
+
+  it("clamps the ghost behind the car classified ahead", () => {
+    expect(clampGhostNoOvertake(0.5, cars, 2)).toBeCloseTo(0.392, 2);
+  });
+
+  it("slows under yellow and freezes on red", () => {
+    const yellow = applyGhostCaution({
+      pathFrac: 0.2,
+      speedKph: 280,
+      phase: "YELLOW",
+      cars,
+      ghostPosition: 3,
+    });
+    expect(yellow.speedKph).toBeCloseTo(280 * 0.62, 5);
+    expect(yellow.pathFrac).toBeCloseTo(0.2, 5);
+
+    const red = applyGhostCaution({
+      pathFrac: 0.9,
+      speedKph: 280,
+      phase: "RED_FLAG",
+      cars,
+      ghostPosition: 3,
+      prevPathFrac: 0.41,
+    });
+    expect(red.speedKph).toBe(0);
+    expect(red.pathFrac).toBeCloseTo(0.41, 5);
+  });
+
+  it("blocks a pass under SC", () => {
+    const sc = applyGhostCaution({
+      pathFrac: 0.55,
+      speedKph: 280,
+      phase: "SC",
+      cars,
+      ghostPosition: 2,
+    });
+    expect(sc.speedKph).toBeCloseTo(280 * 0.32, 5);
+    expect(sc.pathFrac).toBeLessThan(0.4);
   });
 });

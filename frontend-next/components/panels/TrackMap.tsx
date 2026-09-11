@@ -9,7 +9,7 @@ import {
   LIVE_TICK_INTERVAL_MS,
   REPLAY_TICK_INTERVAL_MS,
 } from "@/lib/deadReckoning";
-import { PIT_ENTRY_FRAC, ghostPlaybackAt } from "@/lib/ghostCar";
+import { PIT_ENTRY_FRAC, applyGhostCaution, ghostPlaybackAt } from "@/lib/ghostCar";
 import { replayDisplayFrac } from "@/lib/r2Replay";
 import { replayDisplayElapsed } from "@/lib/timingPath";
 import { wrappedDelta } from "@/lib/deadReckoning";
@@ -257,7 +257,14 @@ export function TrackMap() {
               pitLaps: [],
               pitLossS: store.pitLossS,
             });
-            frac = pb.path_frac;
+            frac = applyGhostCaution({
+              pathFrac: pb.path_frac,
+              speedKph: car.speed_kph,
+              phase: store.racePhase,
+              cars: Object.values(store.cars),
+              ghostPosition: store.ghostCar?.position ?? car.position,
+              prevPathFrac: prevKnown,
+            }).pathFrac;
           } else if (field && store.consoleMode === "replay") {
             frac = replayDisplayFrac(field, code, displayElapsedRef.current);
           } else if (store.consoleMode === "live") {

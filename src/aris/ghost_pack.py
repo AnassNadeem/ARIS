@@ -322,6 +322,20 @@ def compute_ghost(
         plan = None
         start_compound = "MEDIUM"
 
+    grid_position = None
+    for drv in field.get("drivers") or []:
+        if str((drv or {}).get("code") or "").upper() == code:
+            raw_grid = drv.get("grid_position")
+            if raw_grid is not None:
+                try:
+                    g = int(raw_grid)
+                except (TypeError, ValueError):
+                    g = 0
+                if g > 0:
+                    grid_position = g
+            break
+    start_pos = int(grid_position or focus_laps[0].get("position") or 1)
+
     template = RaceState(
         session_id=int((field.get("meta") or {}).get("session_key") or 0),
         driver_id=0,
@@ -336,7 +350,7 @@ def compute_ghost(
         fuel_kg=110.0,
         laps_remaining=max(0, total - 1),
         total_laps=total,
-        position=int(focus_laps[0].get("position") or 1),
+        position=start_pos,
         track_status=str(focus_laps[0].get("track_status") or "1"),
     )
 
@@ -424,6 +438,7 @@ def compute_ghost(
             typical_lap_s=typical,
             field_cum_by_lap=field_cum,
             field_gap_by_lap=field_gap,
+            grid_position=grid_position,
         )
     except Exception as extra:
         raise GhostDataGap(f"Ghost simulation failed for {code}: {extra}") from extra

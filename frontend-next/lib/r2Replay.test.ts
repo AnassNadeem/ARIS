@@ -819,6 +819,17 @@ describe("deriveGhostLapTimes", () => {
     expect(long.implausible_laps[0]?.ghost_lap_s).toBe(900 - 6.72);
   });
 
+  it("uses compressed playback duration for missing / red-flag laps", () => {
+    const ticks = [
+      { lap: 1, position: 4, gap_to_leader_s: 1, compound: "MEDIUM", tyre_life: 1, stint: 1, cumulative_delta_s: 0, aris_action: "STAY_OUT", aris_confidence: 1 },
+      { lap: 2, position: 4, gap_to_leader_s: 1, compound: "MEDIUM", tyre_life: 2, stint: 1, cumulative_delta_s: 0, aris_action: "STAY_OUT", aris_confidence: 1 },
+      { lap: 3, position: 4, gap_to_leader_s: 1, compound: "MEDIUM", tyre_life: 3, stint: 1, cumulative_delta_s: 0, aris_action: "STAY_OUT", aris_confidence: 1 },
+    ];
+    const derived = deriveGhostLapTimes(ticks, [NaN, 90, 138, NaN], [NaN, 90, 16, 8]);
+    expect(derived.ghost_lap_s[2]).toBe(16);
+    expect(derived.ghost_lap_s[3]).toBe(8);
+  });
+
   it("re-deriving from current_lap forward keeps early laps when early ticks are unchanged", () => {
     const early = [
       { lap: 1, position: 1, gap_to_leader_s: 0, compound: "SOFT", tyre_life: 1, stint: 1, cumulative_delta_s: 1, aris_action: "STAY_OUT", aris_confidence: 1 },

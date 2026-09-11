@@ -116,6 +116,42 @@ def _estimate_ghost_position(
         return min(20, real_position + overtaken)
 
 
+# FastF1 pack codes (race_field.json): 4=SC, 5=red, 6=VSC, 7=VSC ending.
+# Ghost scoring must not treat a red-flag pit as a ~20s race-time win, and
+# must not copy first-lap incidents the model cannot predict.
+# Strategy delta below this is model noise — keep the grid slot.
+GRID_DELTA_NOISE_S = 1.0
+
+
+def track_status_is_red_flag(status: str | None) -> bool:
+    """True when a FastF1-coded pack lap is a red flag (code 5)."""
+    if status is None:
+        return False
+    s = str(status).strip()
+    return bool(s) and s not in ("1", "None", "nan") and "5" in s
+
+
+def track_status_is_sc_vsc_pack(status: str | None) -> bool:
+    """True when a FastF1-coded pack lap is SC or VSC (not red)."""
+    if status is None:
+        return False
+    s = str(status).strip()
+    if not s or s in ("1", "None", "nan"):
+        return False
+    if "5" in s:
+        return False
+    return any(code in s for code in ("4", "6", "7"))
+
+
+def _nth_sorted_gap(field_gap_now: dict[str, float], place: int) -> float:
+    """Gap-to-leader of the car occupying ``place`` (1-based) in gap order."""
+    ordered = sorted(float(g) for g in field_gap_now.values())
+    if not ordered:
+        return 0.0
+    idx = max(0, min(len(ordered) - 1, int(place) - 1))
+    return ordered[idx]
+
+
 def _call_simulate(simulate_fn: Callable, state: "RaceState", action, times: list[float]):
     """Call simulate(); capture this-lap time via lap_times_out when supported."""
     try:
@@ -831,6 +867,7 @@ def score_parallel_ghost(
     typical_lap_s: float = 90.0,
     field_cum_by_lap: dict[int, dict[str, float]] | None = None,
     field_gap_by_lap: dict[int, dict[str, float]] | None = None,
+    grid_position: int | None = None,
 ) -> dict[int, dict | None]:
     """Score ARIS vs real from lap 1 using simulate(STAY_OUT) each lap.
 
@@ -838,25 +875,25 @@ def score_parallel_ghost(
     optional fuel_kg / track_status / gap_to_leader_s / lag1_pace / lag2_pace /
     stint_roll3 / rivals.
 
-    Timing-tower ``ghost_position``/``gap_to_leader_s`` are anchored to the
-    field's real, already-classified state and moved only by the model's
-    predicted ``ghost_cumulative_delta`` — never a raw model-predicted
+    Timing-tower ``ghost_position``/``gap_to_leader_s`` are moved only by the
+    model's predicted ``ghost_cumulative_delta`` — never a raw model-predicted
     absolute time (which can be wildly mis-scaled on a lap-1 cold start).
-    Two anchor strategies are supported, preferred in this order:
+
+    When ``grid_position`` is set (replay packs), the ghost is anchored to that
+    grid slot, not the focus driver's classified order. ARIS does not model
+    first-lap incidents, so a P4 start that finishes lap 1 P10 must not drag
+    the ghost to P10 while delta is still ~0.
+
+    When ``grid_position`` is omitted, the ghost's gap is
+    ``real_driver_gap_to_leader_s - cumulative_delta_s`` (legacy: delta == 0
+    matches the real driver's classified position).
+
+    Neutralised laps (red flag, missing/abnormal times) freeze delta and
+    position. Red-flag pits are free — they must not credit ARIS with pit-loss.
+    SC/VSC freeze racing delta unless one side actually pits.
 
     - ``field_gap_by_lap`` (preferred): ``{lap: {driver: gap_to_leader_s}}``
-      of real classified (non-DNF) cars for that lap, e.g. from
-      ``field_gap_snapshot_by_lap``. The ghost's gap is
-      ``real_driver_gap_to_leader_s - cumulative_delta_s``; its position is
-      1 + how many real cars have a smaller gap. When
-      ``cumulative_delta_s == 0`` this reproduces the real driver's own
-      classified position exactly — the ghost sits on the real driver from
-      lap 1 even when ARIS's plan has not diverged. Robust to retirements
-      and lapped cars because it never sums lap times itself.
-    - ``field_cum_by_lap`` (legacy fallback): ``{lap: {driver: cumulative_s}}``
-      cumulative lap-time sums. Used only when ``field_gap_by_lap`` has no
-      entry for that lap. Fragile once any car retires (see
-      ``field_cumulative_by_lap``).
+    - ``field_cum_by_lap`` (legacy fallback)
     """
     from aris.models.features import estimate_fuel_kg
     from aris.physics.tires import normalize_compound
@@ -871,12 +908,14 @@ def score_parallel_ghost(
         return {}
 
     first = rows[0]
+    grid = int(grid_position) if grid_position and int(grid_position) > 0 else None
+    start_pos = grid or int(first.get("position") or template_state.position or 1)
     start_state = template_state.model_copy(
         update={
             "lap_number": int(first["lap_number"]),
             "compound": normalize_compound(plan.start_compound),
             "tyre_life": 1,
-            "position": int(first.get("position") or template_state.position or 1),
+            "position": start_pos,
         }
     )
     typical = float(typical_lap_s or 90.0)
@@ -892,12 +931,34 @@ def score_parallel_ghost(
     real_cum_actual = 0.0
     focus_code = str(template_state.driver_code or "").upper()
     total_laps = int(template_state.total_laps or len(rows))
+    held_pos = start_pos
+    held_gap = float(ghost.gap_to_leader_s or 0.0)
+    saw_field_gaps = False
 
     for row in rows:
         lap_number = int(row["lap_number"])
         real_action = str(row.get("real_action") or "STAY_OUT")
         real_pits = "PIT" in real_action.upper()
         ghost_pits = lap_number in pit_map
+        status = str(row.get("track_status") or template_state.track_status or "1")
+        is_red = track_status_is_red_flag(status)
+        is_sc_vsc = track_status_is_sc_vsc_pack(status)
+        lap_time_actual = row.get("lap_time_s")
+        field_gap_now = (field_gap_by_lap or {}).get(lap_number)
+        if field_gap_now:
+            saw_field_gaps = True
+        abnormal_time = (
+            lap_time_actual is not None
+            and typical > 1
+            and float(lap_time_actual) > max(2.0 * typical, 120.0)
+        )
+        missing_restart = lap_time_actual is None and saw_field_gaps and not field_gap_now
+        freeze_racing = bool(
+            is_red
+            or abnormal_time
+            or missing_restart
+            or (is_sc_vsc and not ghost_pits and not real_pits)
+        )
         fuel = row.get("fuel_kg")
         if fuel is None:
             fuel = estimate_fuel_kg(lap_number, total_laps=total_laps)
@@ -912,12 +973,13 @@ def score_parallel_ghost(
                 "position": int(row.get("position") or template_state.position or 10),
                 "gap_to_leader_s": row.get("gap_to_leader_s", template_state.gap_to_leader_s),
                 "gap_ahead_s": row.get("gap_ahead_s", template_state.gap_ahead_s),
-                "track_status": str(row.get("track_status") or template_state.track_status or "1"),
+                "track_status": status,
                 "lag1_pace": row.get("lag1_pace", template_state.lag1_pace),
                 "lag2_pace": row.get("lag2_pace", template_state.lag2_pace),
                 "stint_roll3": row.get("stint_roll3", template_state.stint_roll3),
             }
         )
+        prev_delta = float(ghost.ghost_cumulative_delta)
         try:
             ghost.real_action = real_action
             ghost = advance_ghost_lap(
@@ -926,58 +988,66 @@ def score_parallel_ghost(
                 sim,
                 row.get("rivals") or [],
                 resolve=False,
-                ghost_pits=ghost_pits,
-                real_pits=real_pits,
+                ghost_pits=ghost_pits and not is_red,
+                real_pits=real_pits and not is_red,
                 pit_compound=pit_map.get(lap_number),
             )
         except Exception:
             result[lap_number] = ghost_to_dict(ghost)
             continue
+        if freeze_racing:
+            ghost.ghost_cumulative_delta = prev_delta
         ghost_cum += float(ghost.ghost_lap_s or 0.0)
-        # Actual telemetry lap time when the caller supplied it, else fall back
-        # to the model's own STAY_OUT prediction for the real side.
-        lap_time_actual = row.get("lap_time_s")
         real_cum_actual += (
             float(lap_time_actual) if lap_time_actual else float(ghost.real_lap_s or 0.0)
         )
-        field_gap_now = (field_gap_by_lap or {}).get(lap_number)
-        if field_gap_now:
-            fallback = int(advance_state.position or ghost.ghost_position or 1)
-            real_gap = row.get("gap_to_leader_s")
-            if real_gap is None:
-                real_gap = advance_state.gap_to_leader_s
-            real_gap = float(real_gap or 0.0)
-            # Anchor to the real driver's own classified gap-to-leader this
-            # lap, then move only by the model's predicted cumulative delta.
-            # delta == 0 -> ghost_gap == real driver's real gap -> ghost
-            # ranks at the real driver's own classified position.
-            ghost_gap = max(0.0, real_gap - float(ghost.ghost_cumulative_delta))
+        real_gap_raw = row.get("gap_to_leader_s")
+        if real_gap_raw is None:
+            real_gap_raw = advance_state.gap_to_leader_s
+        gaps_ok = bool(field_gap_now) and len(field_gap_now) >= 2
+        if freeze_racing or not gaps_ok:
+            ghost.ghost_position = held_pos
+            ghost.gap_to_leader_s = held_gap
+            if ghost.delta_history:
+                ghost.delta_history[-1]["ghost_pos"] = ghost.ghost_position
+                ghost.delta_history[-1]["gap_to_leader_s"] = round(float(held_gap or 0.0), 3)
+        elif field_gap_now:
+            fallback = int(grid or advance_state.position or ghost.ghost_position or 1)
+            if grid:
+                anchor = _nth_sorted_gap(field_gap_now, grid)
+                eff_delta = float(ghost.ghost_cumulative_delta)
+                if abs(eff_delta) < GRID_DELTA_NOISE_S:
+                    eff_delta = 0.0
+                ghost_gap = max(0.0, float(anchor) - eff_delta)
+            elif real_gap_raw is None and int(row.get("position") or 0) != 1:
+                ghost.ghost_position = held_pos
+                ghost.gap_to_leader_s = held_gap
+                if ghost.delta_history:
+                    ghost.delta_history[-1]["ghost_pos"] = ghost.ghost_position
+                    ghost.delta_history[-1]["gap_to_leader_s"] = round(float(held_gap or 0.0), 3)
+                result[lap_number] = ghost_to_dict(ghost)
+                continue
+            else:
+                anchor = float(real_gap_raw or 0.0)
+                ghost_gap = max(0.0, float(anchor) - float(ghost.ghost_cumulative_delta))
             ghost.ghost_position = rank_ghost_by_gap(ghost_gap, field_gap_now, fallback)
             ghost.gap_to_leader_s = ghost_gap
+            held_pos = ghost.ghost_position
+            held_gap = ghost_gap
             if ghost.delta_history:
                 ghost.delta_history[-1]["ghost_pos"] = ghost.ghost_position
                 ghost.delta_history[-1]["gap_to_leader_s"] = round(ghost_gap, 3)
         else:
             field_now = (field_cum_by_lap or {}).get(lap_number)
             if field_now:
-                fallback = int(advance_state.position or ghost.ghost_position or 1)
-                # Legacy anchor (see field_cumulative_by_lap docstring for why
-                # this is fragile around retirements). Timing-tower rank must
-                # compare like-for-like time bases. `ghost_cum` is a raw
-                # model-predicted absolute time (cold-start on lap 1 with no
-                # lag context, it can be wildly mis-scaled vs measured lap
-                # times — see ISSUES.md Bug 1). Anchor the ghost's absolute
-                # cumulative time to the focus driver's *actual measured*
-                # cumulative time (from field_cum_by_lap, built off real
-                # telemetry) offset by the model's cumulative *delta* — the
-                # model is far more reliable at predicting a relative delta
-                # between two compounds/strategies sharing the same lag
-                # context than it is at predicting an absolute lap time cold.
+                fallback = int(grid or advance_state.position or ghost.ghost_position or 1)
                 anchor = float(field_now.get(focus_code, real_cum_actual))
                 ghost_cum_anchored = anchor - float(ghost.ghost_cumulative_delta)
                 pos, gap = _rank_ghost_in_field(ghost_cum_anchored, field_now, fallback)
                 ghost.ghost_position = pos
                 ghost.gap_to_leader_s = gap
+                held_pos = pos
+                held_gap = gap
                 if ghost.delta_history:
                     ghost.delta_history[-1]["ghost_pos"] = ghost.ghost_position
                     ghost.delta_history[-1]["gap_to_leader_s"] = round(gap, 3)

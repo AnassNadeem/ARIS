@@ -851,6 +851,77 @@ def test_score_parallel_ghost_gap_anchor_survives_retirement_in_field():
         assert ticks[lap]["ghost_position"] == 2, f"lap {lap}: {ticks[lap]['ghost_position']}"
 
 
+def test_score_parallel_ghost_grid_anchor_ignores_lap1_incident():
+    """ARIS has no first-lap chaos model: grid P4 must not copy a P10 finish."""
+    from aris.ghost import GhostPlan, score_parallel_ghost
+
+    state = _make_state(
+        compound="MEDIUM", tyre_life=1, lap_number=1, total_laps=2,
+        position=10, driver_code="HAM",
+    )
+    plan = GhostPlan(pit_laps=[], pit_compounds=[], start_compound="MEDIUM", decision_lap=1)
+    rows = [
+        {"lap_number": 1, "compound": "MEDIUM", "tyre_life": 1, "real_action": "STAY_OUT",
+         "position": 10, "gap_to_leader_s": 4.76, "lap_time_s": 93.2, "track_status": "1"},
+        {"lap_number": 2, "compound": "MEDIUM", "tyre_life": 2, "real_action": "STAY_OUT",
+         "position": 9, "gap_to_leader_s": 5.05, "lap_time_s": 87.2, "track_status": "1"},
+    ]
+    field_gap_by_lap = {
+        1: {"GAS": 0.0, "RUS": 0.3, "LEC": 0.9, "VER": 1.2, "PIA": 1.6,
+            "COL": 2.1, "NOR": 3.1, "LIN": 3.8, "BEA": 4.2, "HAM": 4.76},
+        2: {"GAS": 0.0, "RUS": 0.4, "LEC": 1.0, "VER": 1.3, "PIA": 1.7,
+            "COL": 2.2, "NOR": 3.2, "LIN": 3.9, "HAM": 5.05},
+    }
+    ticks = score_parallel_ghost(
+        template_state=state, lap_rows=rows, plan=plan,
+        simulate_fn=_mock_simulate, typical_lap_s=87.0,
+        field_gap_by_lap=field_gap_by_lap, grid_position=4,
+    )
+    assert ticks[1]["ghost_position"] == 4
+    assert ticks[2]["ghost_position"] == 4
+
+
+def test_score_parallel_ghost_freezes_red_flag_pit_and_missing_gaps():
+    """Red-flag pit must not gift ARIS ~20s; missing restart gaps must not become P1."""
+    from aris.ghost import GhostPlan, score_parallel_ghost
+
+    state = _make_state(
+        compound="MEDIUM", tyre_life=1, lap_number=1, total_laps=5,
+        position=4, driver_code="HAM",
+    )
+    plan = GhostPlan(pit_laps=[22], pit_compounds=["HARD"], start_compound="MEDIUM", decision_lap=1)
+    rows = [
+        {"lap_number": 1, "compound": "MEDIUM", "tyre_life": 1, "real_action": "STAY_OUT",
+         "position": 10, "gap_to_leader_s": 4.76, "lap_time_s": 93.2, "track_status": "1"},
+        {"lap_number": 2, "compound": "MEDIUM", "tyre_life": 2, "real_action": "STAY_OUT",
+         "position": 9, "gap_to_leader_s": 5.05, "lap_time_s": 87.2, "track_status": "1"},
+        {"lap_number": 3, "compound": "MEDIUM", "tyre_life": 3, "real_action": "PIT_NOW_MEDIUM",
+         "position": 8, "gap_to_leader_s": 23.9, "lap_time_s": 138.0, "track_status": "5"},
+        {"lap_number": 4, "compound": "MEDIUM", "tyre_life": 1, "real_action": "STAY_OUT",
+         "position": 8, "gap_to_leader_s": None, "lap_time_s": None, "track_status": "1"},
+        {"lap_number": 5, "compound": "MEDIUM", "tyre_life": 2, "real_action": "STAY_OUT",
+         "position": 5, "gap_to_leader_s": None, "lap_time_s": None, "track_status": "1"},
+    ]
+    field_gap_by_lap = {
+        1: {"GAS": 0.0, "RUS": 0.3, "LEC": 0.9, "VER": 1.2, "HAM": 4.76},
+        2: {"GAS": 0.0, "RUS": 0.4, "LEC": 1.0, "VER": 1.3, "HAM": 5.05},
+        3: {"RUS": 0.0, "GAS": 5.2, "VER": 8.3, "HAM": 23.9},
+    }
+    ticks = score_parallel_ghost(
+        template_state=state, lap_rows=rows, plan=plan,
+        simulate_fn=_mock_simulate, typical_lap_s=87.0,
+        field_gap_by_lap=field_gap_by_lap, grid_position=4,
+    )
+    assert ticks[2]["ghost_position"] == 4
+    assert ticks[3]["ghost_cumulative_delta"] == pytest.approx(
+        ticks[2]["ghost_cumulative_delta"], abs=1e-6
+    )
+    assert ticks[3]["ghost_position"] == 4
+    assert ticks[4]["ghost_position"] == 4
+    assert ticks[5]["ghost_position"] == 4
+    assert ticks[5]["ghost_position"] != 1
+
+
 def test_mandatory_pit_constraint():
     """FIA dry rules: ≥1 stop and ≥2 dry compounds on ghost plans."""
     from aris.ghost import GhostPlan, enforce_mandatory_dry_pit
