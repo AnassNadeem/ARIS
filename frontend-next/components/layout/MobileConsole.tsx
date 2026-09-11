@@ -9,17 +9,20 @@ const CORE = ["trackmap", "timingtower", "laptimes"] as const;
 export function MobileConsole({
   showComms,
   slots,
+  timedSession = false,
   onAdd,
   onRemove,
   onMove,
 }: {
   showComms: boolean;
   slots: string[];
+  timedSession?: boolean;
   onAdd: (componentId: string) => void;
   onRemove: (componentId: string) => void;
   onMove: (componentId: string, direction: -1 | 1) => void;
 }) {
-  const core = showComms ? [...CORE, "comms"] : [...CORE];
+  const coreIds = timedSession ? (["trackmap", "timingtower"] as const) : CORE;
+  const core = showComms ? [...coreIds, "comms"] : [...coreIds];
   return (
     <div className="flex flex-col bg-carbon">
       {core.map((id) => (
@@ -80,7 +83,7 @@ export function MobileConsole({
         </section>
       ))}
       <div className="min-h-[220px] border-b border-border">
-        <AnalyticsAddSlot onAdd={onAdd} already={slots} />
+        <AnalyticsAddSlot onAdd={onAdd} already={slots} timedSession={timedSession} />
       </div>
     </div>
   );

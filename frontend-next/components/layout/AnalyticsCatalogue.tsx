@@ -3,15 +3,18 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { PANEL_CATALOGUE, type PanelCategory } from "@/lib/panelRegistry";
+import { analyticsLockedOnTimedSession, REPLAY_ONLY_HINT } from "@/lib/analyticsSlots";
 
 export function AnalyticsCatalogue({
   onAdd,
   categories = ["core", "analytics"],
+  timedSession = false,
 }: {
   onAdd: (componentId: string) => void;
   /** Restrict which catalogue sections are shown - e.g. the console header
    * only needs "core" once analytics panels live in the extension grid. */
   categories?: PanelCategory[];
+  timedSession?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -79,27 +82,34 @@ export function AnalyticsCatalogue({
                   <div className="mt-1 border-t border-border px-2 py-1 font-sans text-[10px] uppercase text-muted">
                     Analytics catalogue
                   </div>
-                  {analytics.map((entry) => (
+                  {analytics.map((entry) => {
+                    const locked = analyticsLockedOnTimedSession(entry.componentId, timedSession);
+                    return (
                     <button
                       key={entry.componentId}
                       type="button"
+                      disabled={locked}
                       onClick={() => {
+                        if (locked) return;
                         onAdd(entry.componentId);
                         setOpen(false);
                       }}
-                      className="flex w-full flex-col rounded px-2 py-1.5 text-left hover:bg-surface"
+                      className="flex w-full flex-col rounded px-2 py-1.5 text-left hover:bg-surface disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       <span className="flex items-center gap-2 font-mono-data text-[11px]">
-                        <span className={entry.status === "coming-soon" ? "text-muted-2" : "text-white"}>
+                        <span className={entry.status === "coming-soon" || locked ? "text-muted-2" : "text-white"}>
                           {entry.label}
                         </span>
                         {entry.status === "coming-soon" && (
                           <span className="rounded bg-carbon px-1.5 py-0.5 text-[9px] text-amber">Coming soon</span>
                         )}
                       </span>
-                      <span className="font-sans text-[10px] text-muted">{entry.description}</span>
+                      <span className="font-sans text-[10px] text-muted">
+                        {locked ? REPLAY_ONLY_HINT : entry.description}
+                      </span>
                     </button>
-                  ))}
+                    );
+                  })}
                 </>
               )}
             </div>

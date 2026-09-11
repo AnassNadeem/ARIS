@@ -1,8 +1,34 @@
+import { isTimedSession } from "@/lib/sessionFlow";
+
 export const ANALYTICS_SLOTS_KEY = "aris_analytics_slots_v2";
 
 export const DEFAULT_ANALYTICS_IDS = ["tyredeg", "sectortimes", "gapchart"] as const;
 
-export function defaultAnalyticsIds(opts?: { arisOn?: boolean }): string[] {
+/** Race-distance / GPS / ghost charts that need Replay packs — not live FP/Q. */
+export const REPLAY_ONLY_ANALYTICS = new Set([
+  "tyredeg",
+  "laptimes",
+  "gapchart",
+  "positiontrace",
+  "stintsummary",
+  "tyrestrategy",
+  "pitstoptimeline",
+  "speedtrace",
+  "throttlebrake",
+  "corneranalysis",
+  "dirtyair",
+  "undercutwindow",
+  "ghostdelta",
+]);
+
+export const REPLAY_ONLY_HINT = "available on arisf1.tech/replay";
+
+export function analyticsLockedOnTimedSession(componentId: string, timedSession: boolean): boolean {
+  return timedSession && REPLAY_ONLY_ANALYTICS.has(componentId);
+}
+
+export function defaultAnalyticsIds(opts?: { arisOn?: boolean; sessionType?: string | null }): string[] {
+  if (isTimedSession(opts?.sessionType)) return ["sectortimes"];
   const ids: string[] = [...DEFAULT_ANALYTICS_IDS];
   if (opts?.arisOn && !ids.includes("ghostdelta")) ids.unshift("ghostdelta");
   return ids;

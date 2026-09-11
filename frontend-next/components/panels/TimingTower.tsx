@@ -6,10 +6,12 @@ import { TyreIcon } from "@/components/ui/TyreIcon";
 import { PanelEmpty, PanelSkeleton, usePanelFeedLoading } from "@/components/ui/PanelStates";
 import { useFocusDriver } from "@/lib/useFocusDriver";
 import { isGhostRow, orderTimingTower, timingEqual } from "@/lib/mapCars";
+import { isTimedSession } from "@/lib/sessionFlow";
 import { driverOutOfRace, fmtGap, fmtLapTime, fmtSectorTime, sectorClass } from "@/lib/timingDisplay";
 import type { CarState } from "@/lib/types";
 
 const TOWER_COLS = "grid-cols-[28px_82px_60px_72px_72px_52px_52px_52px_28px_32px_40px]";
+const TOWER_COLS_NO_GAP = "grid-cols-[28px_82px_72px_72px_52px_52px_52px_28px_32px_40px]";
 const PIT_CHURN_MS = 2000;
 
 export type TowerFlashKind = "gain" | "loss" | "pit";
@@ -64,11 +66,13 @@ const TimingRow = memo(function TimingRow({
   isFocus,
   onFocus,
   flash,
+  hideGap,
 }: {
   car: CarState;
   isFocus: boolean;
   onFocus: (code: string) => void;
   flash: { kind: TowerFlashKind; at: number } | null;
+  hideGap: boolean;
 }) {
   const isGhost = isGhostRow(car);
   const code = isGhost ? car.driver_code.replace("A_", "") : car.driver_code;
@@ -97,7 +101,7 @@ const TimingRow = memo(function TimingRow({
             }`
           : undefined
       }
-      className={`relative grid h-8 ${TOWER_COLS} items-center gap-x-2 px-2 ${
+      className={`relative grid h-8 ${hideGap ? TOWER_COLS_NO_GAP : TOWER_COLS} items-center gap-x-2 px-2 ${
         isGhost
           ? "cursor-default border-y border-white/35"
           : `cursor-pointer border-b border-border/60 ${
@@ -148,15 +152,17 @@ const TimingRow = memo(function TimingRow({
           </>
         )}
       </span>
-      <span className="text-right text-muted">
-        {isGhost && car.ghost_in_pits ? (
-          <span className="font-semibold text-white">IN PITS</span>
-        ) : out ? (
-          <span className="font-semibold text-[#E8002D]">{car.status === "DNS" ? "DNS" : "DNF"}</span>
-        ) : (
-          fmtGap(car.gap_to_leader_s, car.laps_down)
-        )}
-      </span>
+      {!hideGap ? (
+        <span className="text-right text-muted">
+          {isGhost && car.ghost_in_pits ? (
+            <span className="font-semibold text-white">IN PITS</span>
+          ) : out ? (
+            <span className="font-semibold text-[#E8002D]">{car.status === "DNS" ? "DNS" : "DNF"}</span>
+          ) : (
+            fmtGap(car.gap_to_leader_s, car.laps_down)
+          )}
+        </span>
+      ) : null}
       <span className="text-right text-white">{isGhost ? "-" : fmtLapTime(car.last_lap_s)}</span>
       <span className="flex items-center justify-end gap-0.5 text-right text-white">
         {car.fastest_lap ? <span className="text-[9px] text-[#c44dff]">FL</span> : null}
@@ -181,6 +187,7 @@ const TimingRow = memo(function TimingRow({
 }, (prev, next) =>
   prev.isFocus === next.isFocus &&
   prev.onFocus === next.onFocus &&
+  prev.hideGap === next.hideGap &&
   prev.flash?.kind === next.flash?.kind &&
   prev.flash?.at === next.flash?.at &&
   timingEqual(prev.car, next.car),
@@ -194,9 +201,11 @@ export function TimingTower() {
   const currentLap = useRaceStore((s) => s.currentLap);
   const consolePlayState = useRaceStore((s) => s.consolePlayState);
   const consoleMode = useRaceStore((s) => s.consoleMode);
+  const sessionType = useRaceStore((s) => s.session?.sessionType);
   const setFocusDriver = useRaceStore((s) => s.setFocusDriver);
   const focus = useFocusDriver("");
   const loading = usePanelFeedLoading();
+  const timed = isTimedSession(sessionType);
 
   const preRace = consoleMode !== "live" && consolePlayState !== "racing";
 
@@ -208,8 +217,8 @@ export function TimingTower() {
       consoleMode === "live" || !isARISOn || !ghostCar
         ? null
         : { ...ghostCar, is_ghost: true as const };
-    return orderTimingTower(list, ghost);
-  }, [cars, ghostCar, isARISOn, consoleMode]);
+    return orderTimingTower(list, ghost, { byBestLap: timed });
+  }, [cars, ghostCar, isARISOn, consoleMode, timed]);
 
   const flashes = useTowerFlashes(rows);
 
@@ -239,10 +248,10 @@ export function TimingTower() {
       )}
       <div className="min-h-0 flex-1 overflow-auto [overflow-anchor:none]">
         <div className="min-w-[660px]">
-          <div className={`grid h-8 shrink-0 ${TOWER_COLS} gap-x-2 border-b border-border px-2 py-2 font-sans text-[10px] uppercase text-muted`}>
+          <div className={`grid h-8 shrink-0 ${timed ? TOWER_COLS_NO_GAP : TOWER_COLS} gap-x-2 border-b border-border px-2 py-2 font-sans text-[10px] uppercase text-muted`}>
             <span>P</span>
             <span>Drv</span>
-            <span className="text-right">Gap</span>
+            {!timed ? <span className="text-right">Gap</span> : null}
             <span className="text-right">Last</span>
             <span className="text-right">Best</span>
             <span className="text-right">S1</span>
@@ -269,6 +278,7 @@ export function TimingTower() {
                 <TimingRow
                   key={car.driver_code}
                   car={car}
+                  hideGap={timed}
                   flash={flashes[car.driver_code] ?? null}
                   isFocus={!isGhostRow(car) && car.driver_code === focus}
                   onFocus={setFocusDriver}

@@ -531,6 +531,10 @@ def _parse_dt(value: Any) -> datetime | None:
     return dt.astimezone(timezone.utc)
 
 
+# Practice / quali: rank by best lap, no race gaps. Sprint race and Race stay track-order.
+_TIMED_SESSION_TYPES = frozenset({"FP1", "FP2", "FP3", "Q", "SQ", "SS"})
+
+
 def _session_type_map(name: str, stype: str) -> str:
     blob = f"{name} {stype}".lower()
     if "race" in blob and "sprint" not in blob:
@@ -548,6 +552,20 @@ def _session_type_map(name: str, stype: str) -> str:
     if "practice 3" in blob or "fp3" in blob:
         return "FP3"
     return (stype or name or "UNKNOWN")[:4].upper()
+
+
+def _live_session_type_code() -> str:
+    sess = _STATE.get("session")
+    if not isinstance(sess, dict):
+        return "R"
+    return _session_type_map(
+        str(sess.get("session_name") or ""),
+        str(sess.get("session_type") or ""),
+    )
+
+
+def _is_timed_session_type(session_type: str | None) -> bool:
+    return str(session_type or "").upper() in _TIMED_SESSION_TYPES
 
 
 async def _openf1(path: str, params: dict[str, Any] | None = None, *, timeout: float | None = None) -> Any:
@@ -2138,6 +2156,7 @@ def _timing_rows_from_payload(
     locations: dict[int, dict[str, Any]],
     as_of: datetime | None = None,
     cars: dict[int, dict[str, Any]] | None = None,
+    rank_by_best_lap: bool = False,
 ) -> list[LiveTimingRow]:
     last_lap: dict[int, dict[str, Any]] = {}
     last_done: dict[int, dict[str, Any]] = {}
@@ -2187,13 +2206,30 @@ def _timing_rows_from_payload(
                 pit_count[n] = pit_count.get(n, 0) + 1
             elif as_of is None and int(row.get("stint_number") or 1) > 1:
                 pit_count[n] = pit_count.get(n, 0) + 1
-    latest_pos = _unique_positions({int(k): int(v) for k, v in dict(positions).items() if v is not None})
     leader_best = min(best_ms.values()) if best_ms else None
     fastest_num = min(best_ms, key=best_ms.get) if best_ms else None  # type: ignore[arg-type]
-    if not latest_pos and best_ms:
-        ranked = sorted(best_ms, key=lambda n: best_ms[n])
+    if rank_by_best_lap:
+        numbers = set(last_lap) | set(codes) | set(best_ms)
+        ranked = sorted(
+            numbers,
+            key=lambda n: (
+                0 if n in best_ms else 1,
+                best_ms.get(n, 10**12),
+                str(codes.get(n, f"D{n}")),
+            ),
+        )
         latest_pos = {n: i + 1 for i, n in enumerate(ranked)}
-    numbers = sorted(set(latest_pos) | set(last_lap) | set(codes), key=lambda n: latest_pos.get(n, 99))
+    else:
+        latest_pos = _unique_positions(
+            {int(k): int(v) for k, v in dict(positions).items() if v is not None}
+        )
+        if not latest_pos and best_ms:
+            ranked = sorted(best_ms, key=lambda n: best_ms[n])
+            latest_pos = {n: i + 1 for i, n in enumerate(ranked)}
+    numbers = sorted(
+        set(latest_pos) | set(last_lap) | set(codes),
+        key=lambda n: latest_pos.get(n, 99),
+    )
     if cars is None:
         cars = _STATE.get("car_data") if as_of is None else {}
     if not isinstance(cars, dict):
@@ -2206,9 +2242,14 @@ def _timing_rows_from_payload(
         st = stint_of.get(num) or {}
         last_ms = _ms(done.get("lap_duration"))
         code = codes.get(num, f"D{num}")
-        gap_leader = _float(iv.get("gap_to_leader"))
-        if gap_leader is None and leader_best is not None and num in best_ms:
-            gap_leader = (best_ms[num] - leader_best) / 1000.0
+        if rank_by_best_lap:
+            gap_leader = None
+            gap_ahead = None
+        else:
+            gap_leader = _float(iv.get("gap_to_leader"))
+            if gap_leader is None and leader_best is not None and num in best_ms:
+                gap_leader = (best_ms[num] - leader_best) / 1000.0
+            gap_ahead = _float(iv.get("interval"))
         loc = locations.get(num) or {}
         loc_status = str(loc.get("status") or "").lower().replace(" ", "").replace("_", "")
         in_pit = loc_status in {"pit", "inpit"}
@@ -2222,7 +2263,7 @@ def _timing_rows_from_payload(
                 position=int(latest_pos.get(num, len(rows) + 1)),
                 driver_code=code,
                 gap_to_leader_s=gap_leader,
-                gap_to_ahead_s=_float(iv.get("interval")),
+                gap_to_ahead_s=gap_ahead,
                 last_lap_ms=last_ms,
                 best_lap_ms=best_ms.get(num),
                 sector1_ms=s1,
@@ -2256,6 +2297,13 @@ def _timing_rows_from_payload(
     for i, row in enumerate(rows, start=1):
         row.position = i
     field_lap = max((r.lap_number or 0) for r in rows) if rows else 0
+    if rank_by_best_lap:
+        for row in rows:
+            row.laps_completed = row.lap_number
+            row.laps_down = 0
+            if not row.eliminated:
+                row.status = "RUNNING"
+        return rows
     return _annotate_timing_status(rows, field_lap)
 
 
@@ -2426,8 +2474,11 @@ async def _timing_from_openf1(
     locations = _STATE.get("locations") or {} if as_of is None else {}
     if not isinstance(locations, dict):
         locations = {}
-    eliminated = _eliminated_codes(rc if isinstance(rc, list) else [], codes)
-    eliminated |= _inactive_from_laps(filtered if isinstance(filtered, list) else [], codes)
+    rank_by_best = _is_timed_session_type(_live_session_type_code())
+    eliminated: set[str] = set()
+    if not rank_by_best:
+        eliminated = _eliminated_codes(rc if isinstance(rc, list) else [], codes)
+        eliminated |= _inactive_from_laps(filtered if isinstance(filtered, list) else [], codes)
     if as_of is None:
         _STATE["eliminated"] = set(eliminated)
     return _timing_rows_from_payload(
@@ -2440,6 +2491,7 @@ async def _timing_from_openf1(
         eliminated=eliminated,
         locations=locations if isinstance(locations, dict) else {},
         as_of=as_of,
+        rank_by_best_lap=rank_by_best,
     )
 
 

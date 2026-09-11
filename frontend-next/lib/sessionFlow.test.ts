@@ -6,11 +6,34 @@ import {
   replayStartReady,
   circuitBadge,
   isArisCapableSession,
+  isTimedSession,
   nextSelectorStep,
   sessionAvailability,
+  sessionClockDurationMs,
   sessionLabel,
   sessionNeedsStrategyPick,
 } from "./sessionFlow";
+
+describe("isTimedSession", () => {
+  it("uses a clock for practice and quali, not race or sprint race", () => {
+    expect(isTimedSession("FP1")).toBe(true);
+    expect(isTimedSession("FP2")).toBe(true);
+    expect(isTimedSession("FP3")).toBe(true);
+    expect(isTimedSession("Q")).toBe(true);
+    expect(isTimedSession("SQ")).toBe(true);
+    expect(isTimedSession("SS")).toBe(true);
+    expect(isTimedSession("R")).toBe(false);
+    expect(isTimedSession("S")).toBe(false);
+    expect(isTimedSession(null)).toBe(false);
+  });
+
+  it("gives FP and Quali a 60 minute clock and sprint quali 45", () => {
+    expect(sessionClockDurationMs("FP2")).toBe(60 * 60_000);
+    expect(sessionClockDurationMs("Q")).toBe(60 * 60_000);
+    expect(sessionClockDurationMs("SQ")).toBe(45 * 60_000);
+    expect(sessionClockDurationMs("SS")).toBe(45 * 60_000);
+  });
+});
 
 describe("isArisCapableSession", () => {
   it("allows Race and the FP2 live-wiring probe", () => {

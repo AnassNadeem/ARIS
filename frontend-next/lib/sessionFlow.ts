@@ -20,6 +20,20 @@ export const SESSION_OPTIONS: SessionOption[] = [
 /** Race is the product path. FP2 is a temporary live-wiring probe for ghost/tower. */
 const ARIS_SESSIONS = new Set(["R", "FP2"]);
 
+/** Practice / quali: clock instead of race laps. Sprint and Race keep a lap count. */
+const TIMED_SESSIONS = new Set(["FP1", "FP2", "FP3", "Q", "SQ", "SS"]);
+
+export function isTimedSession(sessionType: string | null | undefined): boolean {
+  return TIMED_SESSIONS.has(String(sessionType ?? "").toUpperCase());
+}
+
+/** Official session length for the console clock (FP and Quali are 1 hour). */
+export function sessionClockDurationMs(sessionType: string | null | undefined): number {
+  const t = String(sessionType ?? "").toUpperCase();
+  if (t === "SQ" || t === "SS") return 45 * 60_000;
+  return 60 * 60_000;
+}
+
 export function isArisCapableSession(sessionType: string | null | undefined): boolean {
   return ARIS_SESSIONS.has(String(sessionType ?? "").toUpperCase());
 }

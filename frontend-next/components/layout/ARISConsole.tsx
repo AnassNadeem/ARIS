@@ -20,7 +20,7 @@ import { AnalyticsCatalogue } from "@/components/layout/AnalyticsCatalogue";
 import { MobileConsole } from "@/components/layout/MobileConsole";
 import { catalogueEntry, renderPanel } from "@/lib/panelRegistry";
 import { getCircuitCoords } from "@/lib/api";
-import { defaultAnalyticsIds, loadAnalyticsSlots, moveAnalyticsSlot, saveAnalyticsSlots, clearAnalyticsSlots } from "@/lib/analyticsSlots";
+import { defaultAnalyticsIds, loadAnalyticsSlots, moveAnalyticsSlot, saveAnalyticsSlots, clearAnalyticsSlots, analyticsLockedOnTimedSession } from "@/lib/analyticsSlots";
 import { useIsNarrow } from "@/lib/useIsNarrow";
 import { MockRaceFeed } from "@/lib/mockRaceFeed";
 import { LiveSseFeed, ReplayFrameFeed } from "@/lib/liveFeed";
@@ -31,7 +31,8 @@ import { RaceFinishedDebrief } from "@/components/aris/RaceFinishedDebrief";
 import { StrategyChangeBanner } from "@/components/aris/StrategyChangeBanner";
 import { useArisRecommendLoop } from "@/lib/useArisRecommendLoop";
 import { formatLapCompact, formatLapHeader } from "@/lib/formatLap";
-import { canToggleArisInConsole, replayStartReady, sessionLabel } from "@/lib/sessionFlow";
+import { SessionClockLabel } from "@/components/ui/SessionClock";
+import { canToggleArisInConsole, isTimedSession, replayStartReady, sessionLabel } from "@/lib/sessionFlow";
 import { useCountdown } from "@/lib/useCountdown";
 import {
   ANALYTICS_ROW_ID,
@@ -255,7 +256,10 @@ export function ARISConsole({
   const [layoutReady, setLayoutReady] = useState(false);
   const isNarrow = useIsNarrow();
   const [analyticsSlots, setAnalyticsSlots] = useState<string[]>(() =>
-    defaultAnalyticsIds({ arisOn: mode === "live" ? false : useRaceStore.getState().isARISOn }),
+    defaultAnalyticsIds({
+      arisOn: mode === "live" ? false : useRaceStore.getState().isARISOn,
+      sessionType: useRaceStore.getState().session?.sessionType,
+    }),
   );
   const [layoutEpoch, setLayoutEpoch] = useState(0);
 
@@ -263,7 +267,7 @@ export function ARISConsole({
     if (mode === "live") {
       setARISOn(false);
       setModel(Model.fromJson(buildDefaultModel(false)));
-      setAnalyticsSlots(defaultAnalyticsIds({ arisOn: false }));
+      setAnalyticsSlots(defaultAnalyticsIds({ arisOn: false, sessionType: session?.sessionType }));
       setLayoutReady(true);
       return;
     }
@@ -283,7 +287,7 @@ export function ARISConsole({
       setAnalyticsSlots(extra);
     }
     setLayoutReady(true);
-  }, [mode, setARISOn]);
+  }, [mode, setARISOn, session?.sessionType]);
 
   const arisCapable = !session || canToggleArisInConsole(session.sessionType);
   const canEnableStrategy = arisCapable;
@@ -414,13 +418,13 @@ export function ARISConsole({
 
   const handleModelChange = useCallback((changedModel: Model) => {
     const ids = analyticsIdsFromModel(changedModel);
-    const nextIds = ids.length ? ids : defaultAnalyticsIds({ arisOn: isARISOn });
+    const nextIds = ids.length ? ids : defaultAnalyticsIds({ arisOn: isARISOn, sessionType: session?.sessionType });
     setAnalyticsSlots(nextIds);
     if (mode !== "live") saveAnalyticsSlots(nextIds);
     if (mode !== "live" && canPersistLayout.current && Date.now() >= suppressPersistUntil.current) {
       savePersistedLayout(changedModel);
     }
-  }, [isARISOn, mode]);
+  }, [isARISOn, mode, session?.sessionType]);
 
   useEffect(() => {
     if (!layoutReady) return;
@@ -435,13 +439,14 @@ export function ARISConsole({
   }, []);
 
   const addAnalytics = useCallback((componentId: string) => {
+    if (analyticsLockedOnTimedSession(componentId, isTimedSession(session?.sessionType))) return;
     setAnalyticsSlots((prev) => {
       if (prev.includes(componentId)) return prev;
       const next = [...prev, componentId];
       saveAnalyticsSlots(next);
       return next;
     });
-  }, []);
+  }, [session?.sessionType]);
 
   const removeAnalytics = useCallback((componentId: string) => {
     setAnalyticsSlots((prev) => {
@@ -460,8 +465,11 @@ export function ARISConsole({
     });
   }, []);
 
+  const timedSession = isTimedSession(session?.sessionType);
+
   function handleAddPanel(componentId: string) {
     if (componentId === "explain" || (mode === "live" && (componentId === "ghostdelta" || componentId === "comms"))) return;
+    if (analyticsLockedOnTimedSession(componentId, timedSession)) return;
     const entry = catalogueEntry(componentId);
     if (isNarrow) {
       addAnalytics(componentId);
@@ -494,7 +502,7 @@ export function ARISConsole({
   }
 
   const resetView = useCallback(() => {
-    const defaults = defaultAnalyticsIds({ arisOn: isARISOn });
+    const defaults = defaultAnalyticsIds({ arisOn: isARISOn, sessionType: session?.sessionType });
     const next = Model.fromJson(buildDefaultModel(isARISOn));
     canPersistLayout.current = false;
     suppressPersistUntil.current = Date.now() + 2500;
@@ -553,7 +561,11 @@ export function ARISConsole({
               </span>
             )}
             <span className="hidden font-mono-data text-xs text-muted md:inline">
-              {formatLapHeader(currentLap, totalLaps)}
+              {timedSession ? (
+                <SessionClockLabel startIso={session?.date} sessionType={session?.sessionType} />
+              ) : (
+                formatLapHeader(currentLap, totalLaps)
+              )}
             </span>
             {mode === "replay" && replayNotRacing && (
               <button
@@ -608,14 +620,18 @@ export function ARISConsole({
               Reset view
             </button>
             <div className="hidden shrink-0 md:block">
-              <AnalyticsCatalogue onAdd={handleAddPanel} />
+              <AnalyticsCatalogue onAdd={handleAddPanel} timedSession={timedSession} />
             </div>
           </>
         }
       />
       <div className="grid shrink-0 grid-cols-3 items-center border-b border-border bg-surface-2 px-3 py-1.5 md:hidden">
         <span className="justify-self-start font-mono-data text-xs text-white">
-          {formatLapCompact(currentLap, totalLaps)}
+          {timedSession ? (
+            <SessionClockLabel startIso={session?.date} sessionType={session?.sessionType} compact />
+          ) : (
+            formatLapCompact(currentLap, totalLaps)
+          )}
         </span>
         <div className="justify-self-center">
           {mode === "replay" && replayNotRacing ? (
@@ -719,6 +735,7 @@ export function ARISConsole({
             <MobileConsole
               showComms={mode !== "live" && (isARISOn || copilotDocked)}
               slots={analyticsSlots}
+              timedSession={timedSession}
               onAdd={addAnalytics}
               onRemove={removeAnalytics}
               onMove={moveAnalytics}

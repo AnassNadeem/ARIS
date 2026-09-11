@@ -444,7 +444,11 @@ export function annotateGhostTower(
  * classified car. The optional second arg is still accepted and inserted
  * into that array if missing. Split uses only is_dnf; ghost is never DNF.
  */
-export function orderTimingTower(cars: CarState[], ghost: CarState | null = null): CarState[] {
+export function orderTimingTower(
+  cars: CarState[],
+  ghost: CarState | null = null,
+  opts?: { byBestLap?: boolean },
+): CarState[] {
   const tagged = ghost && !ghost.is_ghost ? { ...ghost, is_ghost: true } : ghost;
   const fromList = cars.find(isGhostRow) ?? null;
   const g = tagged ?? fromList;
@@ -452,6 +456,19 @@ export function orderTimingTower(cars: CarState[], ghost: CarState | null = null
   const classified = rest.filter((c) => !c.is_dnf);
   const dnf = rest.filter((c) => c.is_dnf);
   if (g && !g.is_dnf) classified.push(g);
+  if (opts?.byBestLap) {
+    classified.sort((a, b) => {
+      const ba = a.best_lap_s ?? Number.POSITIVE_INFINITY;
+      const bb = b.best_lap_s ?? Number.POSITIVE_INFINITY;
+      if (ba !== bb) return ba - bb;
+      const dp = towerPosition(a) - towerPosition(b);
+      if (dp !== 0) return dp;
+      return a.driver_code.localeCompare(b.driver_code);
+    });
+    const ranked: CarState[] = classified.map((c, i) => ({ ...c, position: i + 1 }));
+    dnf.sort((a, b) => towerLastLap(b) - towerLastLap(a));
+    return ranked.concat(dnf);
+  }
   classified.sort((a, b) => {
     const dp = towerPosition(a) - towerPosition(b);
     if (dp !== 0) return dp;

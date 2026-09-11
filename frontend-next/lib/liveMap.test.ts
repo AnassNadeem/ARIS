@@ -775,6 +775,21 @@ describe("orderTimingTower", () => {
     expect(rows).toHaveLength(4);
     expect(realClassifiedCars(rows).map((r) => r.driver_code)).toEqual(["VER", "NOR"]);
   });
+
+  it("ranks practice/quali by best lap and renumbers P, ignoring track order", () => {
+    const rows = orderTimingTower(
+      [
+        car({ driver_code: "VER", position: 1, best_lap_s: 75.4, last_lap_s: 76.1 }),
+        car({ driver_code: "LEC", position: 2, best_lap_s: 72.9, last_lap_s: 80.0 }),
+        car({ driver_code: "NOR", position: 3, best_lap_s: 73.2, last_lap_s: 73.2 }),
+        car({ driver_code: "GAS", position: 4, best_lap_s: null, last_lap_s: 90.0 }),
+      ],
+      null,
+      { byBestLap: true },
+    );
+    expect(rows.map((r) => r.driver_code)).toEqual(["LEC", "NOR", "VER", "GAS"]);
+    expect(rows.map((r) => r.position)).toEqual([1, 2, 3, 4]);
+  });
 });
 
 describe("annotateGhostTower", () => {

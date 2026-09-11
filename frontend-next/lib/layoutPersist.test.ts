@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatLapCompact, formatLapHeader } from "@/lib/formatLap";
+import { formatLapCompact, formatLapHeader, formatSessionClock, sessionRemainingMs } from "@/lib/formatLap";
 import { componentsFromLayoutJson, isPersistedLayout, stripAnalyticsAddFromLayout } from "@/lib/layoutPersist";
 
 describe("formatLapHeader", () => {
@@ -14,6 +14,24 @@ describe("formatLapHeader", () => {
   it("formats a compact live fraction for the mobile header", () => {
     expect(formatLapCompact(5, 57)).toBe("5/57");
     expect(formatLapCompact(3, 0)).toBe("3");
+  });
+});
+
+describe("session clock", () => {
+  it("sits at the full hour before lights-out and counts down after", () => {
+    const start = "2026-09-11T15:00:00Z";
+    const hour = 60 * 60_000;
+    expect(sessionRemainingMs(start, hour, Date.parse("2026-09-11T14:59:00Z"))).toBe(hour);
+    expect(sessionRemainingMs(start, hour, Date.parse("2026-09-11T15:27:46Z"))).toBe(
+      Date.parse("2026-09-11T16:00:00Z") - Date.parse("2026-09-11T15:27:46Z"),
+    );
+    expect(sessionRemainingMs(start, hour, Date.parse("2026-09-11T16:05:00Z"))).toBe(0);
+  });
+
+  it("formats 1:00:00 while a full hour remains, then MM:SS", () => {
+    expect(formatSessionClock(60 * 60_000)).toBe("1:00:00");
+    expect(formatSessionClock(32 * 60_000 + 14_000)).toBe("32:14");
+    expect(formatSessionClock(0)).toBe("0:00");
   });
 });
 

@@ -2,6 +2,8 @@
 
 import { useRaceStore } from "@/store/raceStore";
 import { formatLapHeader } from "@/lib/formatLap";
+import { SessionClockLabel } from "@/components/ui/SessionClock";
+import { isTimedSession } from "@/lib/sessionFlow";
 
 const SPEEDS: (1 | 2 | 4 | 8 | 16 | 25 | 50)[] = [1, 2, 4, 8, 16, 25, 50];
 
@@ -18,10 +20,12 @@ export function PlaybackControls() {
   const seekToLap = useRaceStore((s) => s.seekToLap);
   const scZones = useRaceStore((s) => s.scZones);
 
+  const session = useRaceStore((s) => s.session);
   const distance = Math.max(1, totalLaps);
   const isLive = consoleMode === "live";
+  const timed = isTimedSession(session?.sessionType);
   const racing = isLive || consolePlayState === "racing";
-  const scrubberZones = scZones;
+  const scrubberZones = timed ? [] : scZones;
 
   return (
     <div className="flex shrink-0 flex-col gap-2 border-t border-border bg-surface-2 px-4 py-2">
@@ -79,14 +83,23 @@ export function PlaybackControls() {
             </select>
           </label>
           <div className="ml-auto hidden font-mono-data text-xs text-white md:block">
-            {formatLapHeader(currentLap, totalLaps)}
+            {timed ? (
+              <SessionClockLabel startIso={session?.date} sessionType={session?.sessionType} />
+            ) : (
+              formatLapHeader(currentLap, totalLaps)
+            )}
           </div>
         </div>
       )}
       {isLive && (
         <div className="flex items-center justify-between">
           <span className="font-mono-data text-xs text-white">
-            {formatLapHeader(currentLap, totalLaps)} · <span className="text-red">LIVE</span>
+            {timed ? (
+              <SessionClockLabel startIso={session?.date} sessionType={session?.sessionType} />
+            ) : (
+              formatLapHeader(currentLap, totalLaps)
+            )}{" "}
+            · <span className="text-red">LIVE</span>
           </span>
           {racePhase !== "GREEN" && (
             <span className="rounded bg-amber/20 px-2 py-0.5 font-mono-data text-xs text-amber">
@@ -95,32 +108,34 @@ export function PlaybackControls() {
           )}
         </div>
       )}
-      <div className="relative h-2 w-full rounded-full bg-surface">
-        {scrubberZones.map((z, i) => (
-          <div
-            key={i}
-            className={`absolute top-0 h-full rounded-full ${z.kind === "RED_FLAG" ? "bg-red/60" : "bg-amber/60"}`}
-            style={{
-              left: `${(z.startLap / distance) * 100}%`,
-              width: `${((z.endLap - z.startLap) / distance) * 100}%`,
-            }}
+      {!timed && (
+        <div className="relative h-2 w-full rounded-full bg-surface">
+          {scrubberZones.map((z, i) => (
+            <div
+              key={i}
+              className={`absolute top-0 h-full rounded-full ${z.kind === "RED_FLAG" ? "bg-red/60" : "bg-amber/60"}`}
+              style={{
+                left: `${(z.startLap / distance) * 100}%`,
+                width: `${((z.endLap - z.startLap) / distance) * 100}%`,
+              }}
+            />
+          ))}
+          <input
+            type="range"
+            min={1}
+            max={distance}
+            value={currentLap}
+            disabled={isLive}
+            onChange={(e) => seekToLap(Number(e.target.value))}
+            data-testid="lap-scrubber"
+            className="absolute inset-0 h-2 w-full cursor-pointer opacity-0 disabled:cursor-default"
           />
-        ))}
-        <input
-          type="range"
-          min={1}
-          max={distance}
-          value={currentLap}
-          disabled={isLive}
-          onChange={(e) => seekToLap(Number(e.target.value))}
-          data-testid="lap-scrubber"
-          className="absolute inset-0 h-2 w-full cursor-pointer opacity-0 disabled:cursor-default"
-        />
-        <div
-          className="pointer-events-none absolute top-1/2 h-2 w-2 -translate-y-1/2 rounded-full bg-white shadow"
-          style={{ left: `calc(${(currentLap / distance) * 100}% - 4px)` }}
-        />
-      </div>
+          <div
+            className="pointer-events-none absolute top-1/2 h-2 w-2 -translate-y-1/2 rounded-full bg-white shadow"
+            style={{ left: `calc(${(currentLap / distance) * 100}% - 4px)` }}
+          />
+        </div>
+      )}
     </div>
   );
 }

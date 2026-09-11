@@ -1455,3 +1455,61 @@ def test_tower_tyre_life_falls_back_to_stint_age_plus_laps_and_resets_after_pit(
     )
     assert after[0].tyre_life == 1
     assert after[0].stint_number == 2
+
+
+def test_practice_timing_ranks_by_best_lap_and_drops_gaps():
+    from backend.live import _is_timed_session_type, _timing_rows_from_payload
+
+    assert _is_timed_session_type("FP2") is True
+    assert _is_timed_session_type("Q") is True
+    assert _is_timed_session_type("R") is False
+    assert _is_timed_session_type("S") is False
+
+    rows = _timing_rows_from_payload(
+        codes={1: "VER", 16: "LEC"},
+        colours={},
+        positions={1: 1, 16: 2},
+        laps=[
+            {"driver_number": 1, "lap_number": 4, "lap_duration": 75.0},
+            {"driver_number": 16, "lap_number": 3, "lap_duration": 72.0},
+        ],
+        stints=[],
+        intervals={
+            1: {"gap_to_leader": 0.0, "interval": 0.0},
+            16: {"gap_to_leader": 1.2, "interval": 1.2},
+        },
+        eliminated=set(),
+        locations={},
+        rank_by_best_lap=True,
+    )
+    assert [r.driver_code for r in rows] == ["LEC", "VER"]
+    assert [r.position for r in rows] == [1, 2]
+    assert all(r.gap_to_leader_s is None for r in rows)
+    assert all(r.gap_to_ahead_s is None for r in rows)
+    assert rows[0].best_lap_ms == 72_000
+    assert rows[0].status == "RUNNING"
+
+
+def test_race_timing_keeps_track_position_and_gaps():
+    from backend.live import _timing_rows_from_payload
+
+    rows = _timing_rows_from_payload(
+        codes={1: "VER", 16: "LEC"},
+        colours={},
+        positions={1: 1, 16: 2},
+        laps=[
+            {"driver_number": 1, "lap_number": 12, "lap_duration": 75.4},
+            {"driver_number": 16, "lap_number": 12, "lap_duration": 72.9},
+        ],
+        stints=[],
+        intervals={
+            1: {"gap_to_leader": 0.0, "interval": 0.0},
+            16: {"gap_to_leader": 1.2, "interval": 1.2},
+        },
+        eliminated=set(),
+        locations={},
+        rank_by_best_lap=False,
+    )
+    assert [r.driver_code for r in rows] == ["VER", "LEC"]
+    assert rows[0].gap_to_leader_s == 0.0
+    assert rows[1].gap_to_leader_s == 1.2

@@ -3,15 +3,18 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { PANEL_CATALOGUE } from "@/lib/panelRegistry";
+import { analyticsLockedOnTimedSession, REPLAY_ONLY_HINT } from "@/lib/analyticsSlots";
 
 const MENU_WIDTH = 288;
 
 export function AnalyticsAddSlot({
   onAdd,
   already,
+  timedSession = false,
 }: {
   onAdd: (componentId: string) => void;
   already: string[];
+  timedSession?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -75,12 +78,15 @@ export function AnalyticsAddSlot({
               <div className="px-2 py-1 font-sans text-[10px] uppercase text-muted">Add analytics</div>
               {analytics.map((entry) => {
                 const added = taken.has(entry.componentId);
+                const locked = analyticsLockedOnTimedSession(entry.componentId, timedSession);
+                const blocked = added || locked;
                 return (
                   <button
                     key={entry.componentId}
                     type="button"
-                    disabled={added}
+                    disabled={blocked}
                     onClick={() => {
+                      if (blocked) return;
                       onAdd(entry.componentId);
                       setOpen(false);
                     }}
@@ -90,7 +96,9 @@ export function AnalyticsAddSlot({
                       {entry.label}
                       {added && <span className="text-[9px] uppercase text-muted">Added</span>}
                     </span>
-                    <span className="font-sans text-[10px] text-muted">{entry.description}</span>
+                    <span className="font-sans text-[10px] text-muted">
+                      {locked ? REPLAY_ONLY_HINT : entry.description}
+                    </span>
                   </button>
                 );
               })}
