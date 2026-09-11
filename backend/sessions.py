@@ -2015,7 +2015,10 @@ def _ff1_message_dt(rec: Any, sess: Any) -> datetime | None:
 
 
 def _ff1_race_control_rows(sess: Any) -> list[dict[str, Any]]:
+    # FastF1 3.x exposes race_control_messages; older code used ``messages``.
     raw = getattr(sess, "messages", None)
+    if raw is None or (hasattr(raw, "empty") and raw.empty):
+        raw = getattr(sess, "race_control_messages", None)
     if raw is None or (hasattr(raw, "empty") and raw.empty):
         return []
     rows: list[dict[str, Any]] = []

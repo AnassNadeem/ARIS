@@ -136,7 +136,7 @@ const R2_BASE = normalizeR2Base(
     (process.env.NODE_ENV === "development" ? "/r2replay" : ""),
 );
 /** Bump when race_field.json shape changes so CDN/browser caches cannot serve stale packs. */
-const R2_ASSET_V = "6";
+const R2_ASSET_V = "7";
 const DEFAULT_TRACK_M = 5000;
 const SPEED_DT_LAP = 0.04;
 
@@ -167,10 +167,22 @@ function driverCumulatives(field: RaceField): Map<string, number[]> {
   if (hit) return hit;
   const maxLap = field.meta.total_laps;
   const times = driverLapTimes(field);
+  const lastReal = new Map<string, number>();
+  for (const row of field.laps) {
+    const prev = lastReal.get(row.driver) ?? 0;
+    if (row.lap > prev) lastReal.set(row.driver, row.lap);
+  }
   const cums = new Map<string, number[]>();
   for (const [code, laps] of times) {
     const cum = new Array(maxLap + 1).fill(0);
+    const stopAt = lastReal.get(code) ?? 0;
     for (let lap = 1; lap <= maxLap; lap++) {
+      if (stopAt > 0 && lap > stopAt) {
+        // Retired / DNF: freeze clock so the car does not keep circulating on
+        // synthetic 90s laps after their last recorded lap.
+        cum[lap] = cum[stopAt];
+        continue;
+      }
       const t = laps[lap];
       const step = Number.isFinite(t) && t > 0 ? t : DEFAULT_EXPECTED_LAP_S;
       cum[lap] = cum[lap - 1] + step;
@@ -1113,8 +1125,17 @@ export function r2FrameAt(
   const cum = leaderCum(field);
   const lapDurS = Math.max(1, (cum[lap] ?? 90) - (cum[lap - 1] ?? 0));
   const byDriver = new Map<string, (typeof field.laps)[0]>();
+  const dnfDrivers = new Set<string>();
+  const lastLapByDriver = new Map<string, number>();
   for (const row of field.laps) {
     if (row.lap <= lap) byDriver.set(row.driver, row);
+    if (row.lap <= lap && row.is_dnf) dnfDrivers.add(row.driver);
+    lastLapByDriver.set(row.driver, Math.max(lastLapByDriver.get(row.driver) ?? 0, row.lap));
+  }
+  // Infer retirement when the pack forgot is_dnf (OpenF1) but the car stopped early.
+  const raceLaps = Math.max(1, field.meta.total_laps || lap);
+  for (const [code, last] of lastLapByDriver) {
+    if (last > 0 && last < lap && last < Math.max(3, raceLaps - 5)) dnfDrivers.add(code);
   }
   const colour = new Map(
     field.drivers.map((d) => {
@@ -1135,6 +1156,7 @@ export function r2FrameAt(
   const timing: LiveTimingRow[] = [];
   const positions: LivePosition[] = [];
   for (const [code, row] of byDriver) {
+    const retired = dnfDrivers.has(code) || row.is_dnf;
     const samples = posSamplesFor(field, code);
     const gpsRaw = pathFracAtLap(samples, lapFrac, field.meta.total_laps);
     const gps = Number.isFinite(gpsRaw) ? gpsRaw : null;
@@ -1147,17 +1169,22 @@ export function r2FrameAt(
     });
     const xy = pointAtFraction(path, frac);
     const prev = prevByDriver.get(code);
-    const kph = useGrid ? 0 : speedKphFromPath(samples, lapFrac, lapDurS, field.meta.total_laps);
+    const kph = useGrid || retired ? 0 : speedKphFromPath(samples, lapFrac, lapDurS, field.meta.total_laps);
     let sectors = sectorMsFromLap(prev, samples, prevLap, field.meta.total_laps);
     if (sectors.sector1_ms == null && sectors.sector2_ms == null && sectors.sector3_ms == null) {
       sectors = sectorMsFromLap(row, samples, row.lap, field.meta.total_laps);
     }
-    const towerPos = useGrid && grid != null && grid > 0 ? grid : (row.position ?? 0);
+    // DNF cars leave the classified order (tower sorts them to the bottom).
+    const towerPos = retired
+      ? 99
+      : useGrid && grid != null && grid > 0
+        ? grid
+        : (row.position ?? 0);
     timing.push({
       position: towerPos,
       driver_code: code,
-      gap_to_leader_s: useGrid ? (grid === 1 ? 0 : null) : row.gap_to_leader_s,
-      gap_to_ahead_s: useGrid ? null : row.gap_ahead_s,
+      gap_to_leader_s: useGrid || retired ? (useGrid && grid === 1 ? 0 : null) : row.gap_to_leader_s,
+      gap_to_ahead_s: useGrid || retired ? null : row.gap_ahead_s,
       last_lap_ms: useGrid ? null : row.lap_time_s != null ? Math.round(row.lap_time_s * 1000) : null,
       compound: row.compound,
       tyre_life: useGrid ? (row.tyre_life ?? 1) : row.tyre_life,
@@ -1166,7 +1193,7 @@ export function r2FrameAt(
       in_pit: row.pit_this_lap && row.lap === lap,
       lap_number: useGrid ? 0 : row.lap,
       speed_kph: kph > 1 ? Math.round(kph) : null,
-      status: row.is_dnf ? "DNF" : "RUNNING",
+      status: retired ? "DNF" : "RUNNING",
       sector1_ms: useGrid ? null : sectors.sector1_ms,
       sector2_ms: useGrid ? null : sectors.sector2_ms,
       sector3_ms: useGrid ? null : sectors.sector3_ms,
@@ -1177,7 +1204,7 @@ export function r2FrameAt(
       y: xy.y,
       team_colour: colour.get(code) ?? null,
       is_pitted: Boolean(row.pit_this_lap && row.lap === lap),
-      is_dnf: row.is_dnf,
+      is_dnf: retired,
       path_frac: frac,
       speed_ms: kph > 1 ? kph / 3.6 : null,
     });
@@ -1218,11 +1245,20 @@ export function r2FrameAt(
   for (const msg of field.race_control) {
     if (msg.lap != null && msg.lap > lap) continue;
     const blob = `${msg.flag || ""} ${msg.message || ""} ${msg.category || ""}`.toUpperCase();
-    if (blob.includes("RED")) flag = "RED";
-    else if (blob.includes("SAFETY CAR") && !blob.includes("VIRTUAL")) flag = "SC";
-    else if (blob.includes("VSC") || blob.includes("VIRTUAL")) flag = "VSC";
-    else if (blob.includes("GREEN") || blob.includes("CLEAR")) flag = "GREEN";
-    else if (blob.includes("CHEQUERED") || blob.includes("CHECKERED")) flag = "FINISHED";
+    if (blob.includes("STANDING START") || blob.includes("STANDING RESTART")) {
+      flag = "STANDING_START";
+    } else if (blob.includes("RED")) {
+      flag = "RED";
+    } else if (blob.includes("SAFETY CAR") && !blob.includes("VIRTUAL")) {
+      flag = "SC";
+    } else if (blob.includes("VSC") || blob.includes("VIRTUAL")) {
+      flag = "VSC";
+    } else if (blob.includes("GREEN") || blob.includes("CLEAR")) {
+      // Don't clear a standing restart with a generic CLEAR sector message.
+      if (flag !== "STANDING_START") flag = "GREEN";
+    } else if (blob.includes("CHEQUERED") || blob.includes("CHECKERED")) {
+      flag = "FINISHED";
+    }
   }
   return { lap, rainfall: Boolean(wx?.rainfall), sessionFlag: flag, timing, positions };
 }

@@ -146,7 +146,7 @@ def completed_jobs(
     return out
 
 
-def _load_session(year: int, round_number: int):
+def _load_session(year: int, round_number: int, *, force_refresh: bool = False):
     from backend.cache import enable_fastf1_cache
     from backend.sessions import load_session
 
@@ -160,7 +160,13 @@ def _load_session(year: int, round_number: int):
         return laps is not None and not getattr(laps, "empty", True)
 
     sess = load_session(
-        int(year), int(round_number), "R", telemetry=False, weather=True, messages=True
+        int(year),
+        int(round_number),
+        "R",
+        telemetry=False,
+        weather=True,
+        messages=True,
+        refresh=force_refresh,
     )
     if sess is None:
         raise RuntimeError(f"FastF1 session missing for {year} R{round_number}")
@@ -404,6 +410,56 @@ def build_race_field_openf1(year: int, round_number: int) -> dict[str, Any]:
     # OpenF1 lap rows often omit classified place / gaps; derive both from
     # cumulative lap times so the replay timing tower can rank correctly.
     _fill_gaps(laps_out)
+    total = int(max((int(r["lap"]) for r in laps_out), default=rnd.total_laps or 0))
+    _mark_dnf_from_laps(laps_out, total)
+
+    race_control: list[dict[str, Any]] = []
+    try:
+        _time.sleep(0.35)
+        rc_raw = _openf1_get("race_control", {"session_key": session_key})
+    except Exception:
+        rc_raw = []
+    for row in rc_raw:
+        if not isinstance(row, dict):
+            continue
+        msg = str(row.get("message") or "")
+        flag = row.get("flag")
+        try:
+            lap_n = int(row.get("lap_number")) if row.get("lap_number") is not None else None
+        except (TypeError, ValueError):
+            lap_n = None
+        race_control.append(
+            {
+                "lap": lap_n,
+                "message": msg,
+                "flag": str(flag) if flag is not None else None,
+                "category": str(row.get("category") or "") or None,
+            }
+        )
+
+    # Best-effort FastF1-style track_status codes from race control (5=red, 4=SC…).
+    flag_by_lap: dict[int, str] = {}
+    for row in race_control:
+        lap_n = row.get("lap")
+        if not isinstance(lap_n, int) or lap_n < 1:
+            continue
+        blob = f"{row.get('flag') or ''} {row.get('message') or ''}".upper()
+        code = None
+        if "RED" in blob:
+            code = "5"
+        elif "STANDING START" in blob or "STANDING RESTART" in blob:
+            code = "1"
+        elif "VIRTUAL" in blob or blob.startswith("VSC") or " VSC" in blob:
+            code = "6"
+        elif "SAFETY CAR" in blob:
+            code = "4"
+        if code:
+            flag_by_lap[lap_n] = code
+    if flag_by_lap:
+        for row in laps_out:
+            code = flag_by_lap.get(int(row["lap"]))
+            if code:
+                row["track_status"] = code
 
     stints_out: list[dict[str, Any]] = []
     for st in stints_raw:
@@ -470,7 +526,7 @@ def build_race_field_openf1(year: int, round_number: int) -> dict[str, Any]:
         "laps": laps_out,
         "stints": stints_out,
         "weather": weather_out,
-        "race_control": [],
+        "race_control": race_control,
         "pos_samples": {},
     }
 
@@ -507,7 +563,7 @@ def _pack_source(field: dict[str, Any] | None) -> str | None:
 def _build_field_any_source(year: int, round_number: int) -> tuple[dict[str, Any], Any, str]:
     """FastF1 first; OpenF1 only after OPENF1_FALLBACK_HOURS if FastF1 is down."""
     try:
-        sess = _load_session(year, round_number)
+        sess = _load_session(year, round_number, force_refresh=True)
         field = build_race_field(year, round_number, sess)
         return field, sess, "fastf1"
     except Exception as extra:
@@ -865,8 +921,14 @@ def _fill_gaps(laps: list[dict[str, Any]]) -> None:
     for row in laps:
         by_lap.setdefault(int(row["lap"]), []).append(row)
     for rows in by_lap.values():
+        # Only rank cars that completed this lap. A crash/red-flag partial
+        # (no lap_time_s) must not keep a stale cumulative and steal P1.
         ranked = sorted(
-            [r for r in rows if r.get("_cum") is not None],
+            [
+                r
+                for r in rows
+                if r.get("_cum") is not None and r.get("lap_time_s")
+            ],
             key=lambda r: float(r["_cum"]),
         )
         if not ranked:
@@ -883,6 +945,28 @@ def _fill_gaps(laps: list[dict[str, Any]]) -> None:
             prev = cum
     for row in laps:
         row.pop("_cum", None)
+
+
+def _mark_dnf_from_laps(laps: list[dict[str, Any]], total_laps: int) -> None:
+    """Mark retirements when a driver stops well short of race distance (OpenF1)."""
+    if total_laps < 3 or not laps:
+        return
+    last_lap: dict[str, int] = {}
+    for row in laps:
+        code = str(row["driver"])
+        last_lap[code] = max(last_lap.get(code, 0), int(row["lap"]))
+    # Stopped before half distance (or before last 5 laps for short races).
+    cutoff = max(3, total_laps - 5)
+    retired = {code for code, n in last_lap.items() if 0 < n < cutoff}
+    if not retired:
+        return
+    for row in laps:
+        code = str(row["driver"])
+        if code in retired and int(row["lap"]) == last_lap.get(code, 0):
+            row["is_dnf"] = True
+            if row.get("position") is None or int(row.get("position") or 0) <= 3:
+                # Crash-out mid-pack shouldn't stay classified as a podium.
+                row["position"] = None
 
 
 def _driver_is_dns(rec: Any) -> bool:
@@ -1550,6 +1634,12 @@ def _race_field_schema_ok(field: dict[str, Any] | None) -> bool:
         sample = [r for r in laps[:50] if isinstance(r, dict)]
         if sample and all(r.get("position") is None for r in sample):
             return False
+    # Empty race_control means red-flag / standing-start UI cannot fire
+    # (also catches the FastF1 ``messages`` vs ``race_control_messages`` bug).
+    if _pack_source(field) == "openf1":
+        rc = field.get("race_control")
+        if not isinstance(rc, list) or not rc:
+            return False
     return True
 
 
@@ -1637,7 +1727,7 @@ def build_one(
                     hours,
                 )
                 try:
-                    sess = _load_session(year, round_number)
+                    sess = _load_session(year, round_number, force_refresh=True)
                     field = build_race_field(year, round_number, sess)
                     return _finish_build(
                         year,

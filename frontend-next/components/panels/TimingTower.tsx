@@ -220,7 +220,9 @@ export function TimingTower() {
         ? `VSC DEPLOYED · Lap ${currentLap}`
         : racePhase === "RED_FLAG"
           ? `RED FLAG · Lap ${currentLap}`
-          : null;
+          : racePhase === "STANDING_START"
+            ? `STANDING START · Lap ${currentLap}`
+            : null;
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-carbon font-mono-data text-[11px] [overflow-anchor:none]">

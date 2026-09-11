@@ -181,11 +181,16 @@ export function mapTimingAndPositions(
   return cars;
 }
 
-export function sessionFlagToPhase(flag: string | null | undefined): "GREEN" | "VSC" | "SC" | "RED_FLAG" {
+export function sessionFlagToPhase(
+  flag: string | null | undefined,
+): "GREEN" | "VSC" | "SC" | "RED_FLAG" | "STANDING_START" {
   const u = (flag ?? "").toUpperCase();
   if (u === "SC") return "SC";
   if (u === "VSC") return "VSC";
   if (u === "RED" || u === "RED_FLAG" || u.includes("RED FLAG")) return "RED_FLAG";
+  if (u === "STANDING_START" || u.includes("STANDING START") || u.includes("STANDING RESTART")) {
+    return "STANDING_START";
+  }
   return "GREEN";
 }
 
