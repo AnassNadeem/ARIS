@@ -201,9 +201,15 @@ export function useArisRecommendLoop() {
           if (samePlan) {
             store.approveRecommendation();
           } else {
-            // Auto mode never asks - it tells. A pit/strategy change is a big
-            // decision, so it is applied immediately and surfaced in a
-            // visibly bigger box rather than waiting on a click.
+            // Keep the setup Strat B/C plan on GREEN — the engine's +8 "pit lap 9"
+            // card must not silently rewrite tyres mid-race. Red flag (free change)
+            // and SC/VSC windows still auto-adopt.
+            const protectLockedPlan =
+              Boolean(store.selectedStrategy?.pit_laps?.[0]) &&
+              racePhase === "GREEN";
+            if (protectLockedPlan) {
+              return;
+            }
             const { text: reason, kind } = autoDecisionStatement(rec, { phase: racePhase, rainfall: store.rainfall });
             void store.adoptRecommendation(rec, { auto: true, reason, kind });
           }

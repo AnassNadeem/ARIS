@@ -832,6 +832,34 @@ export function fieldToDrivers(field: RaceField): DriverListing[] {
   });
 }
 
+/** Soft-cap for red-flag hold / standing-restart ceremony in playback time. */
+export const RED_FLAG_PLAYBACK_S = 16;
+export const STANDING_START_PLAYBACK_S = 8;
+/** Any unclassified mega-lap (OpenF1 red-flag hold) compresses to this. */
+export const ABNORMAL_LAP_PLAYBACK_S = 90;
+export const STANDING_START_HOLD_S = 6;
+
+function raceControlBlob(msg: { flag?: string | null; message?: string | null; category?: string | null }): string {
+  return `${msg.flag || ""} ${msg.message || ""} ${msg.category || ""}`.toUpperCase();
+}
+
+/** Playback length for one race lap — compress red-flag holds so scrubbing isn't stuck for 30+ minutes. */
+function playbackLapDurationS(field: RaceField, lap: number, rawLeaderS: number | null): number {
+  let raw = rawLeaderS != null && rawLeaderS > 0 ? rawLeaderS : 90;
+  let standing = false;
+  let red = false;
+  for (const msg of field.race_control) {
+    if (msg.lap != null && msg.lap !== lap) continue;
+    const blob = raceControlBlob(msg);
+    if (blob.includes("STANDING START") || blob.includes("STANDING RESTART")) standing = true;
+    if (blob.includes("RED") && !blob.includes("CLEAR")) red = true;
+  }
+  if (standing) return Math.min(raw, STANDING_START_PLAYBACK_S);
+  if (red) return Math.min(raw, RED_FLAG_PLAYBACK_S);
+  if (raw > 180) return ABNORMAL_LAP_PLAYBACK_S;
+  return raw;
+}
+
 function leaderCum(field: RaceField): number[] {
   const total = field.meta.total_laps;
   const cum: number[] = [0];
@@ -842,9 +870,54 @@ function leaderCum(field: RaceField): number[] {
       if (t == null) return best;
       return best == null || t < best ? t : best;
     }, null);
-    cum.push((cum[lap - 1] || 0) + (leader ?? 90));
+    cum.push((cum[lap - 1] || 0) + playbackLapDurationS(field, lap, leader));
   }
   return cum;
+}
+
+/**
+ * Session flag for the replay clock. Standing start is only live on its lap
+ * for a few seconds, then clears to GREEN so banners do not stick forever.
+ */
+export function resolveSessionFlag(field: RaceField, lap: number, elapsedS: number): string {
+  const cum = leaderCum(field);
+  let flag = "GREEN";
+  for (const msg of field.race_control) {
+    if (msg.lap != null && msg.lap > lap) continue;
+    const blob = raceControlBlob(msg);
+
+    if (blob.includes("STANDING START") || blob.includes("STANDING RESTART")) {
+      if (msg.lap === lap) {
+        const into = Math.max(0, elapsedS - (cum[lap - 1] ?? 0));
+        flag = into < STANDING_START_HOLD_S ? "STANDING_START" : "GREEN";
+      } else if (msg.lap != null && msg.lap < lap) {
+        // Restart already happened — resume racing unless a later flag applies.
+        if (flag === "STANDING_START" || flag === "RED") flag = "GREEN";
+      }
+      continue;
+    }
+    if (blob.includes("RED") && !blob.includes("CLEAR")) {
+      flag = "RED";
+      continue;
+    }
+    if (blob.includes("VSC END") || blob.includes("VSC ENDING")) {
+      flag = "GREEN";
+      continue;
+    }
+    if ((blob.includes("VSC") || blob.includes("VIRTUAL SAFETY")) && !blob.includes("END")) {
+      flag = "VSC";
+      continue;
+    }
+    if (blob.includes("SAFETY CAR") && !blob.includes("VIRTUAL") && !blob.includes("LIGHTS")) {
+      if (flag !== "RED" && flag !== "STANDING_START") flag = "SC";
+      continue;
+    }
+    if (blob.includes("CHEQUERED") || blob.includes("CHECKERED")) {
+      flag = "FINISHED";
+      continue;
+    }
+  }
+  return flag;
 }
 
 export function raceDurationS(field: RaceField): number {
@@ -1233,31 +1306,17 @@ export function r2FrameAt(
     if (!dns) continue;
   }
   timing.sort((a, b) => (a.position || 99) - (b.position || 99));
-  let flag = "GREEN";
-  for (const row of field.laps) {
-    if (row.lap !== lap) continue;
-    const fromTrack = flagFromTrackStatus(row.track_status);
-    if (fromTrack && fromTrack !== "GREEN") {
-      flag = fromTrack;
-      break;
-    }
-  }
-  for (const msg of field.race_control) {
-    if (msg.lap != null && msg.lap > lap) continue;
-    const blob = `${msg.flag || ""} ${msg.message || ""} ${msg.category || ""}`.toUpperCase();
-    if (blob.includes("STANDING START") || blob.includes("STANDING RESTART")) {
-      flag = "STANDING_START";
-    } else if (blob.includes("RED")) {
-      flag = "RED";
-    } else if (blob.includes("SAFETY CAR") && !blob.includes("VIRTUAL")) {
-      flag = "SC";
-    } else if (blob.includes("VSC") || blob.includes("VIRTUAL")) {
-      flag = "VSC";
-    } else if (blob.includes("GREEN") || blob.includes("CLEAR")) {
-      // Don't clear a standing restart with a generic CLEAR sector message.
-      if (flag !== "STANDING_START") flag = "GREEN";
-    } else if (blob.includes("CHEQUERED") || blob.includes("CHECKERED")) {
-      flag = "FINISHED";
+  // Prefer race_control (with standing-start expiry). Track status is a fallback
+  // when RC is empty — never let a sticky GREEN track code wipe a live RED.
+  let flag = resolveSessionFlag(field, lap, elapsedS);
+  if (flag === "GREEN") {
+    for (const row of field.laps) {
+      if (row.lap !== lap) continue;
+      const fromTrack = flagFromTrackStatus(row.track_status);
+      if (fromTrack && fromTrack !== "GREEN") {
+        flag = fromTrack;
+        break;
+      }
     }
   }
   return { lap, rainfall: Boolean(wx?.rainfall), sessionFlag: flag, timing, positions };

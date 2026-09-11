@@ -187,7 +187,7 @@ export function sessionFlagToPhase(
   const u = (flag ?? "").toUpperCase();
   if (u === "SC") return "SC";
   if (u === "VSC") return "VSC";
-  if (u === "RED" || u === "RED_FLAG" || u.includes("RED FLAG")) return "RED_FLAG";
+  if (u === "RED" || u === "RED_FLAG" || (u.includes("RED") && !u.includes("CLEAR"))) return "RED_FLAG";
   if (u === "STANDING_START" || u.includes("STANDING START") || u.includes("STANDING RESTART")) {
     return "STANDING_START";
   }
