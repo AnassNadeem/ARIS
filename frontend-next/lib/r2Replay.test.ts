@@ -643,7 +643,7 @@ describe("r2FrameAt grid_position at start", () => {
     expect(replayDisplayFrac(withGps, "ANT", 45)).toBeCloseTo(0.5, 2);
   });
 
-  it("replayDisplayFrac follows dense GPS when timing is parked at S/F", () => {
+  it("replayDisplayFrac keeps cars off S/F when classified times are missing", () => {
     const samples = Array.from({ length: 12 }, (_, i) => ({
       lap_frac: i * 0.5,
       path_frac: (0.08 + i * 0.07) % 1,
@@ -673,7 +673,7 @@ describe("r2FrameAt grid_position at start", () => {
     const elapsed = 90 + 90 + 16 + 4;
     const frac = replayDisplayFrac(withGps, "ANT", elapsed);
     const err = Math.min(Math.abs(frac), Math.abs(frac - 1));
-    expect(err, `dense GPS should not sit on S/F (got ${frac})`).toBeGreaterThan(0.04);
+    expect(err, `playback timing should not sit on S/F (got ${frac})`).toBeGreaterThan(0.04);
   });
 
   it("lists DNS drivers who have no laps", () => {

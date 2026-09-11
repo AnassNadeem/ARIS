@@ -33,7 +33,7 @@ def test_outline_uses_circuit_map_quick(monkeypatch):
     assert out["y"] == cmap.y
 
 
-def test_outline_prefers_session_gps_over_prior_year_map(monkeypatch):
+def test_outline_prefers_circuit_map_quick_over_session_gps(monkeypatch):
     mod = _load()
     cmap = SimpleNamespace(
         available=True, x=[20.0, 120.0, 220.0, 20.0], y=[20.0, 80.0, 20.0, 20.0]
@@ -42,8 +42,9 @@ def test_outline_prefers_session_gps_over_prior_year_map(monkeypatch):
     monkeypatch.setattr("backend.sessions.circuit_map_quick", lambda *_a, **_k: cmap)
     monkeypatch.setattr(mod, "_one_lap_gps", lambda *_a, **_k: gps)
     outline, source = mod._outline_with_source(SimpleNamespace(), 2026, 16)
-    assert source == "gps_fallback"
-    assert outline == gps
+    assert source == "circuit_map_quick"
+    assert outline["x"] == cmap.x
+    assert outline["y"] == cmap.y
 
 
 def test_outline_falls_back_when_circuit_map_quick_fails(monkeypatch):

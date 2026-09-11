@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { elapsedToLap, lapToElapsed, replayDisplayFrac, r2FrameAt } from "./r2Replay";
 import { GRID_START_LAP_FRAC } from "./timingPath";
+import { wrappedDelta } from "./deadReckoning";
 import type { RaceField } from "./types";
 
 const ROOT = resolve(__dirname, "../..");
@@ -55,7 +56,7 @@ describe("timing path_frac vs tower on real packs", () => {
     });
   }
 
-  it("Monza 2026: dense GPS keeps cars off S/F through the restart laps", () => {
+  it("Monza 2026: playback timing keeps cars off S/F through the restart laps", () => {
     const field = loadField(2026, 16);
     if (!field) return;
     const pole = field.drivers.find((d) => d.grid_position === 1)?.code ?? "GAS";
@@ -72,5 +73,22 @@ describe("timing path_frac vs tower on real packs", () => {
       const err = Math.min(Math.abs(frac), Math.abs(frac - 1));
       expect(err, `${pole} lap ${lap} frac ${frac} elapsed ${elapsed}`).toBeGreaterThan(0.04);
     }
+  });
+
+  it("Monza 2026: path_frac does not run backwards on the opening laps", () => {
+    const field = loadField(2026, 16);
+    if (!field) return;
+    const pole = field.drivers.find((d) => d.grid_position === 1)?.code ?? "GAS";
+    const end = lapToElapsed(field, 3);
+    let prev: number | null = null;
+    let backwards = 0;
+    for (let t = 3; t < end; t += 1) {
+      const frac = replayDisplayFrac(field, pole, t);
+      if (prev != null) {
+        if (wrappedDelta(prev, frac) < -0.02) backwards += 1;
+      }
+      prev = frac;
+    }
+    expect(backwards, `${pole} backwards steps before lap 3`).toBe(0);
   });
 });

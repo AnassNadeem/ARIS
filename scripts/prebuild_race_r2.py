@@ -838,10 +838,7 @@ def _outline_is_map_space(outline: dict[str, list[float]]) -> bool:
 def _outline_with_source(
     sess: Any, year: int, round_number: int
 ) -> tuple[dict[str, list[float]], str]:
-    """Single-lap circuit path. Prefer this session's GPS; else circuit_map_quick."""
-    gps = _one_lap_gps(sess, lap_n=3)
-    if len(gps.get("x") or []) >= 2 and len(gps.get("y") or []) >= 2:
-        return gps, "gps_fallback"
+    """Single-lap circuit path. Same as Zandvoort/Miami/Monaco: map outline first."""
     try:
         from backend.sessions import circuit_map_quick
 
@@ -854,6 +851,9 @@ def _outline_with_source(
                 return {"x": xs[:n], "y": ys[:n]}, "circuit_map_quick"
     except Exception as extra:
         _log.warning("circuit_map_quick failed for %s R%s: %s", year, round_number, extra)
+    gps = _one_lap_gps(sess, lap_n=3)
+    if len(gps.get("x") or []) >= 2 and len(gps.get("y") or []) >= 2:
+        return gps, "gps_fallback"
     return gps, "gps_fallback"
 
 

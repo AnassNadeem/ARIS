@@ -136,7 +136,7 @@ const R2_BASE = normalizeR2Base(
     (process.env.NODE_ENV === "development" ? "/r2replay" : ""),
 );
 /** Bump when race_field.json shape changes so CDN/browser caches cannot serve stale packs. */
-const R2_ASSET_V = "8";
+const R2_ASSET_V = "9";
 const DEFAULT_TRACK_M = 5000;
 const SPEED_DT_LAP = 0.04;
 
@@ -221,16 +221,6 @@ export function timingFracFromField(field: RaceField, code: string, elapsedS: nu
   });
 }
 
-/** Enough FastF1 GPS to drive the map; sparse/hairpin samples stay timing-primary. */
-export const DENSE_GPS_MIN_SAMPLES = 8;
-export const DENSE_GPS_MIN_SPAN_LAPS = 1;
-
-export function gpsSamplesAreDense(samples: { lap_frac: number }[]): boolean {
-  if (samples.length < DENSE_GPS_MIN_SAMPLES) return false;
-  const span = samples[samples.length - 1].lap_frac - samples[0].lap_frac;
-  return Number.isFinite(span) && span >= DENSE_GPS_MIN_SPAN_LAPS;
-}
-
 /** Along-track fraction for a driver at a replay clock instant (rAF display path). */
 export function replayDisplayFrac(
   field: RaceField,
@@ -240,19 +230,19 @@ export function replayDisplayFrac(
 ): number {
   const { lapFrac: fromElapsed } = elapsedToLap(field, elapsedS);
   const lapFrac = lapFracOverride ?? fromElapsed;
-  const timing = timingFracFromField(field, code, elapsedS);
+  const playbackTiming = wrap01(lapFrac);
+  const driverTiming = timingFracFromField(field, code, elapsedS);
+  // Playback compresses red-flag / standing-start laps; per-driver timing still
+  // uses raw FastF1 times. When those clocks disagree, GPS-as-primary walked
+  // backwards on Monza. Keep timing as the forward driver (same as other
+  // races); only use per-driver timing when it still agrees with playback.
+  let drift = Math.abs(wrappedPathDelta(playbackTiming, driverTiming));
+  if (drift > 0.5) drift = 1 - drift;
+  const timing = drift < 0.2 ? driverTiming : playbackTiming;
   const samples = posSamplesFor(field, code);
   const gpsRaw = pathFracAtLap(samples, lapFrac, field.meta.total_laps);
   const gps = Number.isFinite(gpsRaw) ? gpsRaw : null;
   const drv = field.drivers.find((d) => d.code === code);
-  // Playback compresses red-flag / standing-start laps; per-driver timing still
-  // uses raw FastF1 lap times (or 90s placeholders). That desync parks every
-  // dot on S/F until classified times resume. Dense GPS is on the playback
-  // lapFrac clock, so it stays on track. Sparse samples keep the old timing
-  // + epsilon nudge (hairpin / OpenF1 packs).
-  if (gps != null && gpsSamplesAreDense(samples)) {
-    return blendedPathFrac(gps, drv?.grid_position, lapFrac);
-  }
   return displayPathFrac({
     timingFrac: timing,
     gpsFrac: gps,
