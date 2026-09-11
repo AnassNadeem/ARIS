@@ -36,13 +36,22 @@ describe("pickDefaultHubSession", () => {
     expect(pickDefaultHubSession(sessions)?.session_type).toBe("Q");
   });
 
-  it("falls back to the most recent completed session for replay", () => {
+  it("prefers the next upcoming session over a completed practice", () => {
+    const sessions = [
+      sess({ session_type: "FP1", status: "COMPLETED", replayable: true }),
+      sess({ session_type: "FP2", status: "UPCOMING", datetime_utc: "2099-01-01T15:00:00Z" }),
+      sess({ session_type: "R", status: "UPCOMING", datetime_utc: "2099-01-03T13:00:00Z" }),
+    ];
+    expect(pickDefaultHubSession(sessions)?.session_type).toBe("FP2");
+  });
+
+  it("falls back to the most recent completed session when the weekend is over", () => {
     const sessions = [
       sess({ session_type: "FP1", status: "COMPLETED", replayable: true }),
       sess({ session_type: "FP2", status: "COMPLETED", replayable: true }),
-      sess({ session_type: "R", status: "UPCOMING", datetime_utc: "2099-01-02T12:00:00Z" }),
+      sess({ session_type: "R", status: "COMPLETED", replayable: true }),
     ];
-    expect(pickDefaultHubSession(sessions)?.session_type).toBe("FP2");
+    expect(pickDefaultHubSession(sessions)?.session_type).toBe("R");
   });
 
   it("falls back to the soonest upcoming session when nothing has run", () => {

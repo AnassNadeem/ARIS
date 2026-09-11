@@ -80,6 +80,17 @@ describe("official2026SessionTimes", () => {
     expect(times?.FP1).toBe("2026-09-04T10:30:00Z");
     expect(times?.FP2).toBe("2026-09-04T14:00:00Z");
   });
+
+  it("maps Madrid FP2 to 15:00 UTC, not the 13:00 estimate", () => {
+    const times = official2026SessionTimes("Madring", "madrid", 2026);
+    expect(times?.FP1).toBe("2026-09-11T11:30:00Z");
+    expect(times?.FP2).toBe("2026-09-11T15:00:00Z");
+    expect(times?.Q).toBe("2026-09-12T14:00:00Z");
+  });
+
+  it("does not apply Madrid stamps to Barcelona", () => {
+    expect(official2026SessionTimes("Circuit de Barcelona-Catalunya", "spain", 2026)).toBeNull();
+  });
 });
 
 describe("sessionClockStatus", () => {
@@ -144,6 +155,55 @@ describe("applyLiveHubSessionWindows", () => {
     const fp2 = hub.weekend_sessions.find((s) => s.session_type === "FP2");
     expect(fp2?.status).toBe("LIVE");
     expect(fp2?.live).toBe(true);
+  });
+
+  it("does not mark Madrid FP2 finished while the official 17:00 CEST start is still ahead", () => {
+    const stale: LiveHub = {
+      ...MONZA_HUB,
+      mode: "session_ended",
+      countdown_target: "2026-09-11T13:00:00Z",
+      live: { ...MONZA_HUB.live, year: 2026, round_number: 17, session_type: "FP2", gp_name: "Spain (Madrid)" },
+      next: {
+        ...MONZA_HUB.next,
+        round_number: 17,
+        name: "Spain (Madrid)",
+        circuit_name: "Madring",
+        circuit_key: "madrid",
+        country: "Spain",
+        city: "Madrid",
+        date_race: "2026-09-13T13:00:00Z",
+        next_session_name: "Free Practice 2",
+        next_session_datetime: "2026-09-11T13:00:00Z",
+      },
+      weekend_sessions: [
+        sess({
+          session_type: "FP1",
+          session_name: "Free Practice 1",
+          datetime_utc: "2026-09-11T09:30:00Z",
+          status: "COMPLETED",
+          replayable: true,
+        }),
+        sess({
+          session_type: "FP2",
+          session_name: "Free Practice 2",
+          datetime_utc: "2026-09-11T13:00:00Z",
+          status: "COMPLETED",
+          replayable: true,
+        }),
+        sess({ session_type: "R", session_name: "Race", datetime_utc: "2026-09-13T13:00:00Z" }),
+      ],
+      circuit: { ...MONZA_HUB.circuit, circuit_key: "madrid", circuit_name: "Madring", country: "Spain", country_flag: "🇪🇸" },
+      as_of: "2026-09-11T14:46:00Z",
+    };
+    const hub = applyLiveHubSessionWindows(stale, Date.parse("2026-09-11T14:46:00Z"));
+    const fp2 = hub.weekend_sessions.find((s) => s.session_type === "FP2");
+    expect(fp2?.datetime_utc).toBe("2026-09-11T15:00:00Z");
+    expect(fp2?.status).toBe("UPCOMING");
+    expect(fp2?.live).toBe(false);
+    expect(fp2?.replayable).toBe(false);
+    expect(hub.mode).toBe("waiting_for_session");
+    expect(hub.countdown_target).toBe("2026-09-11T15:00:00Z");
+    expect(hub.countdown_seconds).toBe(14 * 60);
   });
 });
 

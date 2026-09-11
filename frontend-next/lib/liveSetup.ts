@@ -13,13 +13,14 @@ export function pickDefaultHubSession(sessions: HubSession[]): HubSession | null
   if (!sessions.length) return null;
   const live = sessions.find((s) => sessionIsLiveNow(s));
   if (live) return live;
-  const completed = sessions.filter((s) => s.status === "COMPLETED" || s.replayable);
-  if (completed.length) return completed[completed.length - 1] ?? null;
   const upcoming = sessions
     .filter((s) => s.status === "UPCOMING" && s.datetime_utc)
     .slice()
     .sort((a, b) => String(a.datetime_utc).localeCompare(String(b.datetime_utc)));
-  return upcoming[0] ?? sessions[0];
+  if (upcoming[0]) return upcoming[0];
+  const completed = sessions.filter((s) => s.status === "COMPLETED" || s.replayable);
+  if (completed.length) return completed[completed.length - 1] ?? null;
+  return sessions[0];
 }
 
 /** Prefer a live ARIS session, else the next upcoming FP2/Race. */

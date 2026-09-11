@@ -674,6 +674,45 @@ def test_monza_2026_fp1_still_upcoming_before_1030z():
     assert by["FP1"] == "UPCOMING"
 
 
+def test_madrid_2026_fp2_is_upcoming_before_official_1700_cest():
+    from backend.cache import cache as mem_cache
+    from backend.calendar import get_round_sessions
+    from backend.live_hub import build_live_hub_fast
+
+    mem_cache.delete_prefix("calbuild_r2madrid26t_2026")
+    as_of = datetime(2026, 9, 11, 14, 46, tzinfo=UTC)
+    weekend = get_round_sessions(2026, 17, as_of=as_of)
+    by = {s.session_type: s for s in weekend.sessions}
+    assert by["FP1"].status == "COMPLETED"
+    assert by["FP1"].datetime_utc == datetime(2026, 9, 11, 11, 30, tzinfo=UTC)
+    assert by["FP2"].status == "UPCOMING"
+    assert by["FP2"].datetime_utc == datetime(2026, 9, 11, 15, 0, tzinfo=UTC)
+
+    hub = build_live_hub_fast(as_of)
+    assert hub.next.round_number == 17
+    assert hub.mode == "waiting_for_session"
+    fp2 = next(s for s in hub.weekend_sessions if s.session_type == "FP2")
+    assert fp2.live is False
+    assert fp2.status == "UPCOMING"
+    assert hub.countdown_target == datetime(2026, 9, 11, 15, 0, tzinfo=UTC)
+
+
+def test_madrid_2026_fp2_is_live_at_official_1700_cest():
+    from backend.cache import cache as mem_cache
+    from backend.calendar import get_round_sessions
+    from backend.live_hub import build_live_hub_fast
+
+    mem_cache.delete_prefix("calbuild_r2madrid26t_2026")
+    as_of = datetime(2026, 9, 11, 15, 5, tzinfo=UTC)
+    weekend = get_round_sessions(2026, 17, as_of=as_of)
+    by = {s.session_type: s.status for s in weekend.sessions}
+    assert by["FP2"] == "LIVE"
+    hub = build_live_hub_fast(as_of)
+    assert hub.mode == "live_session"
+    fp2 = next(s for s in hub.weekend_sessions if s.session_type == "FP2")
+    assert fp2.live is True
+
+
 def test_live_status_round_matches_monza_weekend(monkeypatch):
     import asyncio
 

@@ -139,10 +139,12 @@ NOTES_OVERLAY: dict[int, list[dict[str, Any]]] = {
             "city": "Madrid",
             "date_race": "2026-09-13T13:00:00Z",
             "is_sprint_weekend": False,
-            "date_fp1": "2026-09-11T09:30:00Z",
-            "date_fp2": "2026-09-11T13:00:00Z",
-            "date_fp3": "2026-09-12T08:30:00Z",
-            "date_quali": "2026-09-12T12:00:00Z",
+            # Official F1 Madrid 2026 timetable (local CEST = UTC+2).
+            # FP1 13:30, FP2 17:00, FP3 12:30, Q 16:00, race 15:00.
+            "date_fp1": "2026-09-11T11:30:00Z",
+            "date_fp2": "2026-09-11T15:00:00Z",
+            "date_fp3": "2026-09-12T10:30:00Z",
+            "date_quali": "2026-09-12T14:00:00Z",
         },
         {"round_number": 18, "name": "Azerbaijan", "circuit_name": "Baku City Circuit", "country": "Azerbaijan", "city": "Baku", "date_race": "2026-09-26T11:00:00Z", "is_sprint_weekend": False},
         # April Sakhir round cancelled; Bahrain GP relocated to Sepang (Oct).
@@ -874,8 +876,8 @@ def get_calendar(year: int, as_of: datetime | None = None, *, for_replay: bool =
     wall = datetime.now(timezone.utc)
     as_of = now_utc(as_of)
     near_now = abs((as_of - wall).total_seconds()) < 180
-    # Bust key when 2026 overlay changes (Miami=6, NL=15, Madrid=17, Sepang=19).
-    cache_key = f"calbuild_r2madrid26_{year}" if near_now else f"calbuild_r2madrid26_{year}_{as_of.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+    # Bust key when 2026 overlay session stamps change (Madrid FP2 15:00Z).
+    cache_key = f"calbuild_r2madrid26t_{year}" if near_now else f"calbuild_r2madrid26t_{year}_{as_of.strftime('%Y-%m-%dT%H:%M:%SZ')}"
     hit = mem_cache.get(cache_key, TTL_CALENDAR)
     if hit is not None:
         return hit
@@ -945,9 +947,9 @@ def get_round(year: int, round_number: int, as_of: datetime | None = None) -> Ca
 def peek_round_meta(year: int, round_number: int) -> tuple[str, str]:
     """Country + circuit_key from memory/overlay only — never loads FastF1."""
     wall = datetime.now(timezone.utc)
-    hit = mem_cache.get(f"calbuild_r2madrid26_{year}", TTL_CALENDAR)
+    hit = mem_cache.get(f"calbuild_r2madrid26t_{year}", TTL_CALENDAR)
     if hit is None:
-        hit = mem_cache.get(f"calbuild_r2madrid26_{year}_{wall.strftime('%Y-%m-%dT%H:%M:%SZ')}", TTL_CALENDAR)
+        hit = mem_cache.get(f"calbuild_r2madrid26t_{year}_{wall.strftime('%Y-%m-%dT%H:%M:%SZ')}", TTL_CALENDAR)
     if hit is not None:
         for rnd in getattr(hit, "rounds", []):
             if int(getattr(rnd, "round_number", 0) or 0) == int(round_number):

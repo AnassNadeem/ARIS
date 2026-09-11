@@ -17,8 +17,8 @@ const DURATION_MS: Record<string, number> = {
 
 /**
  * Official 2026 weekend UTC stamps. Applied in the UI so a stale Heroku
- * calendar (old 13:30 CEST FP1 estimate) cannot keep counting down after
- * the session has already started.
+ * calendar cannot mark a session finished (or keep counting down) after
+ * the real timetable has moved.
  */
 const OFFICIAL_2026_SESSIONS: { needles: string[]; times: Record<string, string> }[] = [
   {
@@ -29,6 +29,17 @@ const OFFICIAL_2026_SESSIONS: { needles: string[]; times: Record<string, string>
       FP3: "2026-09-05T10:30:00Z",
       Q: "2026-09-05T14:00:00Z",
       R: "2026-09-06T13:00:00Z",
+    },
+  },
+  {
+    // Do not needle "spain" — Barcelona (R9) is also Spain.
+    needles: ["madrid", "madring"],
+    times: {
+      FP1: "2026-09-11T11:30:00Z",
+      FP2: "2026-09-11T15:00:00Z",
+      FP3: "2026-09-12T10:30:00Z",
+      Q: "2026-09-12T14:00:00Z",
+      R: "2026-09-13T13:00:00Z",
     },
   },
 ];
