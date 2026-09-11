@@ -2,7 +2,7 @@
 
 import { useRaceStore } from "@/store/raceStore";
 import { formatLapHeader } from "@/lib/formatLap";
-import { SessionClockLabel } from "@/components/ui/SessionClock";
+import { SessionClockLabel, SessionFlagBadge } from "@/components/ui/SessionClock";
 import { isTimedSession } from "@/lib/sessionFlow";
 
 const SPEEDS: (1 | 2 | 4 | 8 | 16 | 25 | 50)[] = [1, 2, 4, 8, 16, 25, 50];
@@ -13,7 +13,6 @@ export function PlaybackControls() {
   const totalLaps = useRaceStore((s) => s.totalLaps);
   const isPlaying = useRaceStore((s) => s.isPlaying);
   const playbackSpeed = useRaceStore((s) => s.playbackSpeed);
-  const racePhase = useRaceStore((s) => s.racePhase);
   const consolePlayState = useRaceStore((s) => s.consolePlayState);
   const setIsPlaying = useRaceStore((s) => s.setIsPlaying);
   const setPlaybackSpeed = useRaceStore((s) => s.setPlaybackSpeed);
@@ -93,19 +92,15 @@ export function PlaybackControls() {
       )}
       {isLive && (
         <div className="flex items-center justify-between">
-          <span className="font-mono-data text-xs text-white">
+          <span className="flex items-center gap-2 font-mono-data text-xs text-white">
             {timed ? (
               <SessionClockLabel startIso={session?.date} sessionType={session?.sessionType} />
             ) : (
               formatLapHeader(currentLap, totalLaps)
             )}{" "}
             · <span className="text-red">LIVE</span>
+            <SessionFlagBadge />
           </span>
-          {racePhase !== "GREEN" && (
-            <span className="rounded bg-amber/20 px-2 py-0.5 font-mono-data text-xs text-amber">
-              {racePhase}
-            </span>
-          )}
         </div>
       )}
       {!timed && (

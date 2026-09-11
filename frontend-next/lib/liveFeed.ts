@@ -3,8 +3,9 @@ import type { CarState } from "@/lib/types";
 import { circuitCoordsFromReplayOutline } from "@/lib/api";
 import { postGhostRecompute } from "@/lib/api";
 import { isFullCircuitOutline, shouldApplyFallbackOutline } from "@/lib/circuitCache";
-import { annotateGhostTower, mapTimingAndPositions, mergeByDriverCode, mergeCars, mergeLivePositions, sessionFlagToPhase, timingFingerprint } from "@/lib/mapCars";
-import { asGhostTick, ghostCarFromTick, ghostLastLapS, ghostPlaybackAt, ghostStartFracFromSamples, ghostTickLapForDelta, maybeLogGhostDiagnostics, syntheticGhostCar, syntheticGhostTick } from "@/lib/ghostCar";
+import { annotateGhostTower, alignGridToSession, mapTimingAndPositions, mergeByDriverCode, mergeCars, mergeLivePositions, sessionFlagToPhase, timingFingerprint } from "@/lib/mapCars";
+import { isTimedSession } from "@/lib/sessionFlow";
+import { asGhostTick, applyGhostCaution, freezeGhostPhase, ghostCarFromTick, ghostLastLapS, ghostPlaybackAt, ghostStartFracFromSamples, ghostTickLapForDelta, maybeLogGhostDiagnostics, noOvertakePhase, syntheticGhostCar, syntheticGhostTick } from "@/lib/ghostCar";
 import { normalizeCompound } from "@/lib/compounds";
 import {
   fetchGhost,
@@ -27,6 +28,7 @@ import {
   r2TickToGhostTick,
   raceDurationS,
   deriveGhostLapTimes,
+  playbackLapDurations,
   realLapTimesByDriver,
   ghostTickAtOrBefore,
   ghostWithPlanStart,
@@ -55,6 +57,7 @@ type SsePayload = {
     current_lap?: number | null;
     total_laps?: number | null;
     session_flag?: string | null;
+    session_remaining_seconds?: number | null;
     session_ended?: boolean;
     year?: number | null;
     round_number?: number | null;
@@ -172,10 +175,11 @@ function pinGhostToGridAtStart(car: CarState, real: CarState | null): CarState {
       ? 0
       : 1;
   if (frac >= GRID_START_LAP_FRAC) return car;
+  const grid = store.r2RaceField?.drivers.find((d) => d.code === (store.arisDriver ?? "").toUpperCase())?.grid_position;
   return {
     ...car,
-    position: real.position,
-    gap_to_leader_s: real.position === 1 ? 0 : null,
+    position: grid && grid > 0 ? grid : real.position,
+    gap_to_leader_s: (grid ?? real.position) === 1 ? 0 : null,
     gap_ahead_s: null,
     ghost_delta_s: null,
     ghost_delta_vs: undefined,
@@ -189,12 +193,34 @@ export function finalizeGhostCar(
   tickPosition?: number | null,
 ): CarState {
   const store = useRaceStore.getState();
-  const ranked = annotateGhostTower(car, store.cars, real);
+  const driver = store.arisDriver ?? store.session?.driverCode ?? store.focusDriver ?? null;
+  const grid = driver
+    ? store.r2RaceField?.drivers.find((d) => d.code === driver.toUpperCase())?.grid_position
+    : null;
+  const phase = store.racePhase;
+  const freezeRank = freezeGhostPhase(phase) || noOvertakePhase(phase);
+  const hold = freezeRank ? (store.ghostCar?.position ?? grid ?? tickPosition) : null;
+  const ranked = annotateGhostTower(car, store.cars, real, {
+    gridPosition: grid,
+    freezeRank,
+    holdPosition: hold,
+  });
   if (store.consoleMode === "live") {
     const fromTick = simulatedTickPosition(tickPosition);
     return fromTick != null ? { ...ranked, position: fromTick } : ranked;
   }
-  return pinGhostToGridAtStart(ranked, real);
+  const caution = applyGhostCaution({
+    pathFrac: ranked.path_frac ?? 0,
+    speedKph: ranked.speed_kph,
+    phase,
+    cars: Object.values(store.cars),
+    ghostPosition: ranked.position,
+    prevPathFrac: store.ghostCar?.path_frac,
+  });
+  return pinGhostToGridAtStart(
+    { ...ranked, path_frac: caution.pathFrac, speed_kph: caution.speedKph },
+    real,
+  );
 }
 
 function applyGhost(payload: SsePayload) {
@@ -252,6 +278,7 @@ function applyGhost(payload: SsePayload) {
     const derived = deriveGhostLapTimes(
       Object.values(store.ghostTicksByLap),
       realLapTimesByDriver(store.r2RaceField, driver),
+      playbackLapDurations(store.r2RaceField),
     );
     ghostLapS = derived.ghost_lap_s;
     ghostCumulativeS = derived.ghost_cumulative_s;
@@ -448,11 +475,25 @@ export class LiveSseFeed {
     if (total != null) store.setTotalLaps(total);
     if (status?.session_flag) store.setRacePhase(sessionFlagToPhase(status.session_flag));
     else if (payload.timing?.session_flag) store.setRacePhase(sessionFlagToPhase(payload.timing.session_flag));
+    if (status?.session_remaining_seconds != null) store.setSessionRemaining(status.session_remaining_seconds);
     if (status?.session_ended) store.setRaceFinished(true);
     const raining = payload.weather?.rainfall ?? payload.timing?.rainfall;
     if (typeof raining === "boolean") store.setRainfall(raining);
     applyCircuitPath(payload);
-    const cars = mapTimingAndPositions(timingRows, positions, store.gridDrivers, total || store.totalLaps || 1, lap || 1);
+    const timed = isTimedSession(store.session?.sessionType);
+    const cars = mapTimingAndPositions(
+      timingRows,
+      positions,
+      store.gridDrivers,
+      total || store.totalLaps || 1,
+      lap || 1,
+      { ignoreOutOfRace: timed },
+    );
+    const aligned = alignGridToSession(
+      store.gridDrivers,
+      timingRows.map((r) => r.driver_code),
+    );
+    if (aligned !== store.gridDrivers) store.setGridDrivers(aligned);
     const fp = timingFingerprint(timingRows, positions);
     if (fp !== this.lastFp && Object.keys(cars).length) {
       this.lastFp = fp;

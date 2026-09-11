@@ -13,11 +13,20 @@ notes:
     - "2026 Dutch Grand Prix at Zandvoort. New 2026 technical regulations (MGU-H removed)."
     - "Isack Hadjar withdrew (injury). Liam Lawson is at Red Bull (promoted from Racing Bulls). Yuki Tsunoda replaces Hadjar at Racing Bulls."
     - "ARIS focus car is Lewis Hamilton. Strategy uses 2021–2025 Zandvoort races, not Hamilton's real pit calls."
+  "2026-17":
+    - "Isack Hadjar remains out (injury). Yuki Tsunoda continues at Racing Bulls in his place."
 
 # Drivers who must not appear on the live/replay map for a weekend.
 weekend_lineups:
   "2026-15":
     exclude: ["HAD"]
+
+# Withdrawals that continue until to_round (omit to_round = rest of the season).
+# Session OpenF1 entry lists supply the replacement driver; `replacement` is
+# only used when that session list still has the absent code.
+season_absences:
+  "2026":
+    - {code: HAD, from_round: 15, replacement: TSU}
 
 # Keep cancelled rounds in the overlay so R2 paths stay aligned (Miami=6, NL=15).
 # Sakhir Bahrain and Jeddah did not run in April 2026 (Middle East conflict).

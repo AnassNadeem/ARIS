@@ -4,20 +4,11 @@ export const ANALYTICS_SLOTS_KEY = "aris_analytics_slots_v2";
 
 export const DEFAULT_ANALYTICS_IDS = ["tyredeg", "sectortimes", "gapchart"] as const;
 
-/** Race-distance / GPS / ghost charts that need Replay packs — not live FP/Q. */
+/** GPS / ghost charts that need a Replay pack. Lap-based live panels stay addable. */
 export const REPLAY_ONLY_ANALYTICS = new Set([
-  "tyredeg",
-  "laptimes",
-  "gapchart",
-  "positiontrace",
-  "stintsummary",
-  "tyrestrategy",
-  "pitstoptimeline",
   "speedtrace",
   "throttlebrake",
   "corneranalysis",
-  "dirtyair",
-  "undercutwindow",
   "ghostdelta",
 ]);
 

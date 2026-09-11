@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatLapCompact, formatLapHeader, formatSessionClock, sessionRemainingMs } from "@/lib/formatLap";
+import { formatLapCompact, formatLapHeader, formatSessionClock, liveSessionRemainingMs, sessionRemainingMs } from "@/lib/formatLap";
 import { componentsFromLayoutJson, isPersistedLayout, stripAnalyticsAddFromLayout } from "@/lib/layoutPersist";
 
 describe("formatLapHeader", () => {
@@ -32,6 +32,27 @@ describe("session clock", () => {
     expect(formatSessionClock(60 * 60_000)).toBe("1:00:00");
     expect(formatSessionClock(32 * 60_000 + 14_000)).toBe("32:14");
     expect(formatSessionClock(0)).toBe("0:00");
+  });
+
+  it("freezes the live remaining clock under a red flag", () => {
+    const remainingAt = Date.parse("2026-09-11T15:20:00Z");
+    const later = Date.parse("2026-09-11T15:25:00Z");
+    expect(
+      liveSessionRemainingMs({
+        remainingS: 2400,
+        remainingAtMs: remainingAt,
+        frozen: true,
+        now: later,
+      }),
+    ).toBe(2400_000);
+    expect(
+      liveSessionRemainingMs({
+        remainingS: 2400,
+        remainingAtMs: remainingAt,
+        frozen: false,
+        now: later,
+      }),
+    ).toBe(2100_000);
   });
 });
 

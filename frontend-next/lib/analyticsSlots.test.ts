@@ -38,12 +38,15 @@ describe("defaultAnalyticsIds", () => {
 });
 
 describe("analyticsLockedOnTimedSession", () => {
-  it("locks race-distance charts on FP/Q and leaves them open on race", () => {
-    expect(analyticsLockedOnTimedSession("gapchart", true)).toBe(true);
-    expect(analyticsLockedOnTimedSession("tyredeg", true)).toBe(true);
+  it("locks GPS/ghost charts on FP/Q and leaves lap analytics open", () => {
+    expect(analyticsLockedOnTimedSession("speedtrace", true)).toBe(true);
+    expect(analyticsLockedOnTimedSession("ghostdelta", true)).toBe(true);
+    expect(analyticsLockedOnTimedSession("dirtyair", true)).toBe(false);
+    expect(analyticsLockedOnTimedSession("tyredeg", true)).toBe(false);
+    expect(analyticsLockedOnTimedSession("laptimes", true)).toBe(false);
     expect(analyticsLockedOnTimedSession("sectortimes", true)).toBe(false);
     expect(analyticsLockedOnTimedSession("weatheroverlay", true)).toBe(false);
-    expect(analyticsLockedOnTimedSession("gapchart", false)).toBe(false);
+    expect(analyticsLockedOnTimedSession("speedtrace", false)).toBe(false);
     expect(REPLAY_ONLY_HINT).toBe("available on arisf1.tech/replay");
   });
 });

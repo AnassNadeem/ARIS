@@ -1513,3 +1513,26 @@ def test_race_timing_keeps_track_position_and_gaps():
     assert [r.driver_code for r in rows] == ["VER", "LEC"]
     assert rows[0].gap_to_leader_s == 0.0
     assert rows[1].gap_to_leader_s == 1.2
+
+
+def test_timed_session_clock_pauses_under_red_flag():
+    from datetime import datetime, timezone
+
+    from backend.live import official_timed_duration_s, timed_session_remaining_s
+
+    start = datetime(2026, 9, 11, 15, 0, tzinfo=timezone.utc)
+    dur = official_timed_duration_s("FP2")
+    assert dur == 3600
+    green = datetime(2026, 9, 11, 15, 10, tzinfo=timezone.utc)
+    assert timed_session_remaining_s(start=start, as_of=green, duration_s=dur, rc=[]) == 3000
+    rc = [
+        {"date": "2026-09-11T15:10:00Z", "flag": "RED", "message": "RED FLAG"},
+    ]
+    still_red = datetime(2026, 9, 11, 15, 25, tzinfo=timezone.utc)
+    assert timed_session_remaining_s(start=start, as_of=still_red, duration_s=dur, rc=rc) == 3000
+    rc.append({"date": "2026-09-11T15:25:00Z", "flag": "GREEN", "message": "SESSION RESUMED"})
+    later = datetime(2026, 9, 11, 15, 35, tzinfo=timezone.utc)
+    assert timed_session_remaining_s(start=start, as_of=later, duration_s=dur, rc=rc) == 2400
+    rc.append({"date": "2026-09-11T15:40:00Z", "flag": "CHEQUERED", "message": "CHEQUERED FLAG"})
+    done = datetime(2026, 9, 11, 15, 41, tzinfo=timezone.utc)
+    assert timed_session_remaining_s(start=start, as_of=done, duration_s=dur, rc=rc) == 0

@@ -17,6 +17,10 @@ describe("sessionFlagToPhase standing start", () => {
     expect(sessionFlagToPhase("CHEQUERED FLAG")).toBe("GREEN");
     expect(sessionFlagToPhase("FINISHED")).toBe("GREEN");
   });
+
+  it("maps YELLOW", () => {
+    expect(sessionFlagToPhase("YELLOW")).toBe("YELLOW");
+  });
 });
 
 describe("resolveSessionFlag + red-flag playback compression", () => {
@@ -71,6 +75,15 @@ describe("resolveSessionFlag + red-flag playback compression", () => {
     expect(lap4).toBeLessThanOrEqual(8);
     expect(lap3).toBeLessThanOrEqual(16);
     expect(raceDurationS(field)).toBeLessThan(90 * 3 + 16 + 8 + 1);
+  });
+
+  it("marks a lap with sector yellows as YELLOW when not SC/red", () => {
+    const yellowField = {
+      ...field,
+      race_control: [{ lap: 2, message: "YELLOW IN TRACK SECTOR 2", flag: "YELLOW", category: "Flag" }],
+    } as RaceField;
+    const t = lapToElapsed(yellowField, 2) + 1;
+    expect(resolveSessionFlag(yellowField, 2, t)).toBe("YELLOW");
   });
 });
 

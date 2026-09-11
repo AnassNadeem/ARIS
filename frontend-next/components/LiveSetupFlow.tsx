@@ -87,13 +87,13 @@ export function LiveSetupFlow({
 
   useEffect(() => {
     let cancelled = false;
-    getDrivers(year).then((d) => {
+    getDrivers(year, round, picked?.session_type).then((d) => {
       if (!cancelled && d.length) setDrivers(d);
     });
     return () => {
       cancelled = true;
     };
-  }, [year]);
+  }, [year, round, picked?.session_type]);
 
   useEffect(() => {
     if (!driver) return;

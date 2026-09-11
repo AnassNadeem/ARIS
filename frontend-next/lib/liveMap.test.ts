@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { filterReplayRounds, replayYears, defaultReplayYear, pickLatestReplayRound, startFinishMarker, isReplayableRound, chequeredSfFlag, keepRoundsWithPack, formatRaceDate } from "./replayFilter";
-import { annotateGhostTower, hasLiveGps, LIVE_GPS_STALE_MS, LIVE_PATH_FRAC_JITTER, mapTimingAndPositions, mergeByDriverCode, mergeCars, mergeLivePositions, onTrackCarCodes, orderTimingTower, rankGhostByGap, realClassifiedCars, resolveLivePathFrac, sessionFlagToPhase, timingEqual, timingFingerprint } from "./mapCars";
+import { annotateGhostTower, alignGridToSession, hasLiveGps, LIVE_GPS_STALE_MS, LIVE_PATH_FRAC_JITTER, mapTimingAndPositions, mergeByDriverCode, mergeCars, mergeLivePositions, onTrackCarCodes, orderTimingTower, rankGhostByGap, realClassifiedCars, resolveLivePathFrac, sessionFlagToPhase, timingEqual, timingFingerprint } from "./mapCars";
 import { normalizeCompound, msToSeconds } from "./compounds";
 import { countryFlag } from "./flags";
 import { commsTabs, nextSelectorStep } from "./sessionFlow";
@@ -210,6 +210,34 @@ describe("mapTimingAndPositions", () => {
     );
     expect(cars.GAS.is_dnf).toBe(true);
     expect(cars.GAS.status).toBe("DNF");
+  });
+
+  it("does not mark DNF/DNS when mapping a timed practice session", () => {
+    const cars = mapTimingAndPositions(
+      [{
+        position: 18,
+        driver_code: "HAD",
+        gap_to_leader_s: null,
+        gap_to_ahead_s: null,
+        last_lap_ms: null,
+        compound: null,
+        tyre_life: null,
+        pit_count: 0,
+        team_colour: null,
+        in_pit: false,
+        lap_number: 1,
+        speed_kph: null,
+        status: "DNS",
+        eliminated: true,
+      }],
+      [],
+      [{ driver_number: 6, driver_code: "HAD", full_name: "Isack Hadjar", team: "Racing Bulls", team_colour: "#6692FF" }],
+      1,
+      1,
+      { ignoreOutOfRace: true },
+    );
+    expect(cars.HAD.is_dnf).toBe(false);
+    expect(cars.HAD.status).toBe("RUNNING");
   });
 
   it("treats a retired reason as DNF so the map drops the car", () => {
@@ -790,6 +818,44 @@ describe("orderTimingTower", () => {
     expect(rows.map((r) => r.driver_code)).toEqual(["LEC", "NOR", "VER", "GAS"]);
     expect(rows.map((r) => r.position)).toEqual([1, 2, 3, 4]);
   });
+
+  it("does not park DNS/DNF cars at the bottom of a practice tower", () => {
+    const rows = orderTimingTower(
+      [
+        car({ driver_code: "HAD", position: 22, best_lap_s: null, is_dnf: true, status: "DNS" }),
+        car({ driver_code: "TSU", position: 18, best_lap_s: 74.1, is_dnf: false }),
+        car({ driver_code: "VER", position: 1, best_lap_s: 72.0, is_dnf: false }),
+      ],
+      null,
+      { byBestLap: true },
+    );
+    expect(rows.every((r) => r.is_dnf === false && r.status === "RUNNING")).toBe(true);
+    expect(rows.map((r) => r.driver_code)).toEqual(["VER", "TSU", "HAD"]);
+  });
+});
+
+describe("alignGridToSession", () => {
+  it("drops absences and adds the session replacement", () => {
+    const grid = [
+      { driver_number: 6, driver_code: "HAD", full_name: "Isack Hadjar", team: "Racing Bulls", team_colour: "#6B98FF" },
+      { driver_number: 1, driver_code: "VER", full_name: "Max Verstappen", team: "Red Bull", team_colour: "#3671C6" },
+    ];
+    const next = alignGridToSession(grid, ["VER", "TSU", "NOR", "PIA", "LEC", "HAM", "RUS", "ANT", "ALO", "STR"]);
+    expect(next.map((d) => d.driver_code)).toContain("TSU");
+    expect(next.map((d) => d.driver_code)).not.toContain("HAD");
+    expect(next.map((d) => d.driver_code)).toContain("VER");
+  });
+
+  it("keeps an FP1-only replacement from that session's entry list", () => {
+    const grid = [
+      { driver_number: 22, driver_code: "TSU", full_name: "Yuki Tsunoda", team: "Racing Bulls", team_colour: "#6B98FF" },
+      { driver_number: 1, driver_code: "VER", full_name: "Max Verstappen", team: "Red Bull", team_colour: "#3671C6" },
+    ];
+    const fp1 = ["VER", "BEA", "NOR", "PIA", "LEC", "HAM", "RUS", "ANT", "ALO", "STR"];
+    const next = alignGridToSession(grid, fp1);
+    expect(next.map((d) => d.driver_code)).toContain("BEA");
+    expect(next.map((d) => d.driver_code)).not.toContain("TSU");
+  });
 });
 
 describe("annotateGhostTower", () => {
@@ -889,6 +955,33 @@ describe("annotateGhostTower", () => {
     );
     expect(placed.position).toBe(2);
     expect(placed.gap_to_leader_s).toBe(1.2);
+  });
+
+  it("holds the grid slot when the focus driver loses places and delta is ~0", () => {
+    const chaos = {
+      VER: car({ driver_code: "VER", position: 1, gap_to_leader_s: 0 }),
+      NOR: car({ driver_code: "NOR", position: 2, gap_to_leader_s: 0.4 }),
+      LEC: car({ driver_code: "LEC", position: 3, gap_to_leader_s: 0.9 }),
+      PIA: car({ driver_code: "PIA", position: 4, gap_to_leader_s: 1.2 }),
+      HAM: car({ driver_code: "HAM", position: 10, gap_to_leader_s: 4.76 }),
+    };
+    const placed = annotateGhostTower(
+      car({ driver_code: "A_HAM", ghost_cumulative_delta: -0.4, position: 12 }),
+      chaos,
+      chaos.HAM,
+      { gridPosition: 4 },
+    );
+    expect(placed.position).toBe(4);
+  });
+
+  it("freezes rank under SC so the ghost cannot overtake", () => {
+    const placed = annotateGhostTower(
+      car({ driver_code: "A_NOR", ghost_cumulative_delta: 8, position: 2 }),
+      field,
+      field.NOR,
+      { freezeRank: true, holdPosition: 2 },
+    );
+    expect(placed.position).toBe(2);
   });
 
   it("does not change rank when path_frac / pos_samples on the inputs change", () => {

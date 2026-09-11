@@ -31,7 +31,7 @@ import { RaceFinishedDebrief } from "@/components/aris/RaceFinishedDebrief";
 import { StrategyChangeBanner } from "@/components/aris/StrategyChangeBanner";
 import { useArisRecommendLoop } from "@/lib/useArisRecommendLoop";
 import { formatLapCompact, formatLapHeader } from "@/lib/formatLap";
-import { SessionClockLabel } from "@/components/ui/SessionClock";
+import { SessionClockLabel, SessionFlagBadge } from "@/components/ui/SessionClock";
 import { canToggleArisInConsole, isTimedSession, replayStartReady, sessionLabel } from "@/lib/sessionFlow";
 import { useCountdown } from "@/lib/useCountdown";
 import {
@@ -560,12 +560,13 @@ export function ARISConsole({
                 ARIS for {arisDriver}
               </span>
             )}
-            <span className="hidden font-mono-data text-xs text-muted md:inline">
+            <span className="hidden items-center gap-2 font-mono-data text-xs text-muted md:inline-flex">
               {timedSession ? (
                 <SessionClockLabel startIso={session?.date} sessionType={session?.sessionType} />
               ) : (
                 formatLapHeader(currentLap, totalLaps)
               )}
+              {mode === "live" ? <SessionFlagBadge /> : null}
             </span>
             {mode === "replay" && replayNotRacing && (
               <button
@@ -626,12 +627,13 @@ export function ARISConsole({
         }
       />
       <div className="grid shrink-0 grid-cols-3 items-center border-b border-border bg-surface-2 px-3 py-1.5 md:hidden">
-        <span className="justify-self-start font-mono-data text-xs text-white">
+        <span className="flex items-center gap-1 justify-self-start font-mono-data text-xs text-white">
           {timedSession ? (
             <SessionClockLabel startIso={session?.date} sessionType={session?.sessionType} compact />
           ) : (
             formatLapCompact(currentLap, totalLaps)
           )}
+          {mode === "live" ? <SessionFlagBadge compact /> : null}
         </span>
         <div className="justify-self-center">
           {mode === "replay" && replayNotRacing ? (
@@ -718,11 +720,14 @@ export function ARISConsole({
               ? "bg-[#E8002D]/20 text-[#E8002D]"
                 : racePhase === "STANDING_START"
                   ? "bg-white/10 text-white"
+                  : racePhase === "YELLOW"
+                    ? "bg-[#FFE14A]/20 text-[#111]"
                   : "bg-[#FF8700]/20 text-[#FF8700]"
           }`}
         >
-          {racePhase === "SC" && "SAFETY CAR. Pit loss reduced to ~11s. Cheap pit window."}
-          {racePhase === "VSC" && "VIRTUAL SAFETY CAR. Pace delta limited."}
+          {racePhase === "SC" && "SAFETY CAR. Pit loss reduced to ~11s. Cheap pit window. No overtaking."}
+          {racePhase === "VSC" && "VIRTUAL SAFETY CAR. Pace delta limited. No overtaking."}
+          {racePhase === "YELLOW" && "YELLOW FLAG. Slow in the affected sector."}
           {racePhase === "RED_FLAG" && "RED FLAG. Free tyre change. Strategy reset."}
           {racePhase === "STANDING_START" && "STANDING START. Prior lap deltas cleared."}
         </div>

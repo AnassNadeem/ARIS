@@ -4,7 +4,7 @@
 
 export type Compound = "SOFT" | "MEDIUM" | "HARD" | "INTERMEDIATE" | "WET";
 
-export type RacePhase = "GREEN" | "VSC" | "SC" | "RED_FLAG" | "FORMATION_LAP" | "STANDING_START";
+export type RacePhase = "GREEN" | "YELLOW" | "VSC" | "SC" | "RED_FLAG" | "FORMATION_LAP" | "STANDING_START";
 
 export interface PhaseHistoryEntry {
   lap: number;

@@ -272,13 +272,60 @@ def load_notes() -> dict[str, Any]:
     return raw
 
 
+def _season_absence_rows(year: int, round_number: int) -> list[dict]:
+    notes = load_notes()
+    absences = (notes.get("season_absences") or {}).get(str(int(year))) or (
+        notes.get("season_absences") or {}
+    ).get(int(year))
+    out: list[dict] = []
+    rnd = int(round_number)
+    for row in absences or []:
+        if not isinstance(row, dict):
+            continue
+        code = str(row.get("code") or "").upper()
+        if not code:
+            continue
+        start = int(row.get("from_round") or 0)
+        end = row.get("to_round")
+        if rnd < start:
+            continue
+        if end is not None and rnd > int(end):
+            continue
+        out.append({**row, "code": code})
+    return out
+
+
 def weekend_excluded_codes(year: int | None, round_number: int | None) -> set[str]:
-    """Drivers withdrawn for a specific weekend — do not draw them on the map."""
+    """Drivers withdrawn for a weekend. Session OpenF1 lists supply replacements."""
     if year is None or round_number is None:
         return set()
     notes = load_notes()
+    out: set[str] = set()
     block = (notes.get("weekend_lineups") or {}).get(f"{int(year)}-{int(round_number)}") or {}
-    return {str(c).upper() for c in (block.get("exclude") or []) if c}
+    out |= {str(c).upper() for c in (block.get("exclude") or []) if c}
+    out |= {str(row["code"]) for row in _season_absence_rows(int(year), int(round_number))}
+    return out
+
+
+def weekend_replacement_codes(year: int | None, round_number: int | None) -> dict[str, str]:
+    """Absent code → replacement for this weekend (OpenF1 session list still wins)."""
+    if year is None or round_number is None:
+        return {}
+    notes = load_notes()
+    out: dict[str, str] = {}
+    for row in _season_absence_rows(int(year), int(round_number)):
+        repl = str(row.get("replacement") or "").upper()
+        if repl:
+            out[str(row["code"])] = repl
+    block = (notes.get("weekend_lineups") or {}).get(f"{int(year)}-{int(round_number)}") or {}
+    raw = block.get("replace") or {}
+    if isinstance(raw, dict):
+        for code, repl in raw.items():
+            left = str(code or "").upper()
+            right = str(repl or "").upper()
+            if left and right:
+                out[left] = right
+    return out
 
 
 def session_is_open(

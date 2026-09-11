@@ -106,6 +106,7 @@ export function mapTimingAndPositions(
   drivers: DriverListing[],
   totalLaps: number,
   currentLap: number,
+  opts?: { ignoreOutOfRace?: boolean },
 ): Record<string, CarState> {
   const posBy = new Map(positions.map((p) => [p.driver_code, p]));
   const cars: Record<string, CarState> = {};
@@ -124,7 +125,7 @@ export function mapTimingAndPositions(
         in_pit: p.is_pitted,
         lap_number: currentLap,
         speed_kph: p.speed_ms != null ? p.speed_ms * 3.6 : null,
-        status: p.is_dnf ? "DNF" : "RUNNING",
+        status: opts?.ignoreOutOfRace ? "RUNNING" : p.is_dnf ? "DNF" : "RUNNING",
       }));
 
   for (const row of rows) {
@@ -132,9 +133,12 @@ export function mapTimingAndPositions(
     const gps = posBy.get(row.driver_code);
     const speedKph = row.speed_kph ?? (gps?.speed_ms != null ? gps.speed_ms * 3.6 : 0);
     const reason = String(row.reason ?? "").toUpperCase();
-    const retired = /\bDNF\b|\bDNS\b|RETIR|WITHDRAWN|ELIMINATED/.test(reason);
-    const status =
-      row.status === "DNF" || row.status === "DNS"
+    const retired = opts?.ignoreOutOfRace
+      ? false
+      : /\bDNF\b|\bDNS\b|RETIR|WITHDRAWN|ELIMINATED/.test(reason);
+    const status = opts?.ignoreOutOfRace
+      ? "RUNNING"
+      : row.status === "DNF" || row.status === "DNS"
         ? row.status
         : row.eliminated || gps?.is_dnf || retired
           ? reason.includes("DNS")
@@ -158,7 +162,7 @@ export function mapTimingAndPositions(
       best_lap_s: msToSeconds(row.best_lap_ms ?? null),
       pit_stops: row.pit_count ?? 0,
       is_pitted: row.in_pit || Boolean(gps?.is_pitted),
-      is_dnf: status === "DNF" || status === "DNS" || Boolean(gps?.is_dnf),
+      is_dnf: opts?.ignoreOutOfRace ? false : status === "DNF" || status === "DNS" || Boolean(gps?.is_dnf),
       status,
       fastest_lap: Boolean(row.fastest_lap),
       sector1_s: msToSeconds(row.sector1_ms ?? null),
@@ -183,10 +187,11 @@ export function mapTimingAndPositions(
 
 export function sessionFlagToPhase(
   flag: string | null | undefined,
-): "GREEN" | "VSC" | "SC" | "RED_FLAG" | "STANDING_START" {
+): "GREEN" | "YELLOW" | "VSC" | "SC" | "RED_FLAG" | "STANDING_START" {
   const u = (flag ?? "").toUpperCase();
   if (u === "SC") return "SC";
   if (u === "VSC") return "VSC";
+  if (u === "YELLOW") return "YELLOW";
   if (u === "FINISHED" || u.includes("CHEQUERED") || u.includes("CHECKERED") || u.includes("FINISH")) {
     return "GREEN";
   }
@@ -390,11 +395,20 @@ export function rankGhostByGap(
  * Place the ghost in classified order using the field's existing
  * gap_to_leader_s / gap_ahead_s (from r2FrameAt lap-table cumulatives).
  * Does not read path_frac or pos_samples.
+ *
+ * `gridPosition`: replay packs pass the lights-out slot so ARIS does not
+ * copy the focus driver's first-lap incidents while delta is still ~0.
+ * `freezeRank`: SC/VSC/red/standing — keep `holdPosition` (no overtaking).
  */
 export function annotateGhostTower(
   ghost: CarState,
   realCars: Record<string, CarState> | CarState[],
   focus: CarState | null,
+  opts?: {
+    gridPosition?: number | null;
+    freezeRank?: boolean;
+    holdPosition?: number | null;
+  },
 ): CarState {
   const field = (Array.isArray(realCars) ? realCars : Object.values(realCars)).filter(
     (c) => !isGhostRow(c) && !c.is_dnf && c.status !== "DNS",
@@ -403,10 +417,36 @@ export function annotateGhostTower(
     .map((c) => classifiedGapToLeader(c))
     .filter((g): g is number => g != null && Number.isFinite(g));
   const delta = ghost.ghost_cumulative_delta ?? 0;
+  const gridPos = opts?.gridPosition != null && opts.gridPosition > 0 ? opts.gridPosition : null;
+  const hold =
+    opts?.holdPosition != null && opts.holdPosition > 0
+      ? opts.holdPosition
+      : ghost.position && ghost.position > 0
+        ? ghost.position
+        : gridPos;
+  const gapsUnusable = fieldGaps.length < 2;
   const focusGap = focus ? classifiedGapToLeader(focus) : null;
-  const ghostGap = ghostClassifiedGap(focusGap, delta);
-  const fallback = ghost.position && ghost.position > 0 ? ghost.position : (focus?.position ?? 1);
-  const position = rankGhostByGap(ghostGap, fieldGaps, fallback);
+  const occupant = gridPos != null ? field.find((c) => towerPosition(c) === gridPos) : null;
+  const occupantGap = occupant ? classifiedGapToLeader(occupant) : null;
+  const sortedGaps = [...fieldGaps].sort((a, b) => a - b);
+  const gridGap =
+    occupantGap != null
+      ? occupantGap
+      : gridPos != null && sortedGaps.length
+        ? sortedGaps[Math.max(0, Math.min(sortedGaps.length - 1, gridPos - 1))]
+        : null;
+  const anchorGap = gridPos != null ? gridGap : focusGap;
+  const fallback = gridPos ?? (ghost.position && ghost.position > 0 ? ghost.position : (focus?.position ?? 1));
+  const rankDelta = gridPos != null && Math.abs(delta) < 1 ? 0 : delta;
+  let ghostGap = ghostClassifiedGap(anchorGap, rankDelta);
+  let position = rankGhostByGap(ghostGap, fieldGaps, fallback);
+  if (opts?.freezeRank || gapsUnusable) {
+    position = hold ?? fallback;
+    const heldGap = sortedGaps.length
+      ? sortedGaps[Math.max(0, Math.min(sortedGaps.length - 1, position - 1))]
+      : ghostGap;
+    ghostGap = heldGap;
+  }
   const ordered = [...field].sort((a, b) => towerPosition(a) - towerPosition(b));
   const ahead = [...ordered].reverse().find((c) => towerPosition(c) < position);
   const behind = ordered.find((c) => towerPosition(c) >= position);
@@ -453,11 +493,9 @@ export function orderTimingTower(
   const fromList = cars.find(isGhostRow) ?? null;
   const g = tagged ?? fromList;
   const rest = cars.filter((c) => !isGhostRow(c));
-  const classified = rest.filter((c) => !c.is_dnf);
-  const dnf = rest.filter((c) => c.is_dnf);
-  if (g && !g.is_dnf) classified.push(g);
   if (opts?.byBestLap) {
-    classified.sort((a, b) => {
+    const field = g ? [...rest, g] : rest;
+    field.sort((a, b) => {
       const ba = a.best_lap_s ?? Number.POSITIVE_INFINITY;
       const bb = b.best_lap_s ?? Number.POSITIVE_INFINITY;
       if (ba !== bb) return ba - bb;
@@ -465,10 +503,16 @@ export function orderTimingTower(
       if (dp !== 0) return dp;
       return a.driver_code.localeCompare(b.driver_code);
     });
-    const ranked: CarState[] = classified.map((c, i) => ({ ...c, position: i + 1 }));
-    dnf.sort((a, b) => towerLastLap(b) - towerLastLap(a));
-    return ranked.concat(dnf);
+    return field.map((c, i) => ({
+      ...c,
+      position: i + 1,
+      is_dnf: false,
+      status: "RUNNING" as const,
+    }));
   }
+  const classified = rest.filter((c) => !c.is_dnf);
+  const dnf = rest.filter((c) => c.is_dnf);
+  if (g && !g.is_dnf) classified.push(g);
   classified.sort((a, b) => {
     const dp = towerPosition(a) - towerPosition(b);
     if (dp !== 0) return dp;
@@ -477,4 +521,27 @@ export function orderTimingTower(
   });
   dnf.sort((a, b) => towerLastLap(b) - towerLastLap(a));
   return classified.concat(dnf);
+}
+
+/** Once a session entry list arrives, drop absences and add replacements. */
+export function alignGridToSession(grid: DriverListing[], sessionCodes: string[]): DriverListing[] {
+  const codes = sessionCodes.map((c) => c.toUpperCase()).filter(Boolean);
+  if (codes.length < 8) return grid;
+  const want = new Set(codes);
+  const kept = grid.filter((d) => want.has(d.driver_code.toUpperCase()));
+  const have = new Set(kept.map((d) => d.driver_code.toUpperCase()));
+  const extras: DriverListing[] = [];
+  for (const code of codes) {
+    if (have.has(code)) continue;
+    extras.push({
+      driver_code: code,
+      full_name: code,
+      team: "",
+      team_colour: "#888888",
+      driver_number: 0,
+    });
+    have.add(code);
+  }
+  if (!extras.length && kept.length === grid.length) return grid;
+  return [...kept, ...extras];
 }

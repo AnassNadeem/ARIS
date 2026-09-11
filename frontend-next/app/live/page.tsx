@@ -6,6 +6,7 @@ import { useRaceStore } from "@/store/raceStore";
 import { ARISConsole } from "@/components/layout/ARISConsole";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { LiveSetupFlow } from "@/components/LiveSetupFlow";
+import { liveHubSession, pickDefaultHubSession } from "@/lib/liveSetup";
 import { getDrivers, getLiveHub } from "@/lib/api";
 import type { LiveHub } from "@/lib/types";
 
@@ -50,7 +51,11 @@ function LivePageInner() {
       setHubTried(true);
       if (!next) return;
       setHub(next);
-      const drivers = await getDrivers(next.next.year);
+      const sessionType =
+        next.live.session_type ??
+        liveHubSession(next)?.session_type ??
+        pickDefaultHubSession(next.weekend_sessions)?.session_type;
+      const drivers = await getDrivers(next.next.year, next.next.round_number, sessionType);
       if (!cancelled && drivers.length) setGridDrivers(drivers);
     }
     void load();

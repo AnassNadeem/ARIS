@@ -18,7 +18,7 @@ import type {
   GhostData,
   GhostR2Tick,
 } from "@/lib/types";
-import { deriveGhostLapTimes, pitLossForCircuit, realLapTimesByDriver, DEFAULT_PIT_LOSS_S } from "@/lib/r2Replay";
+import { deriveGhostLapTimes, pitLossForCircuit, playbackLapDurations, realLapTimesByDriver, DEFAULT_PIT_LOSS_S } from "@/lib/r2Replay";
 import { postGhostRecompute } from "@/lib/api";
 
 export type ARISMode = "assisted" | "auto";
@@ -67,6 +67,9 @@ export interface RaceStore {
   /** Previous tick's rainfall - used to detect rain start/stop edges. */
   wasRaining: boolean;
   raceFinished: boolean;
+  /** Live FP/Q remaining seconds from the feed. Null until the first status tick. */
+  sessionRemainingSeconds: number | null;
+  sessionRemainingAtMs: number | null;
 
   // Playback (replay only)
   isPlaying: boolean;
@@ -157,6 +160,7 @@ export interface RaceStore {
   setCurrentLap: (lap: number) => void;
   setTotalLaps: (laps: number) => void;
   setRacePhase: (phase: RacePhase) => void;
+  setSessionRemaining: (seconds: number | null) => void;
   setRainfall: (on: boolean) => void;
   setWasRaining: (on: boolean) => void;
   setRaceFinished: (on: boolean) => void;
@@ -228,6 +232,8 @@ const initialState = {
   rainfall: false,
   wasRaining: false,
   raceFinished: false,
+  sessionRemainingSeconds: null as number | null,
+  sessionRemainingAtMs: null as number | null,
   isPlaying: false,
   playbackSpeed: 1 as const,
   scZones: [] as { startLap: number; endLap: number; kind: "SC" | "VSC" | "RED_FLAG" }[],
@@ -285,7 +291,11 @@ function deriveGhostSlice(s: {
   if (!ticks.length) {
     return { ghostLapS: [], ghostCumulativeS: [0], ghostImplausibleLaps: [], pitLossS };
   }
-  const derived = deriveGhostLapTimes(ticks, realLapTimesByDriver(s.r2RaceField, driver));
+  const derived = deriveGhostLapTimes(
+    ticks,
+    realLapTimesByDriver(s.r2RaceField, driver),
+    playbackLapDurations(s.r2RaceField),
+  );
   if (derived.implausible_laps.length) {
     const unclamped = derived.implausible_laps.filter((row) => row.ghost_lap_s <= 0);
     if (unclamped.length) {
@@ -334,6 +344,8 @@ export const useRaceStore = create<RaceStore>()(
         rainfall: false,
         wasRaining: false,
         raceFinished: false,
+        sessionRemainingSeconds: null,
+        sessionRemainingAtMs: null,
         arisModeLocked: false,
         pendingRecommendation: null,
         lastRecommendation: null,
@@ -465,6 +477,14 @@ export const useRaceStore = create<RaceStore>()(
     setRacePhase: (racePhase) => {
       if (get().racePhase === racePhase) return;
       set({ racePhase });
+    },
+    setSessionRemaining: (seconds) => {
+      if (seconds == null) {
+        if (get().sessionRemainingSeconds == null) return;
+        set({ sessionRemainingSeconds: null, sessionRemainingAtMs: null });
+        return;
+      }
+      set({ sessionRemainingSeconds: seconds, sessionRemainingAtMs: Date.now() });
     },
     setRainfall: (rainfall) => {
       const prev = get().rainfall;

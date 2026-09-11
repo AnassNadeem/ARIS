@@ -943,8 +943,17 @@ async def api_live_hub(as_of: AsOf) -> LiveHubResponse:
 
 
 @app.get("/api/drivers/{year}", response_model=DriversResponse)
-async def api_drivers(year: int) -> DriversResponse:
-    return await _cached_sync(f"drivers_{year}", TTL_DRIVERS, standings.get_drivers, year)
+async def api_drivers(
+    year: int, round_number: int | None = None, session_type: str | None = None
+) -> DriversResponse:
+    return await _cached_sync(
+        f"drivers_{year}_{round_number or 'x'}_{session_type or 'x'}",
+        TTL_DRIVERS,
+        standings.get_drivers,
+        year,
+        round_number,
+        session_type,
+    )
 
 
 @app.get("/api/teams/{year}", response_model=TeamsResponse)

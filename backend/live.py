@@ -568,6 +568,83 @@ def _is_timed_session_type(session_type: str | None) -> bool:
     return str(session_type or "").upper() in _TIMED_SESSION_TYPES
 
 
+def official_timed_duration_s(session_type: str | None) -> int:
+    t = str(session_type or "").upper()
+    if t in {"SQ", "SS"}:
+        return 45 * 60
+    return 60 * 60
+
+
+def _rc_clock_kind(row: dict[str, Any]) -> str | None:
+    raw_flag = str(row.get("flag") or "").upper()
+    blob = f"{raw_flag} {row.get('category') or ''} {row.get('message') or ''}".upper()
+    if raw_flag == "CHEQUERED" or "CHEQUERED" in blob or "CHECKERED" in blob:
+        return "chequered"
+    if raw_flag == "RED" or ("RED" in blob and "FLAG" in blob and "LIGHT" not in blob):
+        return "red"
+    if "PIT EXIT" in blob or "GREEN LIGHT" in blob or "RESUMPTION ORDER" in blob:
+        return None
+    if (
+        raw_flag == "GREEN"
+        or "TRACK CLEAR" in blob
+        or "SESSION RESUMED" in blob
+        or "GREEN FLAG" in blob
+        or "RACE RESUMED" in blob
+        or "LIGHTS OUT" in blob
+    ):
+        return "green"
+    return None
+
+
+def timed_session_remaining_s(
+    *,
+    start: datetime | None,
+    as_of: datetime,
+    duration_s: int,
+    rc: list[Any] | None,
+) -> int:
+    """Official FP/Q remaining time: counts down only while the session is running.
+
+    Red flags freeze the clock (elapsed green time pauses). Chequered ends it.
+    """
+    dur = max(0, int(duration_s))
+    if start is None:
+        return dur
+    if as_of < start:
+        return dur
+    events: list[tuple[datetime, str]] = []
+    for row in rc or []:
+        if not isinstance(row, dict):
+            continue
+        kind = _rc_clock_kind(row)
+        if not kind:
+            continue
+        dt = _parse_dt(row.get("date"))
+        if dt is None or dt < start or dt > as_of:
+            continue
+        events.append((dt, kind))
+    events.sort(key=lambda item: item[0])
+    red = False
+    red_since: datetime | None = None
+    paused = 0.0
+    for dt, kind in events:
+        if kind == "chequered":
+            return 0
+        if kind == "red":
+            if not red:
+                red = True
+                red_since = dt
+            continue
+        if kind == "green" and red and red_since is not None:
+            paused += (dt - red_since).total_seconds()
+            red = False
+            red_since = None
+    if red and red_since is not None:
+        paused += (as_of - red_since).total_seconds()
+    elapsed_green = max(0.0, (as_of - start).total_seconds() - paused)
+    return max(0, int(dur - elapsed_green))
+
+
 async def _openf1(path: str, params: dict[str, Any] | None = None, *, timeout: float | None = None) -> Any:
     try:
         data = await aopenf1(path, params, timeout=timeout)
@@ -1316,21 +1393,30 @@ async def live_status(
     remaining = None
     if start is not None:
         elapsed = max(0, int((as_of - start).total_seconds()))
-    if end is not None:
-        remaining = max(0, int((end - as_of).total_seconds()))
+    stored_rc = _STATE.get("race_control")
+    rc_rows = stored_rc if isinstance(stored_rc, list) else []
     flag: str = "GREEN"
     try:
-        stored = _STATE.get("race_control")
-        if isinstance(stored, list) and stored:
-            flag = _flag_from_rc(stored)
+        if rc_rows:
+            flag = _flag_from_rc(rc_rows)
         else:
             key = sess.get("session_key")
             rc_key = f"openf1:rc-flag:{key}"
             rc = cache.get(rc_key, TTL_LIVE)
             if isinstance(rc, list) and rc:
+                rc_rows = rc
                 flag = _flag_from_rc(rc)
     except Exception:
         pass
+    if _is_timed_session_type(mapped):
+        remaining = timed_session_remaining_s(
+            start=start,
+            as_of=as_of,
+            duration_s=official_timed_duration_s(mapped),
+            rc=rc_rows,
+        )
+    elif end is not None:
+        remaining = max(0, int((end - as_of).total_seconds()))
     view_only = mapped in {"SQ", "Q", "FP1", "FP2", "FP3"}
     round_number = (rnd[1] if rnd else None) or (local.round_number if local else None)
     if round_number is None:
@@ -2432,9 +2518,18 @@ def _annotate_timing_status(rows: list[LiveTimingRow], field_lap: int) -> list[L
 
 
 async def _timing_from_openf1(
-    session_key: int, as_of: datetime | None = None, *, persist: bool = True
+    session_key: int,
+    as_of: datetime | None = None,
+    *,
+    persist: bool = True,
+    rank_by_best_lap: bool | None = None,
+    year: int | None = None,
+    round_number: int | None = None,
 ) -> list[LiveTimingRow]:
     codes = await _driver_code_map(session_key)
+    blocked = _excluded_driver_codes(year, round_number)
+    if blocked:
+        codes = {n: c for n, c in codes.items() if c not in blocked}
     colours: dict[int, str] = _STATE.get("driver_colours") or {}
     use_feed = persist and as_of is None and _feed_session_key() == session_key
     positions = _STATE.get("latest_pos") or {} if use_feed else {}
@@ -2474,7 +2569,11 @@ async def _timing_from_openf1(
     locations = _STATE.get("locations") or {} if as_of is None else {}
     if not isinstance(locations, dict):
         locations = {}
-    rank_by_best = _is_timed_session_type(_live_session_type_code())
+    rank_by_best = (
+        _is_timed_session_type(_live_session_type_code())
+        if rank_by_best_lap is None
+        else bool(rank_by_best_lap)
+    )
     eliminated: set[str] = set()
     if not rank_by_best:
         eliminated = _eliminated_codes(rc if isinstance(rc, list) else [], codes)
@@ -3709,20 +3808,26 @@ def _trim_loc_buckets() -> None:
     _trim_buckets(_LOC_BUCKETS)
 
 
-def _drop_excluded(rows: list[Any], year: int | None, round_number: int | None) -> list[Any]:
+def _excluded_driver_codes(year: int | None, round_number: int | None) -> set[str]:
     from backend.calendar import next_race, weekend_excluded_codes
 
     excluded = set(weekend_excluded_codes(year, round_number))
-    if not excluded:
-        try:
-            nxt = next_race()
-            if year is None or (
-                int(year) == int(nxt.year)
-                and (round_number is None or int(round_number) == int(nxt.round_number))
-            ):
-                excluded |= weekend_excluded_codes(nxt.year, nxt.round_number)
-        except Exception:
-            pass
+    if excluded:
+        return excluded
+    try:
+        nxt = next_race()
+        if year is None or (
+            int(year) == int(nxt.year)
+            and (round_number is None or int(round_number) == int(nxt.round_number))
+        ):
+            return set(weekend_excluded_codes(nxt.year, nxt.round_number))
+    except Exception:
+        pass
+    return set()
+
+
+def _drop_excluded(rows: list[Any], year: int | None, round_number: int | None) -> list[Any]:
+    excluded = _excluded_driver_codes(year, round_number)
     if not excluded:
         return rows
     return [row for row in rows if getattr(row, "driver_code", None) not in excluded]
@@ -5218,7 +5323,14 @@ async def live_timing(
     if not status.is_live or status.session_key is None:
         return LiveTimingResponse(is_live=False, rows=[], last_success_utc=status.last_success_utc, rainfall=False)
     try:
-        rows = await _timing_from_openf1(status.session_key or 0, as_of, persist=as_of is None)
+        rows = await _timing_from_openf1(
+            status.session_key or 0,
+            as_of,
+            persist=as_of is None,
+            rank_by_best_lap=_is_timed_session_type(status.session_type),
+            year=status.year,
+            round_number=status.round_number,
+        )
         _STATE["last_success"] = now_utc(as_of)
         current = max((r.lap_number or 0) for r in rows) if rows else None
         rainfall = False

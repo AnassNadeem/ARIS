@@ -36,6 +36,17 @@ def assert_standings_year(year: int) -> int:
 # OpenF1 team colours are hex without '#'.
 _TEAM_COLOUR_FALLBACK: dict[str, str] = {}
 
+_OPENF1_SESSION_NAMES = {
+    "FP1": ("Practice 1",),
+    "FP2": ("Practice 2",),
+    "FP3": ("Practice 3",),
+    "SQ": ("Sprint Qualifying", "Sprint Shootout"),
+    "SS": ("Sprint Qualifying", "Sprint Shootout"),
+    "S": ("Sprint",),
+    "Q": ("Qualifying",),
+    "R": ("Race",),
+}
+
 
 def _hex(colour: str | None) -> str | None:
     if not colour:
@@ -48,18 +59,22 @@ def _hex(colour: str | None) -> str | None:
     return c.upper()
 
 
-def _openf1_session_key(year: int) -> int | None:
-    def _meetings() -> list[dict[str, Any]]:
-        try:
-            data = openf1("meetings", {"year": year})
-        except Exception:
-            return []
-        return data if isinstance(data, list) else []
+def _session_start(row: dict[str, Any]):
+    raw = str(row.get("date_start") or "")
+    if not raw:
+        return None
+    try:
+        from datetime import datetime, timezone
 
-    meetings = cached(f"openf1:meetings:{year}", TTL_METADATA, _meetings)
-    if not meetings:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except ValueError:
         return None
 
+
+def _openf1_year_sessions(year: int) -> list[dict[str, Any]]:
     def _sessions() -> list[dict[str, Any]]:
         try:
             data = openf1("sessions", {"year": year})
@@ -67,28 +82,22 @@ def _openf1_session_key(year: int) -> int | None:
             return []
         return data if isinstance(data, list) else []
 
-    sessions = cached(f"openf1:sessions-year:{year}", TTL_METADATA, _sessions)
+    rows = cached(f"openf1:sessions-year:{year}", TTL_METADATA, _sessions)
+    return rows if isinstance(rows, list) else []
+
+
+def _openf1_session_key(year: int) -> int | None:
+    sessions = _openf1_year_sessions(year)
     if not sessions:
         return None
-
-    def _start(row: dict[str, Any]):
-        raw = str(row.get("date_start") or "")
-        if not raw:
-            return None
-        try:
-            from datetime import datetime, timezone
-
-            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            return dt
-        except ValueError:
-            return None
-
     from datetime import datetime, timezone
 
     now = datetime.now(timezone.utc)
-    started = [s for s in sessions if isinstance(s, dict) and (_start(s) is not None and _start(s) <= now)]
+    started = [
+        s
+        for s in sessions
+        if isinstance(s, dict) and (_session_start(s) is not None and _session_start(s) <= now)
+    ]
     pool = started or [s for s in sessions if isinstance(s, dict)]
     # A future race entry often still has last week's lineup (HAD in, TSU out).
     pool = sorted(pool, key=lambda s: str(s.get("date_start") or ""))
@@ -96,19 +105,53 @@ def _openf1_session_key(year: int) -> int | None:
     return int(key) if key is not None else None
 
 
-def _drivers_from_openf1(year: int) -> list[Driver]:
-    session_key = _openf1_session_key(year)
-    if session_key is None:
+def _meeting_sessions(year: int, round_number: int) -> list[dict[str, Any]]:
+    from backend.calendar import get_round
+
+    try:
+        rnd = get_round(year, round_number)
+    except Exception:
         return []
+    from backend.live import _circuit_match
 
-    def _fetch() -> list[dict[str, Any]]:
-        try:
-            data = openf1("drivers", {"session_key": session_key})
-        except Exception:
-            return []
-        return data if isinstance(data, list) else []
+    return [
+        sess
+        for sess in _openf1_year_sessions(year)
+        if isinstance(sess, dict) and _circuit_match(sess, rnd)
+    ]
 
-    rows = cached(f"openf1:drivers:{year}:{session_key}", TTL_METADATA, _fetch)
+
+def _openf1_session_key_for(
+    year: int, round_number: int | None, session_type: str | None
+) -> int | None:
+    if round_number is None:
+        return _openf1_session_key(year)
+    meeting = _meeting_sessions(year, int(round_number))
+    st = str(session_type or "").upper()
+    names = _OPENF1_SESSION_NAMES.get(st, (session_type,) if session_type else ())
+    named = [
+        sess
+        for sess in meeting
+        if names
+        and str(sess.get("session_name") or "") in names
+        and sess.get("session_key") is not None
+    ]
+    if named:
+        named.sort(key=lambda row: str(row.get("date_start") or ""))
+        return int(named[-1]["session_key"])
+    dated = [sess for sess in meeting if sess.get("session_key") is not None]
+    dated.sort(key=lambda row: str(row.get("date_start") or ""))
+    if not dated:
+        return _openf1_session_key(year)
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    started = [sess for sess in dated if (_session_start(sess) or now) <= now]
+    pick = (started or dated)[-1]
+    return int(pick["session_key"])
+
+
+def _parse_openf1_drivers(rows: list[dict[str, Any]]) -> list[Driver]:
     seen: set[str] = set()
     out: list[Driver] = []
     for row in rows:
@@ -127,13 +170,88 @@ def _drivers_from_openf1(year: int) -> list[Driver]:
                 full_name=full,
                 team_name=team,
                 team_colour=colour,
-                driver_number=int(row["driver_number"]) if row.get("driver_number") is not None else None,
+                driver_number=(
+                    int(row["driver_number"]) if row.get("driver_number") is not None else None
+                ),
                 country_code=row.get("country_code"),
                 headshot_url=row.get("headshot_url"),
                 estimated=False,
             )
         )
     return out
+
+
+def _drivers_from_openf1_key(session_key: int) -> list[Driver]:
+    def _fetch() -> list[dict[str, Any]]:
+        try:
+            data = openf1("drivers", {"session_key": session_key})
+        except Exception:
+            return []
+        return data if isinstance(data, list) else []
+
+    rows = cached(f"openf1:drivers:{session_key}", TTL_METADATA, _fetch)
+    return _parse_openf1_drivers(rows if isinstance(rows, list) else [])
+
+
+def _session_entry_drivers(
+    year: int, round_number: int | None = None, session_type: str | None = None
+) -> list[Driver]:
+    """OpenF1 entry list for this session, else this meeting, else year-latest."""
+    keys: list[int] = []
+    primary = _openf1_session_key_for(year, round_number, session_type)
+    if primary is not None:
+        keys.append(primary)
+    if round_number is not None:
+        meeting = _meeting_sessions(year, int(round_number))
+        meeting.sort(key=lambda row: str(row.get("date_start") or ""), reverse=True)
+        for sess in meeting:
+            key = sess.get("session_key")
+            if key is None:
+                continue
+            try:
+                n = int(key)
+            except (TypeError, ValueError):
+                continue
+            if n not in keys:
+                keys.append(n)
+    fallback = _openf1_session_key(year)
+    if fallback is not None and fallback not in keys:
+        keys.append(fallback)
+    for key in keys:
+        drivers = _drivers_from_openf1_key(key)
+        if len(drivers) >= 8:
+            return drivers
+    return []
+
+
+def _drivers_from_openf1(year: int) -> list[Driver]:
+    return _session_entry_drivers(year)
+
+
+def _apply_weekend_lineup(
+    drivers: list[Driver], year: int, round_number: int | None
+) -> list[Driver]:
+    from backend.calendar import weekend_excluded_codes, weekend_replacement_codes
+
+    excluded = weekend_excluded_codes(year, round_number)
+    replacements = weekend_replacement_codes(year, round_number)
+    if not excluded and not replacements:
+        return drivers
+    removed = [drv for drv in drivers if drv.driver_code in excluded]
+    filled = [drv for drv in drivers if drv.driver_code not in excluded]
+    present = {drv.driver_code for drv in filled}
+    lookup = list(filled) + _drivers_estimated(year)
+    for absent, repl in replacements.items():
+        if repl in present:
+            continue
+        if not any(drv.driver_code == absent for drv in removed):
+            continue
+        meta = next((drv for drv in lookup if drv.driver_code == repl), None)
+        if meta is None:
+            meta = Driver(driver_code=repl, full_name=repl, team_name="", estimated=True)
+        filled.append(meta)
+        present.add(repl)
+    return filled
 
 
 def _drivers_from_fastf1(year: int) -> list[Driver]:
@@ -198,8 +316,20 @@ def _drivers_estimated(year: int) -> list[Driver]:
     return out
 
 
-def get_drivers(year: int) -> DriversResponse:
-    drivers = _drivers_from_openf1(year)
+def get_drivers(
+    year: int, round_number: int | None = None, session_type: str | None = None
+) -> DriversResponse:
+    from backend.calendar import next_race
+
+    rnd = round_number
+    if rnd is None:
+        try:
+            nxt = next_race()
+            if nxt.year == year:
+                rnd = nxt.round_number
+        except Exception:
+            rnd = None
+    drivers = _session_entry_drivers(year, rnd, session_type)
     source: str = "openf1"
     label = None
     if not drivers:
@@ -216,13 +346,7 @@ def get_drivers(year: int) -> DriversResponse:
             continue
         filled.append(drv.model_copy(update={"team_colour": team_colour(drv.team_name)}))
     try:
-        from backend.calendar import next_race, weekend_excluded_codes
-
-        nxt = next_race()
-        if nxt.year == year and nxt.is_this_weekend:
-            excluded = weekend_excluded_codes(nxt.year, nxt.round_number)
-            if excluded:
-                filled = [drv for drv in filled if drv.driver_code not in excluded]
+        filled = _apply_weekend_lineup(filled, year, rnd)
     except Exception:
         pass
     return DriversResponse(

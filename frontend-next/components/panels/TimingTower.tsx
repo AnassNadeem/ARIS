@@ -76,7 +76,7 @@ const TimingRow = memo(function TimingRow({
 }) {
   const isGhost = isGhostRow(car);
   const code = isGhost ? car.driver_code.replace("A_", "") : car.driver_code;
-  const out = driverOutOfRace(car.status, car.is_dnf);
+  const out = hideGap ? false : driverOutOfRace(car.status, car.is_dnf);
   const ghostDelta = car.ghost_delta_s;
   return (
     <div
@@ -222,8 +222,17 @@ export function TimingTower() {
 
   const flashes = useTowerFlashes(rows);
 
-  const banner =
-    racePhase === "SC"
+  const banner = timed
+    ? racePhase === "RED_FLAG"
+      ? "RED FLAG"
+      : racePhase === "YELLOW"
+        ? "YELLOW FLAG"
+        : racePhase === "SC"
+          ? "SAFETY CAR"
+          : racePhase === "VSC"
+            ? "VIRTUAL SAFETY CAR"
+            : "GREEN FLAG"
+    : racePhase === "SC"
       ? `SC DEPLOYED · Lap ${currentLap}`
       : racePhase === "VSC"
         ? `VSC DEPLOYED · Lap ${currentLap}`
@@ -231,7 +240,9 @@ export function TimingTower() {
           ? `RED FLAG · Lap ${currentLap}`
           : racePhase === "STANDING_START"
             ? `STANDING START · Lap ${currentLap}`
-            : null;
+            : racePhase === "YELLOW"
+              ? `YELLOW FLAG · Lap ${currentLap}`
+              : null;
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-carbon font-mono-data text-[11px] [overflow-anchor:none]">
@@ -240,6 +251,10 @@ export function TimingTower() {
           className={`h-7 shrink-0 px-2 py-1 text-center text-[10px] font-semibold uppercase ${
             racePhase === "RED_FLAG"
               ? "bg-[#E8002D]/25 text-[#E8002D]"
+              : racePhase === "YELLOW"
+                ? "bg-[#FFE14A]/20 text-[#FFE14A]"
+                : racePhase === "GREEN"
+                  ? "bg-[#00D26A]/15 text-[#00D26A]"
               : "bg-[#FF8700]/20 text-[#FF8700]"
           }`}
         >

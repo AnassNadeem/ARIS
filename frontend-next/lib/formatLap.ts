@@ -26,6 +26,23 @@ export function sessionRemainingMs(
   return Math.max(0, start + dur - now);
 }
 
+/** Live remaining from the feed. Freezes under red flag; falls back to start+duration. */
+export function liveSessionRemainingMs(opts: {
+  remainingS?: number | null;
+  remainingAtMs?: number | null;
+  frozen?: boolean;
+  now?: number;
+  startIso?: string | null;
+  durationMs?: number;
+}): number {
+  const now = opts.now ?? Date.now();
+  if (opts.remainingS != null && opts.remainingAtMs != null) {
+    if (opts.frozen) return Math.max(0, opts.remainingS * 1000);
+    return Math.max(0, opts.remainingS * 1000 - (now - opts.remainingAtMs));
+  }
+  return sessionRemainingMs(opts.startIso, opts.durationMs ?? 0, now);
+}
+
 /** `1:00:00` while ≥ 1h, otherwise `MM:SS`. */
 export function formatSessionClock(remainingMs: number): string {
   const total = Math.max(0, Math.floor(remainingMs / 1000));

@@ -292,9 +292,17 @@ export async function getCircuitCoords(year: number, round: number): Promise<Cir
   );
 }
 
-export async function getDrivers(year: number): Promise<DriverListing[]> {
+export async function getDrivers(
+  year: number,
+  roundNumber?: number | null,
+  sessionType?: string | null,
+): Promise<DriverListing[]> {
+  const qs = new URLSearchParams();
+  if (roundNumber != null) qs.set("round_number", String(roundNumber));
+  if (sessionType) qs.set("session_type", sessionType);
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
   const mapped = await withCache(
-    `GET:/api/drivers/${year}`,
+    `GET:/api/drivers/${year}${suffix}`,
     TTL_MS.drivers,
     async () => {
       const live = await tryFetch<{
@@ -306,7 +314,7 @@ export async function getDrivers(year: number): Promise<DriverListing[]> {
           driver_number?: number | null;
           headshot_url?: string | null;
         }[];
-      }>(`/api/drivers/${year}`, undefined, 8000);
+      }>(`/api/drivers/${year}${suffix}`, undefined, 8000);
       if (!live?.drivers?.length) return null;
       return live.drivers.map((d) => ({
         driver_code: d.driver_code,
