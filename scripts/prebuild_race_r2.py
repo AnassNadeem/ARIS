@@ -1269,6 +1269,43 @@ def _clock_s(v: Any) -> float | None:
     return None
 
 
+def _fill_start_durations(
+    starts: list[tuple[float, int, float | None]],
+) -> list[tuple[float, int, float]]:
+    """Replace missing LapTime with the gap to the next lap start."""
+    ordered = sorted(starts, key=lambda row: (int(row[1]), float(row[0])))
+    out: list[tuple[float, int, float]] = []
+    for i, (t0, lap_n, dur) in enumerate(ordered):
+        gap = ordered[i + 1][0] - t0 if i + 1 < len(ordered) else None
+        if dur is None or dur <= 0:
+            dur = gap if gap is not None and gap > 1.0 else 90.0
+        out.append((float(t0), int(lap_n), float(dur)))
+    return out
+
+
+def _collapse_duplicate_lap_fracs(
+    samples: list[dict[str, float]],
+) -> list[dict[str, float]]:
+    """Keep the last sample of each identical lap_frac run.
+
+    Formation-lap GPS is mapped onto lap_frac=0, and red-flag parking onto
+    *.999. Hundreds of copies make interpolation sit on the S/F line.
+    """
+    if len(samples) < 2:
+        return samples
+    out: list[dict[str, float]] = []
+    i = 0
+    n = len(samples)
+    while i < n:
+        j = i + 1
+        lf = samples[i]["lap_frac"]
+        while j < n and samples[j]["lap_frac"] == lf:
+            j += 1
+        out.append(samples[j - 1])
+        i = j
+    return out
+
+
 def _lap_fracs_for_times(
     times: list[float], starts: list[tuple[float, int, float]]
 ) -> list[float]:
@@ -1311,9 +1348,8 @@ def _pos_samples(
     min_dt = 1.0 / max(0.5, hz)
     laps = getattr(sess, "laps", None)
     code_by_num: dict[int, str] = {}
-    abs_starts: dict[str, list[tuple[float, int, float]]] = {}
-    rel_starts: dict[str, list[tuple[float, int, float]]] = {}
-    acc_by: dict[str, float] = {}
+    abs_starts: dict[str, list[tuple[float, int, float | None]]] = {}
+    rel_starts: dict[str, list[tuple[float, int, float | None]]] = {}
     if laps is not None and not laps.empty:
         import pandas as pd
 
@@ -1326,7 +1362,7 @@ def _pos_samples(
             except (TypeError, ValueError):
                 pass
             lap_n = int(getattr(rec, "LapNumber", 0) or 0)
-            dur = _td_s(getattr(rec, "LapTime", None)) or 90.0
+            dur = _td_s(getattr(rec, "LapTime", None))
             if not code or lap_n < 1:
                 continue
             t_abs = _clock_s(getattr(rec, "LapStartTime", None))
@@ -1339,13 +1375,22 @@ def _pos_samples(
                 except Exception:
                     pass
             if t_abs is not None:
-                abs_starts.setdefault(code, []).append((float(t_abs), lap_n, float(dur)))
-            acc = acc_by.get(code, 0.0)
-            rel_starts.setdefault(code, []).append((acc, lap_n, float(dur)))
-            acc_by[code] = acc + float(dur)
-        for bucket in (abs_starts, rel_starts):
-            for code in bucket:
-                bucket[code].sort()
+                abs_starts.setdefault(code, []).append((float(t_abs), lap_n, dur))
+            rel_starts.setdefault(code, []).append((0.0, lap_n, dur))
+        for code, rows in list(abs_starts.items()):
+            abs_starts[code] = _fill_start_durations(rows)
+        for code, rows in list(rel_starts.items()):
+            ordered = sorted(rows, key=lambda r: r[1])
+            by_lap = {lap_n: dur for _t0, lap_n, dur in abs_starts.get(code, [])}
+            acc = 0.0
+            rebuilt: list[tuple[float, int, float]] = []
+            for _dummy, lap_n, dur in ordered:
+                use = by_lap.get(lap_n, dur)
+                if use is None or use <= 0:
+                    use = 90.0
+                rebuilt.append((acc, lap_n, float(use)))
+                acc += float(use)
+            rel_starts[code] = rebuilt
 
     out: dict[str, list[dict[str, float]]] = {}
     for drv_key, df in raw.items():
@@ -1415,7 +1460,7 @@ def _pos_samples(
             for lf, frac, spd in zip(lap_fracs, fracs, speeds, strict=False)
         ]
         if samples:
-            out[code] = samples
+            out[code] = _collapse_duplicate_lap_fracs(samples)
     return out
 
 

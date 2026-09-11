@@ -130,6 +130,29 @@ def test_lap_fracs_shift_when_position_clock_does_not_overlap_laps():
     assert fracs[-1] > 1.0
 
 
+def test_fill_start_durations_uses_gap_when_lap_time_missing():
+    mod = _load()
+    filled = mod._fill_start_durations(
+        [(0.0, 1, 88.0), (88.0, 2, None), (200.0, 3, 90.0)]
+    )
+    assert filled[0][2] == 88.0
+    assert filled[1][2] == 112.0
+    assert filled[2][2] == 90.0
+
+
+def test_collapse_duplicate_lap_fracs_keeps_last_of_run():
+    mod = _load()
+    rows = (
+        [{"lap_frac": 0.0, "path_frac": i / 10, "speed_kph": 0} for i in range(8)]
+        + [{"lap_frac": 0.2, "path_frac": 0.3, "speed_kph": 200}]
+        + [{"lap_frac": 2.999, "path_frac": 0.01, "speed_kph": 0} for _ in range(5)]
+    )
+    out = mod._collapse_duplicate_lap_fracs(rows)
+    assert [r["lap_frac"] for r in out] == [0.0, 0.2, 2.999]
+    assert out[0]["path_frac"] == 0.7
+    assert out[2]["path_frac"] == 0.01
+
+
 def test_classified_is_integer_rejects_non_numeric():
     mod = _load()
     assert mod._classified_is_integer(18) is True

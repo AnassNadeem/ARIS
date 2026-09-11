@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { elapsedToLap, replayDisplayFrac, r2FrameAt } from "./r2Replay";
+import { elapsedToLap, lapToElapsed, replayDisplayFrac, r2FrameAt } from "./r2Replay";
 import { GRID_START_LAP_FRAC } from "./timingPath";
 import type { RaceField } from "./types";
 
@@ -54,4 +54,23 @@ describe("timing path_frac vs tower on real packs", () => {
       }
     });
   }
+
+  it("Monza 2026: dense GPS keeps cars off S/F through the restart laps", () => {
+    const field = loadField(2026, 16);
+    if (!field) return;
+    const pole = field.drivers.find((d) => d.grid_position === 1)?.code ?? "GAS";
+    const atStart = replayDisplayFrac(field, pole, 0);
+    const startErr = Math.min(Math.abs(atStart), Math.abs(atStart - 1));
+    expect(startErr, `${pole} grid`).toBeLessThan(0.03);
+
+    for (const lap of [2, 5, 8]) {
+      const durGuess = 40;
+      const elapsed = lapToElapsed(field, lap) + durGuess;
+      const { lap: got } = elapsedToLap(field, elapsed);
+      if (got < lap) continue;
+      const frac = replayDisplayFrac(field, pole, elapsed);
+      const err = Math.min(Math.abs(frac), Math.abs(frac - 1));
+      expect(err, `${pole} lap ${lap} frac ${frac} elapsed ${elapsed}`).toBeGreaterThan(0.04);
+    }
+  });
 });

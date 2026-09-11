@@ -643,6 +643,39 @@ describe("r2FrameAt grid_position at start", () => {
     expect(replayDisplayFrac(withGps, "ANT", 45)).toBeCloseTo(0.5, 2);
   });
 
+  it("replayDisplayFrac follows dense GPS when timing is parked at S/F", () => {
+    const samples = Array.from({ length: 12 }, (_, i) => ({
+      lap_frac: i * 0.5,
+      path_frac: (0.08 + i * 0.07) % 1,
+    }));
+    const withGps: RaceField = {
+      ...field,
+      meta: { ...field.meta, total_laps: 6 },
+      laps: [
+        ...field.laps,
+        lap("ANT", 3, 2),
+        lap("ANT", 4, 2),
+        lap("ANT", 5, 2),
+        lap("ANT", 6, 2),
+        lap("NOR", 3, 1),
+        lap("NOR", 4, 1),
+        lap("NOR", 5, 1),
+        lap("NOR", 6, 1),
+      ].map((row) =>
+        row.lap >= 4 && row.lap <= 6 ? { ...row, lap_time_s: null } : row,
+      ),
+      race_control: [
+        { lap: 3, flag: "RED", message: "RED FLAG", category: "Flag" },
+        { lap: 4, flag: null, message: "STANDING START", category: "Other" },
+      ],
+      pos_samples: { ANT: samples },
+    };
+    const elapsed = 90 + 90 + 16 + 4;
+    const frac = replayDisplayFrac(withGps, "ANT", elapsed);
+    const err = Math.min(Math.abs(frac), Math.abs(frac - 1));
+    expect(err, `dense GPS should not sit on S/F (got ${frac})`).toBeGreaterThan(0.04);
+  });
+
   it("lists DNS drivers who have no laps", () => {
     const withDns: RaceField = {
       ...field,
