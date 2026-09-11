@@ -26,10 +26,22 @@ def test_outline_uses_circuit_map_quick(monkeypatch):
     mod = _load()
     cmap = SimpleNamespace(available=True, x=[20.0, 120.0, 220.0, 20.0], y=[20.0, 80.0, 20.0, 20.0])
     monkeypatch.setattr("backend.sessions.circuit_map_quick", lambda *_a, **_k: cmap)
+    # One point is not a usable GPS outline — circuit_map_quick still wins.
     monkeypatch.setattr(mod, "_one_lap_gps", lambda *_a, **_k: {"x": [999.0], "y": [999.0]})
     out = mod._outline(SimpleNamespace(), 2025, 15)
     assert out["x"] == cmap.x
     assert out["y"] == cmap.y
+
+
+def test_outline_prefers_session_gps_over_prior_year_map(monkeypatch):
+    mod = _load()
+    cmap = SimpleNamespace(available=True, x=[20.0, 120.0, 220.0, 20.0], y=[20.0, 80.0, 20.0, 20.0])
+    gps = {"x": [1000.0, 2000.0, 1500.0, 1000.0], "y": [500.0, 800.0, 100.0, 500.0]}
+    monkeypatch.setattr("backend.sessions.circuit_map_quick", lambda *_a, **_k: cmap)
+    monkeypatch.setattr(mod, "_one_lap_gps", lambda *_a, **_k: gps)
+    outline, source = mod._outline_with_source(SimpleNamespace(), 2026, 16)
+    assert source == "gps_fallback"
+    assert outline == gps
 
 
 def test_outline_falls_back_when_circuit_map_quick_fails(monkeypatch):
@@ -231,3 +243,71 @@ def test_weather_uses_nearest_sample_preferring_not_after_on_tie():
     # t=270 is nearer rain@200 than dry@400. t=450 is nearest dry@400.
     assert [r["rainfall"] for r in out] == [False, False, True, True, False]
     assert math.isclose(out[3]["track_temp_c"], 30.0)
+
+
+def test_chequered_flag_is_not_red_track_status():
+    mod = _load()
+    assert mod._track_status_code_from_rc({"flag": "CHEQUERED", "message": "CHEQUERED FLAG"}) == "1"
+    assert mod._track_status_code_from_rc({"flag": None, "message": "CHEQUERED FLAG"}) == "1"
+    assert mod._track_status_code_from_rc({"flag": "RED", "message": "RED FLAG - RACE SUSPENDED"}) == "5"
+    assert mod._track_status_code_from_rc({"flag": None, "message": "RED FLAG"}) == "5"
+    assert mod._track_status_code_from_rc({"flag": None, "message": "SAFETY CAR LIGHTS ON"}) is None
+    assert mod._track_status_code_from_rc({"flag": None, "message": "SAFETY CAR DEPLOYED"}) == "4"
+    assert mod._track_status_code_from_rc({"flag": None, "message": "VSC DEPLOYED"}) == "6"
+    assert mod._track_status_code_from_rc({"flag": None, "message": "VSC ENDING"}) == "1"
+    assert mod._track_status_code_from_rc({"flag": None, "message": "STANDING START"}) == "1"
+
+
+def test_apply_rc_track_status_follows_monza_2026_sequence():
+    mod = _load()
+    laps = [{"lap": n, "driver": "VER", "track_status": "1245"} for n in range(1, 54)]
+    rc = [
+        {"lap": 3, "flag": "YELLOW", "message": "YELLOW IN TRACK SECTOR 15"},
+        {"lap": 3, "flag": None, "message": "SAFETY CAR DEPLOYED"},
+        {"lap": 3, "flag": None, "message": "RED FLAG - RACE SUSPENDED"},
+        {"lap": 4, "flag": None, "message": "STANDING START"},
+        {"lap": 5, "flag": None, "message": "STANDING START"},
+        {"lap": 28, "flag": None, "message": "VSC DEPLOYED"},
+        {"lap": 29, "flag": None, "message": "VSC ENDING"},
+        {"lap": 53, "flag": "CHEQUERED", "message": "CHEQUERED FLAG"},
+    ]
+    mod._apply_race_control_track_status(laps, rc)
+    by = {int(r["lap"]): r["track_status"] for r in laps}
+    assert by[1] == "1"
+    assert by[2] == "1"
+    assert by[3] == "5"
+    assert by[4] == "1"
+    assert by[5] == "1"
+    assert by[6] == "1"
+    assert by[13] == "1"
+    assert by[27] == "1"
+    assert by[28] == "6"
+    assert by[29] == "1"
+    assert by[52] == "1"
+    assert by[53] == "1"
+
+
+def test_race_control_rows_keep_fastf1_date(monkeypatch):
+    mod = _load()
+    monkeypatch.setattr(
+        "backend.sessions._ff1_race_control_rows",
+        lambda *_a, **_k: [
+            {
+                "lap_number": 53,
+                "message": "CHEQUERED FLAG",
+                "flag": "CHEQUERED",
+                "category": "Flag",
+                "date": "2026-09-06T14:54:46+00:00",
+            }
+        ],
+    )
+    rows = mod._race_control(SimpleNamespace())
+    assert rows == [
+        {
+            "lap": 53,
+            "message": "CHEQUERED FLAG",
+            "flag": "CHEQUERED",
+            "category": "Flag",
+            "date": "2026-09-06T14:54:46+00:00",
+        }
+    ]

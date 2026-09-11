@@ -188,6 +188,7 @@ export interface RaceFieldRaceControl {
   message: string;
   flag: string | null;
   category: string | null;
+  date?: string | null;
 }
 
 export interface RaceFieldPosSample {

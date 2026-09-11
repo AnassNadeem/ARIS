@@ -153,38 +153,46 @@ def _load_session(year: int, round_number: int, *, force_refresh: bool = False):
     enable_fastf1_cache()
 
     def _laps_ready(sess: Any) -> bool:
-        try:
-            laps = sess.laps
-        except Exception:
+        if sess is None:
             return False
-        return laps is not None and not getattr(laps, "empty", True)
+        for attr in ("laps", "_laps"):
+            try:
+                laps = getattr(sess, attr)
+            except Exception as extra:
+                _log.warning("FastF1 %s access failed for %s R%s: %s", attr, year, round_number, extra)
+                continue
+            if laps is not None and not getattr(laps, "empty", True):
+                return True
+        return False
 
-    sess = load_session(
-        int(year),
-        int(round_number),
-        "R",
-        telemetry=False,
-        weather=True,
-        messages=True,
-        refresh=force_refresh,
-    )
-    if sess is None:
-        raise RuntimeError(f"FastF1 session missing for {year} R{round_number}")
-    if not _laps_ready(sess):
-        _log.warning(
-            "FastF1 laps missing after load for %s R%s; refreshing session",
-            year,
-            round_number,
-        )
-        sess = load_session(
+    def _try_load(*, weather: bool, messages: bool, refresh: bool):
+        return load_session(
             int(year),
             int(round_number),
             "R",
             telemetry=False,
-            weather=True,
-            messages=True,
-            refresh=True,
+            weather=weather,
+            messages=messages,
+            refresh=refresh,
         )
+
+    sess = _try_load(weather=True, messages=True, refresh=force_refresh)
+    if sess is None:
+        raise RuntimeError(f"FastF1 session missing for {year} R{round_number}")
+    if not _laps_ready(sess):
+        _log.warning(
+            "FastF1 laps missing after load for %s R%s; retrying without weather",
+            year,
+            round_number,
+        )
+        sess = _try_load(weather=False, messages=True, refresh=True)
+    if sess is None or not _laps_ready(sess):
+        _log.warning(
+            "FastF1 laps still missing for %s R%s; retrying laps-only",
+            year,
+            round_number,
+        )
+        sess = _try_load(weather=False, messages=False, refresh=True)
     if sess is None or not _laps_ready(sess):
         raise RuntimeError(
             f"FastF1 laps not loaded for {year} R{round_number} "
@@ -273,6 +281,79 @@ def _outline_from_prior_r2(year: int, round_number: int) -> dict[str, list[float
                 )
                 return {"x": list(outline["x"]), "y": list(outline["y"])}
     return {"x": [], "y": []}
+
+
+def _track_status_code_from_rc(row: dict[str, Any]) -> str | None:
+    """Map one race-control message to a FastF1-style track_status code.
+
+    Match on flag / category / unambiguous phrases — never a raw ``"RED"``
+    substring, which misfires on ``CHEQUERED FLAG``.
+    """
+    flag = str(row.get("flag") or "").strip().upper()
+    category = str(row.get("category") or "").strip().upper()
+    msg = str(row.get("message") or "").strip().upper()
+    blob = f"{flag} {category} {msg}"
+
+    if "CHEQUERED" in blob or "CHECKERED" in blob:
+        return "1"
+    if flag in {"RED", "RED FLAG"} or "RED FLAG" in msg:
+        return "5"
+    if "STANDING START" in blob or "STANDING RESTART" in blob:
+        return "1"
+    if "VSC END" in blob or "VIRTUAL SAFETY CAR END" in blob:
+        return "1"
+    if (
+        flag in {"VSC", "VIRTUAL SAFETY CAR"}
+        or "VSC DEPLOYED" in blob
+        or "VIRTUAL SAFETY CAR" in blob
+        or (" VSC" in f" {blob}" and "END" not in blob)
+    ):
+        return "6"
+    if "SAFETY CAR" in blob and "VIRTUAL" not in blob and "LIGHT" not in blob:
+        if "SAFETY CAR IN" in blob:
+            return "1"
+        return "4"
+    return None
+
+
+def _track_status_by_lap(
+    race_control: list[dict[str, Any]], laps: list[dict[str, Any]]
+) -> dict[int, str]:
+    """Canonical per-lap track_status from race control, filled forward."""
+    last_by_lap: dict[int, str] = {}
+    current = "1"
+    for row in race_control:
+        code = _track_status_code_from_rc(row)
+        if code is None:
+            continue
+        current = code
+        lap_n = row.get("lap")
+        if isinstance(lap_n, int) and lap_n >= 1:
+            last_by_lap[lap_n] = current
+    max_lap = max((int(r["lap"]) for r in laps if r.get("lap")), default=0)
+    out: dict[int, str] = {}
+    filled = "1"
+    for lap in range(1, max_lap + 1):
+        if lap in last_by_lap:
+            filled = last_by_lap[lap]
+        out[lap] = filled
+    return out
+
+
+def _apply_race_control_track_status(
+    laps_out: list[dict[str, Any]], race_control: list[dict[str, Any]]
+) -> None:
+    by_lap = _track_status_by_lap(race_control, laps_out)
+    if not by_lap:
+        return
+    for row in laps_out:
+        try:
+            lap_n = int(row["lap"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        code = by_lap.get(lap_n)
+        if code:
+            row["track_status"] = code
 
 
 def build_race_field_openf1(year: int, round_number: int) -> dict[str, Any]:
@@ -428,38 +509,18 @@ def build_race_field_openf1(year: int, round_number: int) -> dict[str, Any]:
             lap_n = int(row.get("lap_number")) if row.get("lap_number") is not None else None
         except (TypeError, ValueError):
             lap_n = None
+        date = row.get("date")
         race_control.append(
             {
                 "lap": lap_n,
                 "message": msg,
                 "flag": str(flag) if flag is not None else None,
                 "category": str(row.get("category") or "") or None,
+                "date": str(date) if date else None,
             }
         )
 
-    # Best-effort FastF1-style track_status codes from race control (5=red, 4=SC…).
-    flag_by_lap: dict[int, str] = {}
-    for row in race_control:
-        lap_n = row.get("lap")
-        if not isinstance(lap_n, int) or lap_n < 1:
-            continue
-        blob = f"{row.get('flag') or ''} {row.get('message') or ''}".upper()
-        code = None
-        if "RED" in blob:
-            code = "5"
-        elif "STANDING START" in blob or "STANDING RESTART" in blob:
-            code = "1"
-        elif "VIRTUAL" in blob or blob.startswith("VSC") or " VSC" in blob:
-            code = "6"
-        elif "SAFETY CAR" in blob:
-            code = "4"
-        if code:
-            flag_by_lap[lap_n] = code
-    if flag_by_lap:
-        for row in laps_out:
-            code = flag_by_lap.get(int(row["lap"]))
-            if code:
-                row["track_status"] = code
+    _apply_race_control_track_status(laps_out, race_control)
 
     stints_out: list[dict[str, Any]] = []
     for st in stints_raw:
@@ -745,7 +806,8 @@ def _one_lap_gps(sess: Any, *, lap_n: int = 3) -> dict[str, list[float]]:
         df = _pos_df_for_code(raw, code, codes)
         if df is None:
             continue
-        for try_lap in (lap_n, 2, 4, 5, 1):
+        # Prefer a mid-race flying lap — lap 3 is often SC/red at Monza 2026.
+        for try_lap in (12, 10, 8, 6, lap_n, 5, 4, 2, 1):
             start, end = _lap_window(sess, code, try_lap)
             xs, ys = _xy_from_df(df, start, end)
             if len(xs) >= 20:
@@ -770,7 +832,10 @@ def _outline_is_map_space(outline: dict[str, list[float]]) -> bool:
 def _outline_with_source(
     sess: Any, year: int, round_number: int
 ) -> tuple[dict[str, list[float]], str]:
-    """Single-lap circuit path. Prefer FastF1 circuit_map_quick; else leader lap 3 GPS."""
+    """Single-lap circuit path. Prefer this session's GPS; else circuit_map_quick."""
+    gps = _one_lap_gps(sess, lap_n=3)
+    if len(gps.get("x") or []) >= 2 and len(gps.get("y") or []) >= 2:
+        return gps, "gps_fallback"
     try:
         from backend.sessions import circuit_map_quick
 
@@ -783,7 +848,7 @@ def _outline_with_source(
                 return {"x": xs[:n], "y": ys[:n]}, "circuit_map_quick"
     except Exception as extra:
         _log.warning("circuit_map_quick failed for %s R%s: %s", year, round_number, extra)
-    return _one_lap_gps(sess, lap_n=3), "gps_fallback"
+    return gps, "gps_fallback"
 
 
 def _outline(sess: Any, year: int, round_number: int) -> dict[str, list[float]]:
@@ -1142,6 +1207,7 @@ def _race_control(sess: Any) -> list[dict[str, Any]]:
                 "message": str(row.get("message") or ""),
                 "flag": row.get("flag"),
                 "category": row.get("category"),
+                "date": row.get("date"),
             }
         )
     return out
@@ -1374,6 +1440,7 @@ def build_race_field(year: int, round_number: int, sess: Any) -> dict[str, Any]:
     laps, stints = _laps_stints(sess)
     weather = _weather(sess, laps)
     rc = _race_control(sess)
+    _apply_race_control_track_status(laps, rc)
     proj = outline
     if _outline_is_map_space(outline):
         gps_path = _one_lap_gps(sess, lap_n=3)

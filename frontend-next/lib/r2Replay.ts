@@ -843,6 +843,17 @@ function raceControlBlob(msg: { flag?: string | null; message?: string | null; c
   return `${msg.flag || ""} ${msg.message || ""} ${msg.category || ""}`.toUpperCase();
 }
 
+function raceControlIsChequered(blob: string): boolean {
+  return blob.includes("CHEQUERED") || blob.includes("CHECKERED");
+}
+
+function raceControlIsRed(blob: string): boolean {
+  if (raceControlIsChequered(blob) || blob.includes("CLEAR")) return false;
+  if (blob.includes("RED FLAG")) return true;
+  const flag = blob.trim().split(/\s+/)[0] || "";
+  return flag === "RED";
+}
+
 /** Playback length for one race lap — compress red-flag holds so scrubbing isn't stuck for 30+ minutes. */
 function playbackLapDurationS(field: RaceField, lap: number, rawLeaderS: number | null): number {
   let raw = rawLeaderS != null && rawLeaderS > 0 ? rawLeaderS : 90;
@@ -852,7 +863,7 @@ function playbackLapDurationS(field: RaceField, lap: number, rawLeaderS: number 
     if (msg.lap != null && msg.lap !== lap) continue;
     const blob = raceControlBlob(msg);
     if (blob.includes("STANDING START") || blob.includes("STANDING RESTART")) standing = true;
-    if (blob.includes("RED") && !blob.includes("CLEAR")) red = true;
+    if (raceControlIsRed(blob)) red = true;
   }
   if (standing) return Math.min(raw, STANDING_START_PLAYBACK_S);
   if (red) return Math.min(raw, RED_FLAG_PLAYBACK_S);
@@ -896,7 +907,11 @@ export function resolveSessionFlag(field: RaceField, lap: number, elapsedS: numb
       }
       continue;
     }
-    if (blob.includes("RED") && !blob.includes("CLEAR")) {
+    if (raceControlIsChequered(blob)) {
+      flag = "FINISHED";
+      continue;
+    }
+    if (raceControlIsRed(blob)) {
       flag = "RED";
       continue;
     }
@@ -910,10 +925,6 @@ export function resolveSessionFlag(field: RaceField, lap: number, elapsedS: numb
     }
     if (blob.includes("SAFETY CAR") && !blob.includes("VIRTUAL") && !blob.includes("LIGHTS")) {
       if (flag !== "RED" && flag !== "STANDING_START") flag = "SC";
-      continue;
-    }
-    if (blob.includes("CHEQUERED") || blob.includes("CHECKERED")) {
-      flag = "FINISHED";
       continue;
     }
   }
