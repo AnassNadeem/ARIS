@@ -2004,14 +2004,27 @@ def _ff1_message_dt(rec: Any, sess: Any) -> datetime | None:
     dt = _parse_maybe_dt(getattr(rec, "Utc", None))
     if dt is not None:
         return dt
-    t0 = _parse_maybe_dt(getattr(sess, "t0_date", None))
     t = getattr(rec, "Time", None)
+    # race_control_messages often store absolute datetimes in Time.
+    abs_dt = _parse_maybe_dt(t)
+    if abs_dt is not None:
+        return abs_dt
+    t0 = None
+    try:
+        t0 = _parse_maybe_dt(object.__getattribute__(sess, "_t0_date"))
+    except Exception:
+        t0 = None
+    if t0 is None:
+        try:
+            t0 = _parse_maybe_dt(getattr(sess, "t0_date", None))
+        except Exception:
+            t0 = None
     if t0 is not None and t is not None and hasattr(t, "total_seconds"):
         try:
             return t0 + timedelta(seconds=float(t.total_seconds()))
         except (TypeError, ValueError):
             return t0
-    return _parse_maybe_dt(t)
+    return None
 
 
 def _ff1_race_control_rows(sess: Any) -> list[dict[str, Any]]:
@@ -2023,7 +2036,10 @@ def _ff1_race_control_rows(sess: Any) -> list[dict[str, Any]]:
         return []
     rows: list[dict[str, Any]] = []
     for rec in raw.itertuples(index=False):
-        dt = _ff1_message_dt(rec, sess)
+        try:
+            dt = _ff1_message_dt(rec, sess)
+        except Exception:
+            dt = None
         flag = getattr(rec, "Flag", None)
         category = getattr(rec, "Category", None)
         try:
