@@ -35,7 +35,9 @@ def test_outline_uses_circuit_map_quick(monkeypatch):
 
 def test_outline_prefers_session_gps_over_prior_year_map(monkeypatch):
     mod = _load()
-    cmap = SimpleNamespace(available=True, x=[20.0, 120.0, 220.0, 20.0], y=[20.0, 80.0, 20.0, 20.0])
+    cmap = SimpleNamespace(
+        available=True, x=[20.0, 120.0, 220.0, 20.0], y=[20.0, 80.0, 20.0, 20.0]
+    )
     gps = {"x": [1000.0, 2000.0, 1500.0, 1000.0], "y": [500.0, 800.0, 100.0, 500.0]}
     monkeypatch.setattr("backend.sessions.circuit_map_quick", lambda *_a, **_k: cmap)
     monkeypatch.setattr(mod, "_one_lap_gps", lambda *_a, **_k: gps)
@@ -51,7 +53,11 @@ def test_outline_falls_back_when_circuit_map_quick_fails(monkeypatch):
         raise RuntimeError("no map")
 
     monkeypatch.setattr("backend.sessions.circuit_map_quick", boom)
-    monkeypatch.setattr(mod, "_one_lap_gps", lambda *_a, **_k: {"x": [1.0, 2.0, 1.0], "y": [0.0, 1.0, 0.0]})
+    monkeypatch.setattr(
+        mod,
+        "_one_lap_gps",
+        lambda *_a, **_k: {"x": [1.0, 2.0, 1.0], "y": [0.0, 1.0, 0.0]},
+    )
     out = mod._outline(SimpleNamespace(), 2025, 15)
     assert out == {"x": [1.0, 2.0, 1.0], "y": [0.0, 1.0, 0.0]}
 
@@ -247,15 +253,16 @@ def test_weather_uses_nearest_sample_preferring_not_after_on_tie():
 
 def test_chequered_flag_is_not_red_track_status():
     mod = _load()
-    assert mod._track_status_code_from_rc({"flag": "CHEQUERED", "message": "CHEQUERED FLAG"}) == "1"
-    assert mod._track_status_code_from_rc({"flag": None, "message": "CHEQUERED FLAG"}) == "1"
-    assert mod._track_status_code_from_rc({"flag": "RED", "message": "RED FLAG - RACE SUSPENDED"}) == "5"
-    assert mod._track_status_code_from_rc({"flag": None, "message": "RED FLAG"}) == "5"
-    assert mod._track_status_code_from_rc({"flag": None, "message": "SAFETY CAR LIGHTS ON"}) is None
-    assert mod._track_status_code_from_rc({"flag": None, "message": "SAFETY CAR DEPLOYED"}) == "4"
-    assert mod._track_status_code_from_rc({"flag": None, "message": "VSC DEPLOYED"}) == "6"
-    assert mod._track_status_code_from_rc({"flag": None, "message": "VSC ENDING"}) == "1"
-    assert mod._track_status_code_from_rc({"flag": None, "message": "STANDING START"}) == "1"
+    code = mod._track_status_code_from_rc
+    assert code({"flag": "CHEQUERED", "message": "CHEQUERED FLAG"}) == "1"
+    assert code({"flag": None, "message": "CHEQUERED FLAG"}) == "1"
+    assert code({"flag": "RED", "message": "RED FLAG - RACE SUSPENDED"}) == "5"
+    assert code({"flag": None, "message": "RED FLAG"}) == "5"
+    assert code({"flag": None, "message": "SAFETY CAR LIGHTS ON"}) is None
+    assert code({"flag": None, "message": "SAFETY CAR DEPLOYED"}) == "4"
+    assert code({"flag": None, "message": "VSC DEPLOYED"}) == "6"
+    assert code({"flag": None, "message": "VSC ENDING"}) == "1"
+    assert code({"flag": None, "message": "STANDING START"}) == "1"
 
 
 def test_apply_rc_track_status_follows_monza_2026_sequence():

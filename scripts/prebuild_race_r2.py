@@ -159,7 +159,13 @@ def _load_session(year: int, round_number: int, *, force_refresh: bool = False):
             try:
                 laps = getattr(sess, attr)
             except Exception as extra:
-                _log.warning("FastF1 %s access failed for %s R%s: %s", attr, year, round_number, extra)
+                _log.warning(
+                    "FastF1 %s access failed for %s R%s: %s",
+                    attr,
+                    year,
+                    round_number,
+                    extra,
+                )
                 continue
             if laps is not None and not getattr(laps, "empty", True):
                 return True
